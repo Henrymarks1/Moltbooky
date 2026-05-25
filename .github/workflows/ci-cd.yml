@@ -90,4 +90,4 @@ jobs:
         run: pnpm exec wrangler deploy --config apps/resolver/wrangler.toml
 
       - name: Deploy web to Cloudflare Pages
-        run: pnpm exec wrangler pages deploy apps/web/dist --project-name=moltbooky
+        run: pnpm exec wrangler pages deploy dist --project-name=moltbooky --branch production --cwd apps/web
