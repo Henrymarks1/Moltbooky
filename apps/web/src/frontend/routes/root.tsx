@@ -164,12 +164,16 @@ function RootLayout() {
             <Link to="/" activeProps={{ className: "active" }}>
               <Activity size={18} /> Markets
             </Link>
-            <Link to="/my-bets" activeProps={{ className: "active" }}>
-              <ListChecks size={18} /> My bets
-            </Link>
-            <Link to="/credits" activeProps={{ className: "active" }}>
-              <Coins size={18} /> Credits
-            </Link>
+            {user && (
+              <>
+                <Link to="/my-bets" activeProps={{ className: "active" }}>
+                  <ListChecks size={18} /> My bets
+                </Link>
+                <Link to="/credits" activeProps={{ className: "active" }}>
+                  <Coins size={18} /> Credits
+                </Link>
+              </>
+            )}
             <Link to="/how-it-works" activeProps={{ className: "active" }}>
               <Info size={18} /> How it works
             </Link>
