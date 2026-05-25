@@ -14,7 +14,7 @@ Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and
 - Private beta max stake is $100.
 - Platform fee is 2% of profit only.
 - AI resolution is provisional and may be disputed.
-- Payment and deposit flows may be disabled until legal, compliance, and payment approval are complete.
+- Deposits use Stripe Checkout when payment launch is approved and Stripe secrets are configured.
 
 ## Agent Operating Policy
 
@@ -73,6 +73,6 @@ Human browser sessions use Better Auth at `/api/auth/*`.
 ## Response Handling
 
 - If the API returns an auth error, ask the user to sign in or provide a valid scoped API key.
-- If payment endpoints are disabled, do not retry as if it is a technical outage.
+- If payment endpoints report missing Stripe configuration, ask the user to configure Stripe before retrying.
 - If a challenge is closed, cancelled, voided, disputed, or resolved, do not attempt to match it.
 - If a request fails validation, show the user the exact correction needed.

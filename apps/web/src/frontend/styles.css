@@ -163,6 +163,10 @@
     @apply ml-auto flex items-center gap-2;
   }
 
+  .auth-actions-pending {
+    @apply min-w-[178px] justify-end;
+  }
+
   .profile-actions {
     @apply relative ml-auto flex min-w-0 items-center gap-2;
   }
@@ -189,7 +193,7 @@
   }
 
   .page {
-    @apply mx-auto grid max-w-6xl gap-6;
+    @apply mx-auto grid max-w-7xl gap-6;
   }
 
   .market-page {
@@ -213,7 +217,7 @@
   }
 
   .how-page {
-    @apply max-w-6xl gap-5;
+    @apply gap-5;
   }
 
   .how-hero {
@@ -396,6 +400,10 @@
     @apply grid grid-cols-[22px_minmax(0,1fr)_42px] items-start gap-3 border-b pb-3 text-sm text-foreground no-underline last:border-b-0 last:pb-0;
   }
 
+  .trend-skeleton-row {
+    @apply grid grid-cols-[22px_minmax(0,1fr)_42px] items-center gap-3 border-b pb-3 last:border-b-0 last:pb-0;
+  }
+
   .trend-list span {
     @apply text-muted-foreground;
   }
@@ -429,7 +437,7 @@
   }
 
   .narrow {
-    @apply max-w-[820px];
+    @apply max-w-7xl;
   }
 
   .loading-page {
@@ -540,6 +548,10 @@
     @apply flex flex-wrap items-center gap-2 text-xs;
   }
 
+  .skeleton-stack {
+    @apply grid w-full gap-3;
+  }
+
   .market-quotes {
     @apply grid grid-cols-2 gap-2;
   }
@@ -632,6 +644,10 @@
     @apply grid-cols-3 max-[720px]:grid-cols-1;
   }
 
+  .my-bets-stats {
+    @apply grid-cols-4 max-[920px]:grid-cols-2 max-[560px]:grid-cols-1;
+  }
+
   .fine-print {
     @apply mt-4 inline-flex items-center gap-2;
   }
@@ -649,7 +665,7 @@
   }
 
   .create-page {
-    @apply max-w-[1120px];
+    @apply max-w-7xl;
   }
 
   .segmented {
@@ -737,12 +753,32 @@
     @apply grid grid-cols-3 content-center gap-2 max-[560px]:grid-cols-1;
   }
 
-  .deposit-disabled {
-    @apply flex items-start gap-3 rounded-md border border-dashed border-border bg-muted p-4;
+  .deposit-form {
+    @apply grid gap-4;
   }
 
-  .deposit-disabled .fine-print {
-    @apply mt-1 flex;
+  .deposit-form label {
+    @apply mb-2 block text-sm font-semibold;
+  }
+
+  .deposit-input {
+    @apply relative;
+  }
+
+  .deposit-input span {
+    @apply pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground;
+  }
+
+  .deposit-input input {
+    @apply pl-7;
+  }
+
+  .deposit-presets {
+    @apply grid grid-cols-4 gap-2 max-[560px]:grid-cols-2;
+  }
+
+  .deposit-presets button {
+    @apply px-2;
   }
 
   .divider {

@@ -3,8 +3,9 @@ BETTER_AUTH_URL="http://localhost:5173"
 BETTER_AUTH_SECRET="local-dev-secret-change-me"
 PAYMENT_LAUNCH_APPROVED="false"
 
-# Required only when PAYMENT_LAUNCH_APPROVED=true.
+# Required when PAYMENT_LAUNCH_APPROVED=true.
 STRIPE_SECRET_KEY=""
+# `pnpm run dev` captures this from `stripe listen` automatically for local dev.
 STRIPE_WEBHOOK_SECRET=""
 STRIPE_SUCCESS_URL="http://localhost:5173/wallet"
 STRIPE_CANCEL_URL="http://localhost:5173/wallet"

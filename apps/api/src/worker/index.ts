@@ -172,7 +172,7 @@ Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and
 - Private beta max stake is $100.
 - Platform fee is 2% of profit only.
 - AI resolution is provisional and may be disputed.
-- Payment and deposit flows may be disabled until legal, compliance, and payment approval are complete.
+- Deposits use Stripe Checkout when payment launch is approved and Stripe secrets are configured.
 
 ## Agent Operating Policy
 
@@ -202,6 +202,7 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
 - \`POST /api/challenges\` - create a challenge.
 - \`POST /api/challenges/:id/matches\` - match the opposite side.
 - \`POST /api/challenges/:id/cancel-unmatched\` - release unmatched creator stake.
+- \`DELETE /api/challenges/:id\` - delete your own challenge if it has no matches.
 - \`GET /api/wallet\` - read wallet balances.
 - \`GET /api/ledger\` - read ledger entries.
 - \`POST /api/api-keys\` - create an API key from a human session.
@@ -231,7 +232,7 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
 ## Response Handling
 
 - If the API returns an auth error, ask the user to sign in or provide a valid scoped API key.
-- If payment endpoints are disabled, do not retry as if it is a technical outage.
+- If payment endpoints report missing Stripe configuration, ask the user to configure Stripe before retrying.
 - If a challenge is closed, cancelled, voided, disputed, or resolved, do not attempt to match it.
 - If a request fails validation, show the user the exact correction needed.
 `;
@@ -530,6 +531,74 @@ app.openapi(cancelUnmatchedRoute, async (c) => {
   });
 
   return c.json({ challenge: await getChallenge(c.env, challenge.id), unlockedCents: unmatched });
+});
+
+const deleteChallengeRoute = createRoute({
+  method: "delete",
+  path: "/api/challenges/{id}",
+  request: {
+    params: idParamSchema
+  },
+  responses: {
+    200: {
+      description: "Deleted unmatched creator challenge",
+      content: {
+        "application/json": {
+          schema: z.object({
+            deleted: z.boolean(),
+            unlockedCents: centsSchema
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(deleteChallengeRoute, async (c) => {
+  const actor = await actorFromRequest(c.env, c.req.raw);
+  requireScope(actor, "challenges:create");
+  const { id } = c.req.valid("param");
+  const db = createDb(c.env.DATABASE_URL);
+  let unlockedCents = 0;
+
+  await db.transaction(async (tx) => {
+    const current = await tx.select().from(challenges).where(eq(challenges.id, id)).for("update").limit(1);
+    const challenge = current[0];
+
+    if (!challenge) {
+      throw new Error("Challenge not found.");
+    }
+    if (challenge.creatorId !== actor.userId) {
+      throw new Error("Only the creator can delete this challenge.");
+    }
+    if (challenge.matchedCents > 0) {
+      throw new Error("Only challenges with no matches can be deleted.");
+    }
+
+    const existingMatches = await tx.select({ id: challengeMatches.id }).from(challengeMatches).where(eq(challengeMatches.challengeId, id)).limit(1);
+    if (existingMatches.length > 0) {
+      throw new Error("Only challenges with no matches can be deleted.");
+    }
+
+    unlockedCents = challenge.stakeCents;
+    if (unlockedCents > 0) {
+      await applyWalletDelta(tx, actor.userId, unlockedCents, -unlockedCents);
+      await tx.insert(ledgerEntries).values({
+        id: newId("led"),
+        userId: actor.userId,
+        type: "unlock",
+        amountCents: unlockedCents,
+        challengeId: challenge.id,
+        idempotencyKey: `challenge-delete:${challenge.id}`,
+        description: "Release deleted challenge stake"
+      });
+    }
+
+    await tx.delete(challenges).where(eq(challenges.id, id));
+  });
+
+  return c.json({ deleted: true, unlockedCents });
 });
 
 const getWalletRoute = createRoute({

@@ -35,8 +35,14 @@ export const api = {
     }),
   cancelUnmatched: (id: string) =>
     request<{ challenge: Challenge; unlockedCents: number }>(`/api/challenges/${id}/cancel-unmatched`, { method: "POST" }),
+  deleteChallenge: (id: string) => request<{ deleted: boolean; unlockedCents: number }>(`/api/challenges/${id}`, { method: "DELETE" }),
   wallet: () => request<{ wallet: WalletAccount }>("/api/wallet"),
   ledger: () => request<{ ledger: Array<{ id: string; type: string; amountCents: number; description: string; createdAt: string }> }>("/api/ledger"),
+  createDeposit: (amountCents: number) =>
+    request<{ checkoutUrl: string; sessionId: string }>("/api/payments/deposits", {
+      method: "POST",
+      body: JSON.stringify({ amountCents })
+    }),
   createApiKey: (name: string) => request<{ apiKey: { id: string; secret: string } }>("/api/api-keys", { method: "POST", body: JSON.stringify({ name }) }),
   finalize: (id: string, outcome: "YES" | "NO") =>
     request<{ challenge: Challenge }>(`/api/admin/challenges/${id}/finalize`, { method: "POST", body: JSON.stringify({ outcome }) }),

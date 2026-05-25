@@ -3,10 +3,13 @@ main = "src/worker/index.ts"
 compatibility_date = "2024-12-05"
 compatibility_flags = ["nodejs_compat"]
 
+[vars]
+PAYMENT_LAUNCH_APPROVED = "false"
+
 [[durable_objects.bindings]]
 name = "CHALLENGE_OBJECT"
 class_name = "ChallengeObject"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["ChallengeObject"]
+new_sqlite_classes = ["ChallengeObject"]

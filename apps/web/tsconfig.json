@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["vite/client"],
+    "types": ["vite/client", "@cloudflare/workers-types"],
     "baseUrl": "../..",
     "paths": {
       "@/*": ["apps/web/src/*"],
@@ -9,5 +9,5 @@
       "@moltbooky/db/*": ["packages/db/src/*"]
     }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "functions", "vite.config.ts"]
 }

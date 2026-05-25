@@ -1,8 +1,9 @@
 import { Link, Outlet, createRootRoute } from "@tanstack/react-router";
-import { Activity, ChevronDown, Info, LogOut, Search, Settings, UserCircle } from "lucide-react";
+import { Activity, ChevronDown, Info, ListChecks, LogOut, Search, Settings, UserCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { Skeleton } from "../components/ui/skeleton";
 
 export const Route = createRootRoute({
   component: RootLayout
@@ -108,11 +109,19 @@ function RootLayout() {
             <Link to="/" activeProps={{ className: "active" }}>
               <Activity size={18} /> Markets
             </Link>
+            <Link to="/my-bets" activeProps={{ className: "active" }}>
+              <ListChecks size={18} /> My bets
+            </Link>
             <Link to="/how-it-works" activeProps={{ className: "active" }}>
               <Info size={18} /> How it works
             </Link>
           </nav>
-          {user ? (
+          {!authLoaded ? (
+            <div className="auth-actions auth-actions-pending" aria-label="Checking session">
+              <Skeleton className="h-9 w-20" />
+              <Skeleton className="h-9 w-24" />
+            </div>
+          ) : user ? (
             <div className="profile-actions">
               <Button
                 type="button"
@@ -129,6 +138,9 @@ function RootLayout() {
               </Button>
               {profileOpen && (
                 <div className="profile-menu" role="menu">
+                  <Link to="/my-bets" role="menuitem" onClick={() => setProfileOpen(false)}>
+                    <ListChecks size={16} /> My bets
+                  </Link>
                   <Link to="/settings/api-keys" role="menuitem" onClick={() => setProfileOpen(false)}>
                     <Settings size={16} /> Settings
                   </Link>
@@ -139,7 +151,7 @@ function RootLayout() {
               )}
             </div>
           ) : (
-            <div className="auth-actions" data-loaded={authLoaded}>
+            <div className="auth-actions">
               <Button asChild variant="ghost">
                 <Link to="/login">Log in</Link>
               </Button>

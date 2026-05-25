@@ -1,8 +1,11 @@
 import { createRoute } from "@tanstack/react-router";
+import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
-import { ArrowDownToLine, LockKeyhole, WalletCards } from "lucide-react";
+import { ArrowDownToLine, CreditCard, WalletCards } from "lucide-react";
 import type { WalletAccount } from "@moltbooky/core/domain/types";
+import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Input } from "../components/ui/input";
 import { api } from "../lib/api";
 import { money } from "../lib/format";
 import { rootRoute } from "./root";
@@ -16,6 +19,8 @@ export const Route = createRoute({
 function WalletPage() {
   const [wallet, setWallet] = useState<WalletAccount | null>(null);
   const [ledger, setLedger] = useState<Array<{ id: string; type: string; amountCents: number; description: string; createdAt: string }>>([]);
+  const [depositDollars, setDepositDollars] = useState("25");
+  const [isDepositing, setIsDepositing] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -26,6 +31,27 @@ function WalletPage() {
       })
       .catch((err: Error) => setError(err.message));
   }, []);
+
+  async function createDeposit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+
+    const amount = Number(depositDollars);
+    const amountCents = Math.round(amount * 100);
+    if (!Number.isFinite(amount) || amountCents < 500 || amountCents > 10_000) {
+      setError("Deposit amount must be between $5 and $100.");
+      return;
+    }
+
+    setIsDepositing(true);
+    try {
+      const deposit = await api.createDeposit(amountCents);
+      window.location.href = deposit.checkoutUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start Stripe Checkout.");
+      setIsDepositing(false);
+    }
+  }
 
   return (
     <div className="page">
@@ -58,13 +84,36 @@ function WalletPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="deposit-disabled">
-            <LockKeyhole size={20} />
+          <form className="deposit-form" onSubmit={createDeposit}>
             <div>
-              <strong>Deposits disabled during beta</strong>
-              <p className="fine-print">Live Stripe deposits are intentionally disabled until legal and payment approval are complete.</p>
+              <label htmlFor="deposit-amount">Amount</label>
+              <div className="deposit-input">
+                <span>$</span>
+                <Input
+                  id="deposit-amount"
+                  inputMode="decimal"
+                  min="5"
+                  max="100"
+                  step="1"
+                  type="number"
+                  value={depositDollars}
+                  onChange={(event) => setDepositDollars(event.target.value)}
+                />
+              </div>
+              <p className="field-help">Stripe Checkout accepts deposits from $5 to $100.</p>
             </div>
-          </div>
+            <div className="deposit-presets">
+              {[10, 25, 50, 100].map((amount) => (
+                <Button key={amount} type="button" variant="outline" onClick={() => setDepositDollars(String(amount))}>
+                  {money(amount * 100)}
+                </Button>
+              ))}
+            </div>
+            <Button type="submit" disabled={isDepositing}>
+              <CreditCard size={18} />
+              {isDepositing ? "Opening Checkout" : "Deposit with Stripe"}
+            </Button>
+          </form>
         </CardContent>
       </Card>
       <section className="panel">

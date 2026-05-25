@@ -1,0 +1,24 @@
+interface Env {
+  API_ORIGIN?: string;
+  PAYMENTS_ORIGIN?: string;
+}
+
+const defaultApiOrigin = "http://localhost:8787";
+const defaultPaymentsOrigin = "http://localhost:8789";
+
+export const onRequest: PagesFunction<Env> = async ({ request, params, env }) => {
+  const pathParam = params.path;
+  const path = Array.isArray(pathParam) ? pathParam.join("/") : pathParam ?? "";
+  const url = new URL(request.url);
+  const isLocalRequest = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  const configuredOrigin = path.startsWith("payments/") ? env.PAYMENTS_ORIGIN : env.API_ORIGIN;
+  const targetOrigin = configuredOrigin ?? (isLocalRequest ? (path.startsWith("payments/") ? defaultPaymentsOrigin : defaultApiOrigin) : undefined);
+
+  if (!targetOrigin) {
+    return new Response("API origin is not configured.", { status: 500 });
+  }
+
+  const targetUrl = new URL(`/api/${path}${url.search}`, targetOrigin);
+
+  return fetch(targetUrl, request);
+};

@@ -1,12 +1,13 @@
-import { Link, createRoute } from "@tanstack/react-router";
+import { Link, createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Copy, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { Copy, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
 import type { Challenge, ChallengeMatch } from "@moltbooky/core/domain/types";
 import { StatusPill } from "../components/StatusPill";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Skeleton } from "../components/ui/skeleton";
 import { api } from "../lib/api";
 import { matchProgress, money, shortDate } from "../lib/format";
 import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
@@ -19,11 +20,13 @@ export const Route = createRoute({
 
 function ChallengeDetail() {
   const { id } = Route.useParams();
+  const navigate = useNavigate();
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [matches, setMatches] = useState<ChallengeMatch[]>([]);
   const [available, setAvailable] = useState(0);
   const [message, setMessage] = useState("");
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function refresh() {
     const data = await api.getChallenge(id);
@@ -58,7 +61,25 @@ function ChallengeDetail() {
   }, []);
 
   if (!challenge) {
-    return <div className="page loading-page">Loading market...</div>;
+    return <ChallengeDetailSkeleton />;
+  }
+
+  const canDelete = user?.id === challenge.creatorId && challenge.matchedCents === 0 && matches.length === 0;
+
+  async function deleteChallenge() {
+    if (!challenge || !window.confirm("Delete this unmatched bet and return the locked stake to your wallet?")) {
+      return;
+    }
+    setDeleting(true);
+    setMessage("");
+    try {
+      await api.deleteChallenge(challenge.id);
+      await navigate({ to: "/my-bets" });
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Bet could not be deleted.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -129,6 +150,11 @@ function ChallengeDetail() {
               <Button asChild variant="outline">
                 <Link to="/challenge/new">Create market</Link>
               </Button>
+              {canDelete && (
+                <Button type="button" variant="destructive" onClick={deleteChallenge} disabled={deleting}>
+                  <Trash2 size={18} /> {deleting ? "Deleting..." : "Delete bet"}
+                </Button>
+              )}
             </>
           ) : (
             <>
@@ -168,6 +194,84 @@ function ChallengeDetail() {
             </div>
           ))}
           {matches.length === 0 && <p className="fine-print">No one has taken the other side yet.</p>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ChallengeDetailSkeleton() {
+  return (
+    <div className="page">
+      <header className="page-header">
+        <div className="skeleton-stack">
+          <div className="row-meta">
+            <Skeleton className="h-6 w-20 rounded-full" />
+            <Skeleton className="h-6 w-28 rounded-full" />
+            <Skeleton className="h-6 w-20 rounded-full" />
+          </div>
+          <Skeleton className="h-9 w-full max-w-[760px]" />
+          <Skeleton className="h-5 w-full max-w-[640px]" />
+        </div>
+        <Skeleton className="h-10 w-10 shrink-0" />
+      </header>
+
+      <section className="detail-grid">
+        <Card className="market-panel">
+          <CardHeader>
+            <Skeleton className="h-6 w-32" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="mb-5 h-3 w-full rounded-full" />
+            <div className="stats-grid">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index}>
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="mt-3 h-8 w-16" />
+                </div>
+              ))}
+            </div>
+            <Skeleton className="mt-4 h-5 w-full max-w-[560px]" />
+          </CardContent>
+        </Card>
+
+        <Card className="trade-ticket">
+          <CardHeader>
+            <Skeleton className="h-6 w-28" />
+          </CardHeader>
+          <CardContent>
+            <div className="side-card">
+              <Skeleton className="h-4 w-10" />
+              <Skeleton className="h-9 w-16" />
+            </div>
+            <Skeleton className="mt-4 h-5 w-full" />
+            <Skeleton className="mt-4 h-10 w-full" />
+            <Skeleton className="mt-2 h-10 w-full" />
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="panel share-panel">
+        <div className="section-title">
+          <Skeleton className="h-6 w-36" />
+          <Skeleton className="h-10 w-10" />
+        </div>
+        <div className="share-card">
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-5 w-full max-w-[640px]" />
+          <Skeleton className="h-4 w-40" />
+        </div>
+      </section>
+
+      <section className="panel">
+        <Skeleton className="h-6 w-24" />
+        <div className="ledger-list mt-4">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index}>
+              <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+          ))}
         </div>
       </section>
     </div>

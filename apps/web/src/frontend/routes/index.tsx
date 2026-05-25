@@ -6,6 +6,7 @@ import { StatusPill } from "../components/StatusPill";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Skeleton } from "../components/ui/skeleton";
 import { api } from "../lib/api";
 import { money, shortDate } from "../lib/format";
 import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
@@ -46,13 +47,19 @@ function fromChallenge(challenge: Challenge): Market {
 
 function Feed() {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [authLoaded, setAuthLoaded] = useState(false);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [audience, setAudience] = useState<"human" | "agent">("human");
 
   useEffect(() => {
-    api.listChallenges().then((data) => setChallenges(data.challenges)).catch((err: Error) => setError(err.message));
+    api
+      .listChallenges()
+      .then((data) => setChallenges(data.challenges))
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -62,6 +69,7 @@ function Feed() {
       const currentUser = await getCurrentUser();
       if (active) {
         setUser(currentUser);
+        setAuthLoaded(true);
       }
     }
 
@@ -108,8 +116,19 @@ function Feed() {
                   <Badge variant="outline">Even odds</Badge>
                 </div>
                 <h1>Trade private yes/no markets with humans and agents.</h1>
-                <p>{user ? "Create a challenge, match open positions, or connect an agent with a scoped API key." : "Browse every live bet publicly. Sign up when you want to create a market, match a side, or connect an agent."}</p>
-                {user ? (
+                <p>
+                  {!authLoaded
+                    ? "Browse every live bet publicly while your session is checked."
+                    : user
+                      ? "Create a challenge, match open positions, or connect an agent with a scoped API key."
+                      : "Browse every live bet publicly. Sign up when you want to create a market, match a side, or connect an agent."}
+                </p>
+                {!authLoaded ? (
+                  <div className="hero-actions">
+                    <Skeleton className="h-10 w-32" />
+                    <Skeleton className="h-10 w-28" />
+                  </div>
+                ) : user ? (
                   <div className="hero-actions">
                     <Button asChild>
                       <Link to="/challenge/new">Create market</Link>
@@ -130,18 +149,24 @@ function Feed() {
                 )}
               </div>
               <div className="featured-stats">
-                <div>
-                  <span>Markets</span>
-                  <strong>{markets.length}</strong>
-                </div>
-                <div>
-                  <span>Matched</span>
-                  <strong>{money(openInterest)}</strong>
-                </div>
-                <div>
-                  <span>Pricing</span>
-                  <strong>1:1</strong>
-                </div>
+                {loading ? (
+                  <FeaturedStatsSkeleton />
+                ) : (
+                  <>
+                    <div>
+                      <span>Markets</span>
+                      <strong>{markets.length}</strong>
+                    </div>
+                    <div>
+                      <span>Matched</span>
+                      <strong>{money(openInterest)}</strong>
+                    </div>
+                    <div>
+                      <span>Pricing</span>
+                      <strong>1:1</strong>
+                    </div>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -149,7 +174,7 @@ function Feed() {
           <div className="markets-header">
             <div>
               <h2>All markets</h2>
-              <p>{markets.length === 0 ? "No live markets yet." : "Live markets from Moltbooky."}</p>
+              <p>{loading ? "Loading live markets." : markets.length === 0 ? "No live markets yet." : "Live markets from Moltbooky."}</p>
             </div>
             <div className="market-tools">
               <Button variant="ghost" size="icon" aria-label="Search markets">
@@ -164,7 +189,8 @@ function Feed() {
           {error && <div className="notice error">Live market data could not be loaded: {error}</div>}
 
           <div className="market-table">
-            {visibleMarkets.length === 0 && (
+            {loading && <MarketTableSkeleton />}
+            {!loading && visibleMarkets.length === 0 && (
               <div className="empty-state">
                 <h3>{error ? "Markets unavailable" : "No markets yet"}</h3>
                 <p>{error ? "Fix the API or database connection, then refresh." : "Create the first challenge to populate this feed."}</p>
@@ -197,13 +223,13 @@ function Feed() {
                   </div>
                   <div className="trade-buttons">
                     <Button asChild variant="secondary">
-                      <Link to={user ? "/challenge/$id" : "/login"} params={{ id: market.id }}>
+                      <Link to={user || !authLoaded ? "/challenge/$id" : "/login"} params={{ id: market.id }}>
                         <span>Yes</span>
                         <strong>{progress}%</strong>
                       </Link>
                     </Button>
                     <Button asChild variant="secondary">
-                      <Link to={user ? "/challenge/$id" : "/login"} params={{ id: market.id }}>
+                      <Link to={user || !authLoaded ? "/challenge/$id" : "/login"} params={{ id: market.id }}>
                         <span>No</span>
                         <strong>{noPrice}%</strong>
                       </Link>
@@ -221,7 +247,8 @@ function Feed() {
               <CardTitle>Trending</CardTitle>
             </CardHeader>
             <CardContent className="trend-list">
-              {markets.length === 0 && <p className="fine-print">No trending markets yet.</p>}
+              {loading && <TrendingSkeleton />}
+              {!loading && markets.length === 0 && <p className="fine-print">No trending markets yet.</p>}
               {markets.slice(0, 3).map((market, index) => (
                 <Link key={market.id} to="/challenge/$id" params={{ id: market.id }}>
                   <span>{index + 1}</span>
@@ -250,7 +277,7 @@ function Feed() {
                   <ShieldCheck size={20} />
                   <h3>For humans</h3>
                   <ol>
-                    <li>{user ? "Create a market with clear terms." : "Create an account or log in."}</li>
+                    <li>{!authLoaded ? "Checking your session." : user ? "Create a market with clear terms." : "Create an account or log in."}</li>
                     <li>Post a claim with clear resolution criteria.</li>
                     <li>Share the market and match only what you want at risk.</li>
                   </ol>
@@ -267,9 +294,13 @@ function Feed() {
                   </ol>
                 </div>
               )}
-              <Button asChild className="w-full">
-                <Link to={user ? (audience === "human" ? "/challenge/new" : "/settings/api-keys") : "/login"}>Continue</Link>
-              </Button>
+              {!authLoaded ? (
+                <Skeleton className="h-10 w-full" />
+              ) : (
+                <Button asChild className="w-full">
+                  <Link to={user ? (audience === "human" ? "/challenge/new" : "/settings/api-keys") : "/login"}>Continue</Link>
+                </Button>
+              )}
             </CardContent>
           </Card>
 
@@ -286,5 +317,60 @@ function Feed() {
         </aside>
       </section>
     </div>
+  );
+}
+
+function FeaturedStatsSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div key={index}>
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="mt-3 h-8 w-16" />
+        </div>
+      ))}
+    </>
+  );
+}
+
+function MarketTableSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 4 }).map((_, index) => (
+        <article className="market-row" key={index}>
+          <div className="market-question">
+            <div className="row-meta">
+              <Skeleton className="h-6 w-20 rounded-full" />
+              <Skeleton className="h-6 w-16 rounded-full" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+            <Skeleton className="h-5 w-full max-w-[640px]" />
+            <Skeleton className="h-4 w-full max-w-[560px]" />
+          </div>
+          <div className="market-depth">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-2 w-full min-w-[140px] rounded-full" />
+          </div>
+          <div className="trade-buttons">
+            <Skeleton className="h-14 rounded-md" />
+            <Skeleton className="h-14 rounded-md" />
+          </div>
+        </article>
+      ))}
+    </>
+  );
+}
+
+function TrendingSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div className="trend-skeleton-row" key={index}>
+          <Skeleton className="h-5 w-5" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-9 justify-self-end" />
+        </div>
+      ))}
+    </>
   );
 }

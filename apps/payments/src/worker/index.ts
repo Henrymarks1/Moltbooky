@@ -17,12 +17,28 @@ const authSchema = {
   verification: authVerification
 };
 
+function isLocalAuthUrl(url: string | undefined): boolean {
+  return !url || url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
+}
+
+function resolveAuthSecret(env: Env): string {
+  if (env.BETTER_AUTH_SECRET) {
+    return env.BETTER_AUTH_SECRET;
+  }
+
+  if (isLocalAuthUrl(env.BETTER_AUTH_URL)) {
+    return "local-dev-secret-change-before-deploy";
+  }
+
+  throw new Error("BETTER_AUTH_SECRET is required outside local development.");
+}
+
 function createAuth(env: Env) {
   return betterAuth({
     appName: "Moltbooky",
     baseURL: env.BETTER_AUTH_URL ?? "http://localhost:5173",
     basePath: "/api/auth",
-    secret: env.BETTER_AUTH_SECRET ?? "local-dev-secret-change-before-deploy",
+    secret: resolveAuthSecret(env),
     database: drizzleAdapter(createDb(env.DATABASE_URL), {
       provider: "pg",
       schema: authSchema
