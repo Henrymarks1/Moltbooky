@@ -216,8 +216,6 @@ const listChallengesRoute = createRoute({
 });
 
 app.openapi(listChallengesRoute, async (c) => {
-  const actor = await actorFromRequest(c.env, c.req.raw);
-  requireScope(actor, "challenges:read");
   return c.json({ challenges: await listChallenges(c.env) });
 });
 
@@ -313,8 +311,6 @@ const getChallengeRoute = createRoute({
 });
 
 app.openapi(getChallengeRoute, async (c) => {
-  const actor = await actorFromRequest(c.env, c.req.raw);
-  requireScope(actor, "challenges:read");
   const { id } = c.req.valid("param");
   const challenge = await getChallenge(c.env, id);
   if (!challenge) {

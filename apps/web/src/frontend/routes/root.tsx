@@ -20,6 +20,8 @@ type SessionResponse = {
   user?: AuthUser;
 };
 
+export const authChangeEvent = "moltbooky-auth-change";
+
 async function getCurrentUser(): Promise<AuthUser | null> {
   const response = await fetch("/api/auth/get-session", {
     credentials: "include"
@@ -33,35 +35,56 @@ async function getCurrentUser(): Promise<AuthUser | null> {
 }
 
 async function signOut(): Promise<void> {
-  await fetch("/api/auth/sign-out", {
+  const response = await fetch("/api/auth/sign-out", {
     method: "POST",
-    credentials: "include"
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({})
   });
+  if (!response.ok) {
+    throw new Error("Sign out failed.");
+  }
 }
 
 function RootLayout() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     let active = true;
 
-    void getCurrentUser().then((currentUser) => {
+    async function refreshAuth() {
+      const currentUser = await getCurrentUser();
       if (!active) {
         return;
       }
       setUser(currentUser);
       setAuthLoaded(true);
-    });
+    }
+
+    void refreshAuth();
+    window.addEventListener(authChangeEvent, refreshAuth);
+    window.addEventListener("focus", refreshAuth);
 
     return () => {
       active = false;
+      window.removeEventListener(authChangeEvent, refreshAuth);
+      window.removeEventListener("focus", refreshAuth);
     };
   }, []);
 
   async function handleSignOut() {
-    await signOut();
-    setUser(null);
+    setSigningOut(true);
+    try {
+      await signOut();
+      setUser(await getCurrentUser());
+      window.dispatchEvent(new Event(authChangeEvent));
+    } catch {
+      setUser(await getCurrentUser());
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -97,7 +120,15 @@ function RootLayout() {
                 <span>{user.name || user.email}</span>
               </Link>
             </Button>
-            <Button type="button" variant="ghost" size="icon" onClick={handleSignOut} title="Sign out" aria-label="Sign out">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              title="Sign out"
+              aria-label="Sign out"
+            >
               <LogOut size={18} />
             </Button>
           </div>

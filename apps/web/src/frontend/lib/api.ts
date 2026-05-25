@@ -1,15 +1,11 @@
 import type { Challenge, ChallengeMatch, WalletAccount } from "@moltbooky/core/domain/types";
 
-const betaUserId = localStorage.getItem("moltbooky.userId") ?? "henry";
-localStorage.setItem("moltbooky.userId", betaUserId);
-
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
     credentials: "include",
     headers: {
       "content-type": "application/json",
-      "x-user-id": betaUserId,
       ...init.headers
     }
   });

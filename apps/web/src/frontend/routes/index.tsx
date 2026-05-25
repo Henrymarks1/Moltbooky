@@ -16,7 +16,7 @@ export const Route = createRoute({
   component: Feed
 });
 
-type MarketPreview = {
+type Market = {
   id: string;
   category: string;
   claim: string;
@@ -30,43 +30,7 @@ type MarketPreview = {
 
 const categories = ["All", "AI", "Markets", "Sports", "Politics", "Crypto", "Tech", "Culture", "Agents"];
 
-const previewMarkets: MarketPreview[] = [
-  {
-    id: "preview-openai-model",
-    category: "AI",
-    claim: "Will OpenAI announce a new flagship model before June 30?",
-    resolutionCriteria: "Resolves YES if OpenAI announces general availability in official product or API channels before expiry.",
-    expiresAt: "2026-06-30T23:59:00.000Z",
-    matchedCents: 18400,
-    stakeCents: 25000,
-    status: "open",
-    creatorSide: "YES"
-  },
-  {
-    id: "preview-agent-trade",
-    category: "Agents",
-    claim: "Will an AI agent be the first counterparty on Moltbooky this week?",
-    resolutionCriteria: "Resolves YES if the first matched challenge this week is submitted through an agent API key.",
-    expiresAt: "2026-05-31T23:59:00.000Z",
-    matchedCents: 7200,
-    stakeCents: 10000,
-    status: "open",
-    creatorSide: "NO"
-  },
-  {
-    id: "preview-stripe-beta",
-    category: "Markets",
-    claim: "Will beta deposits remain disabled until legal review is complete?",
-    resolutionCriteria: "Resolves YES if the app keeps deposits disabled until legal and payment approval are recorded.",
-    expiresAt: "2026-07-15T20:00:00.000Z",
-    matchedCents: 12600,
-    stakeCents: 20000,
-    status: "open",
-    creatorSide: "YES"
-  }
-];
-
-function fromChallenge(challenge: Challenge): MarketPreview {
+function fromChallenge(challenge: Challenge): Market {
   return {
     id: challenge.id,
     category: "Markets",
@@ -90,7 +54,7 @@ function Feed() {
     api.listChallenges().then((data) => setChallenges(data.challenges)).catch((err: Error) => setError(err.message));
   }, []);
 
-  const markets = challenges.length > 0 ? challenges.map(fromChallenge) : previewMarkets;
+  const markets = challenges.map(fromChallenge);
   const visibleMarkets = useMemo(
     () => markets.filter((market) => activeCategory === "All" || market.category === activeCategory),
     [activeCategory, markets]
@@ -152,7 +116,7 @@ function Feed() {
           <div className="markets-header">
             <div>
               <h2>All markets</h2>
-              <p>{challenges.length === 0 ? "Preview markets are shown until the local API returns live data." : "Live markets from Moltbooky."}</p>
+              <p>{markets.length === 0 ? "No live markets yet." : "Live markets from Moltbooky."}</p>
             </div>
             <div className="market-tools">
               <Button variant="ghost" size="icon" aria-label="Search markets">
@@ -164,15 +128,26 @@ function Feed() {
             </div>
           </div>
 
-          {error && <div className="notice">Live market data is unavailable in this local environment, so preview markets are shown.</div>}
+          {error && <div className="notice error">Live market data could not be loaded: {error}</div>}
 
           <div className="market-table">
+            {visibleMarkets.length === 0 && (
+              <div className="empty-state">
+                <h3>{error ? "Markets unavailable" : "No markets yet"}</h3>
+                <p>{error ? "Fix the API or database connection, then refresh." : "Create the first challenge to populate this feed."}</p>
+                {!error && (
+                  <Button asChild>
+                    <Link to="/challenge/new">Create challenge</Link>
+                  </Button>
+                )}
+              </div>
+            )}
             {visibleMarkets.map((market) => {
-              const progress = Math.round((market.matchedCents / market.stakeCents) * 100);
+              const progress = market.stakeCents > 0 ? Math.round((market.matchedCents / market.stakeCents) * 100) : 0;
               const noPrice = Math.max(1, 100 - progress);
               return (
                 <article className="market-row" key={market.id}>
-                  <Link className="market-question" to={market.id.startsWith("preview-") ? "/login" : "/challenge/$id"} params={{ id: market.id }}>
+                  <Link className="market-question" to="/challenge/$id" params={{ id: market.id }}>
                     <div className="row-meta">
                       <StatusPill status={market.status} />
                       <Badge variant="outline">{market.category}</Badge>
@@ -207,11 +182,12 @@ function Feed() {
               <CardTitle>Trending</CardTitle>
             </CardHeader>
             <CardContent className="trend-list">
+              {markets.length === 0 && <p className="fine-print">No trending markets yet.</p>}
               {markets.slice(0, 3).map((market, index) => (
-                <Link key={market.id} to="/login">
+                <Link key={market.id} to="/challenge/$id" params={{ id: market.id }}>
                   <span>{index + 1}</span>
                   <strong>{market.claim}</strong>
-                  <em>{Math.round((market.matchedCents / market.stakeCents) * 100)}%</em>
+                  <em>{market.stakeCents > 0 ? Math.round((market.matchedCents / market.stakeCents) * 100) : 0}%</em>
                 </Link>
               ))}
             </CardContent>

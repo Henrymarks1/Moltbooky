@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { rootRoute } from "./root";
+import { authChangeEvent, rootRoute } from "./root";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -57,6 +57,7 @@ function LoginPage() {
     const name = String(form.get("name") || email.split("@")[0]);
     try {
       await authRequest(mode === "sign-in" ? "sign-in/email" : "sign-up/email", { email, password, name });
+      window.dispatchEvent(new Event(authChangeEvent));
       await navigate({ to: "/" });
     } catch (err) {
       setError((err as Error).message);
