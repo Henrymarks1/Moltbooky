@@ -1,8 +1,8 @@
 import { Link, createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Copy, Flame, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { BrainCircuit, Clock3, Copy, ExternalLink, Flame, RefreshCw, SearchCheck, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
-import type { Challenge, ChallengeMatch } from "@moltbooky/core/domain/types";
+import type { Challenge, ChallengeMatch, ResolutionRun } from "@moltbooky/core/domain/types";
 import { StatusPill } from "../components/StatusPill";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -25,23 +25,49 @@ function ChallengeDetail() {
   const navigate = useNavigate();
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [matches, setMatches] = useState<ChallengeMatch[]>([]);
+  const [resolutionRuns, setResolutionRuns] = useState<ResolutionRun[]>([]);
   const [available, setAvailable] = useState(0);
   const [message, setMessage] = useState("");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [matchCredits, setMatchCredits] = useState("5");
   const [matching, setMatching] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
   async function refresh() {
     const data = await api.getChallenge(id);
     setChallenge(data.challenge);
     setMatches(data.matches);
+    setResolutionRuns(data.resolutionRuns);
     setAvailable(data.availableToMatchCents);
   }
 
   useEffect(() => {
     refresh().catch((err: Error) => setMessage(err.message));
   }, [id]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!challenge) {
+      return;
+    }
+
+    const expiresAt = new Date(challenge.expiresAt).getTime();
+    const isExpired = expiresAt <= now;
+    const shouldPoll = challenge.status === "resolving" || (challenge.status === "open" && isExpired);
+    if (!shouldPoll) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      refresh().catch((err: Error) => setMessage(err.message));
+    }, 8000);
+    return () => window.clearInterval(interval);
+  }, [challenge?.expiresAt, challenge?.status, id, challenge ? new Date(challenge.expiresAt).getTime() <= now : false]);
 
   useEffect(() => {
     if (!challenge) {
@@ -85,6 +111,10 @@ function ChallengeDetail() {
   const creatorSideClass = challenge.creatorSide.toLowerCase();
   const takerSide = oppositeSide(challenge.creatorSide);
   const takerSideClass = takerSide.toLowerCase();
+  const latestRun = resolutionRuns[0] ?? null;
+  const expiresAt = new Date(challenge.expiresAt).getTime();
+  const resolutionStartsInMs = Math.max(0, expiresAt - now);
+  const agentState = getAgentState(challenge, latestRun, now);
 
   async function deleteChallenge() {
     if (!challenge || !window.confirm("Delete this unmatched bet and return the locked credits?")) {
@@ -252,6 +282,79 @@ function ChallengeDetail() {
         </Card>
       </section>
 
+      <section className="panel agent-panel">
+        <div className="section-title">
+          <h2><BrainCircuit size={18} /> Resolution agent</h2>
+          <Badge variant="outline">{agentState.label}</Badge>
+        </div>
+        <div className="agent-status-grid">
+          <div className="agent-countdown">
+            <Clock3 size={18} />
+            <span>{agentState.caption}</span>
+            <strong>{latestRun ? shortDate(latestRun.createdAt) : formatCountdown(resolutionStartsInMs)}</strong>
+          </div>
+          <div className="agent-step-list">
+            <div className={agentState.phase === "waiting" ? "active" : ""}>
+              <span>1</span>
+              <p>Wait until the market expires.</p>
+            </div>
+            <div className={agentState.phase === "running" ? "active" : ""}>
+              <span>2</span>
+              <p>Search for evidence against the resolution criteria.</p>
+            </div>
+            <div className={agentState.phase === "finished" ? "active" : ""}>
+              <span>3</span>
+              <p>Publish a provisional decision trail for everyone.</p>
+            </div>
+          </div>
+        </div>
+
+        {latestRun ? (
+          <div className="agent-run-card">
+            <div className="agent-run-summary">
+              <div>
+                <span>Decision</span>
+                <strong className={latestRun.proposedOutcome.toLowerCase()}>{latestRun.proposedOutcome}</strong>
+              </div>
+              <div>
+                <span>Confidence</span>
+                <strong>{Math.round(latestRun.confidence * 100)}%</strong>
+              </div>
+              <div>
+                <span>Ran</span>
+                <strong>{shortDate(latestRun.createdAt)}</strong>
+              </div>
+            </div>
+            <div className="agent-rationale">
+              <h3><SearchCheck size={17} /> Public rationale</h3>
+              <p>{latestRun.aiRationale}</p>
+            </div>
+            <div className="agent-query">
+              <span>Evidence query</span>
+              <code>{latestRun.exaQuery}</code>
+            </div>
+            <div className="agent-sources">
+              <span>Sources</span>
+              {latestRun.sourceUrls.length > 0 ? (
+                <div>
+                  {latestRun.sourceUrls.map((url) => (
+                    <a key={url} href={url} target="_blank" rel="noreferrer">
+                      <ExternalLink size={15} /> {url}
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="fine-print">No external sources were recorded for this run.</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="fine-print">
+            The agent run becomes visible here after expiry. Viewers will see the search query, sources, confidence, provisional decision, and public rationale.
+          </p>
+        )}
+      </section>
+
       <section className="panel share-panel">
         <div className="section-title">
           <h2><Sparkles size={18} /> Share market</h2>
@@ -283,6 +386,39 @@ function ChallengeDetail() {
       </section>
     </div>
   );
+}
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) {
+    return "Due now";
+  }
+
+  const totalSeconds = Math.ceil(ms / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
+function getAgentState(challenge: Challenge, latestRun: ResolutionRun | null, now: number): { label: string; caption: string; phase: "waiting" | "running" | "finished" } {
+  if (latestRun || challenge.status === "provisional_resolved" || challenge.status === "final_resolved") {
+    return { label: "Decision published", caption: "Latest run", phase: "finished" };
+  }
+  if (challenge.status === "resolving" || new Date(challenge.expiresAt).getTime() <= now) {
+    return { label: "Agent running", caption: "Resolution starts", phase: "running" };
+  }
+  return { label: "Countdown active", caption: "Runs in", phase: "waiting" };
 }
 
 function ChallengeDetailSkeleton() {

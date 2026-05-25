@@ -13,6 +13,7 @@ import {
   listChallenges,
   listUserChallenges,
   listMatches,
+  listResolutionRuns,
   lockFunds,
   newId,
   parseSide,
@@ -85,6 +86,17 @@ const createdMatchSchema = z.object({
   id: z.string(),
   amountCents: betaStakeCentsSchema,
   side: sideSchema
+});
+
+const resolutionRunSchema = z.object({
+  id: z.string(),
+  challengeId: z.string(),
+  exaQuery: z.string(),
+  sourceUrls: z.array(z.string()),
+  aiRationale: z.string(),
+  proposedOutcome: z.enum(["YES", "NO", "UNRESOLVED"]),
+  confidence: z.number().min(0).max(1),
+  createdAt: dateTimeSchema
 });
 
 const walletSchema = z.object({
@@ -429,6 +441,7 @@ const getChallengeRoute = createRoute({
           schema: z.object({
             challenge: challengeSchema,
             matches: z.array(challengeMatchSchema),
+            resolutionRuns: z.array(resolutionRunSchema),
             availableToMatchCents: centsSchema
           })
         }
@@ -447,6 +460,7 @@ app.openapi(getChallengeRoute, async (c) => {
   return c.json({
     challenge,
     matches: await listMatches(c.env, challenge.id),
+    resolutionRuns: await listResolutionRuns(c.env, challenge.id),
     availableToMatchCents: availableToMatch(challenge)
   });
 });

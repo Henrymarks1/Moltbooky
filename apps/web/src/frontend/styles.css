@@ -723,6 +723,7 @@
   .market-panel,
   .trade-ticket,
   .share-panel,
+  .agent-panel,
   .challenge-page > .panel:not(.share-panel) {
     @apply border-slate-200 shadow-sm;
   }
@@ -903,6 +904,115 @@
 
   .trade-ticket-actions {
     @apply grid grid-cols-2 gap-2 max-[420px]:grid-cols-1;
+  }
+
+  .agent-panel {
+    @apply grid gap-5;
+  }
+
+  .agent-status-grid {
+    @apply grid grid-cols-[280px_minmax(0,1fr)] gap-4 max-[760px]:grid-cols-1;
+  }
+
+  .agent-countdown {
+    @apply grid content-center gap-2 rounded-lg border bg-slate-50 p-5;
+  }
+
+  .agent-countdown svg {
+    @apply text-primary;
+  }
+
+  .agent-countdown span,
+  .agent-query span,
+  .agent-sources > span,
+  .agent-run-summary span {
+    @apply text-xs font-black uppercase text-muted-foreground;
+    letter-spacing: 0.08em;
+  }
+
+  .agent-countdown strong {
+    @apply text-3xl font-black tracking-normal text-foreground;
+  }
+
+  .agent-step-list {
+    @apply grid grid-cols-3 gap-3 max-[760px]:grid-cols-1;
+  }
+
+  .agent-step-list > div {
+    @apply grid min-h-[118px] content-between rounded-lg border bg-card p-4;
+  }
+
+  .agent-step-list > div.active {
+    @apply border-primary/40 bg-primary/5;
+  }
+
+  .agent-step-list span {
+    @apply grid h-8 w-8 place-items-center rounded-full bg-muted text-sm font-black text-muted-foreground;
+  }
+
+  .agent-step-list > div.active span {
+    @apply bg-primary text-primary-foreground;
+  }
+
+  .agent-step-list p {
+    @apply text-sm leading-6 text-muted-foreground;
+  }
+
+  .agent-run-card {
+    @apply grid gap-4 rounded-lg border bg-slate-50 p-4;
+  }
+
+  .agent-run-summary {
+    @apply grid grid-cols-3 gap-3 max-[720px]:grid-cols-1;
+  }
+
+  .agent-run-summary > div {
+    @apply rounded-lg border bg-card p-4;
+  }
+
+  .agent-run-summary strong {
+    @apply mt-2 block text-2xl font-black tracking-normal text-foreground;
+  }
+
+  .agent-run-summary strong.yes {
+    @apply text-emerald-700;
+  }
+
+  .agent-run-summary strong.no {
+    @apply text-red-700;
+  }
+
+  .agent-run-summary strong.unresolved {
+    @apply text-slate-700;
+  }
+
+  .agent-rationale {
+    @apply rounded-lg border bg-card p-4;
+  }
+
+  .agent-rationale h3 {
+    @apply mb-2 inline-flex items-center gap-2 text-base font-semibold;
+  }
+
+  .agent-rationale p {
+    @apply text-sm leading-6 text-muted-foreground;
+  }
+
+  .agent-query,
+  .agent-sources {
+    @apply grid gap-2;
+  }
+
+  .agent-query code {
+    @apply m-0 whitespace-pre-wrap break-words bg-card;
+  }
+
+  .agent-sources > div {
+    @apply grid gap-2;
+  }
+
+  .agent-sources a {
+    @apply inline-flex items-center gap-2 overflow-hidden rounded-md border bg-card px-3 py-2 text-sm font-medium text-foreground no-underline hover:bg-muted;
   }
 
   .toggle-row {

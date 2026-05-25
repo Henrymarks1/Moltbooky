@@ -1,6 +1,6 @@
 import { availableToMatch, oppositeSide, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
 import { creditsToCents } from "@moltbooky/core/domain/money";
-import type { Challenge, ChallengeMatch, LedgerEntryType, WalletAccount } from "@moltbooky/core/domain/types";
+import type { Challenge, ChallengeMatch, LedgerEntryType, ResolutionRun, WalletAccount } from "@moltbooky/core/domain/types";
 import { isTestingModeEnabled, testingUser } from "./testingMode";
 
 type LedgerEntry = { id: string; type: LedgerEntryType; amountCents: number; description: string; createdAt: string };
@@ -9,6 +9,7 @@ type FakeState = {
   wallet: WalletAccount;
   challenges: Challenge[];
   matches: ChallengeMatch[];
+  resolutionRuns: ResolutionRun[];
   ledger: LedgerEntry[];
 };
 
@@ -33,6 +34,7 @@ function initialFakeState(): FakeState {
     },
     challenges: [],
     matches: [],
+    resolutionRuns: [],
     ledger: [
       {
         id: newId("le"),
@@ -60,6 +62,7 @@ function readFakeState(): FakeState {
       wallet: { ...initialFakeState().wallet, ...parsed.wallet },
       challenges: (parsed.challenges ?? []).map((challenge) => ({ ...challenge, visibility: challenge.visibility ?? "public" })),
       matches: parsed.matches ?? [],
+      resolutionRuns: parsed.resolutionRuns ?? [],
       ledger: parsed.ledger ?? []
     };
   } catch {
@@ -186,13 +189,30 @@ export const api = {
       if (!challenge) {
         throw new Error("Testing challenge not found.");
       }
+      if (new Date(challenge.expiresAt).getTime() <= Date.now() && state.resolutionRuns.every((run) => run.challengeId !== id)) {
+        const proposedOutcome = "UNRESOLVED" as const;
+        challenge.status = "provisional_resolved";
+        challenge.provisionalOutcome = proposedOutcome;
+        state.resolutionRuns.unshift({
+          id: newId("play_res"),
+          challengeId: challenge.id,
+          exaQuery: `${challenge.claim}\nResolution criteria: ${challenge.resolutionCriteria}`,
+          sourceUrls: [],
+          aiRationale: "Testing mode does not call the external resolver, so this market is left unresolved.",
+          proposedOutcome,
+          confidence: 0,
+          createdAt: nowIso()
+        });
+        writeFakeState(state);
+      }
       return {
         challenge,
         matches: state.matches.filter((match) => match.challengeId === id),
+        resolutionRuns: state.resolutionRuns.filter((run) => run.challengeId === id),
         availableToMatchCents: availableToMatch(challenge)
       };
     }
-    return request<{ challenge: Challenge; matches: ChallengeMatch[]; availableToMatchCents: number }>(`/api/challenges/${id}`);
+    return request<{ challenge: Challenge; matches: ChallengeMatch[]; resolutionRuns: ResolutionRun[]; availableToMatchCents: number }>(`/api/challenges/${id}`);
   },
   createChallenge: (body: {
     claim: string;
