@@ -8,7 +8,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { api } from "../lib/api";
 import { money, shortDate } from "../lib/format";
-import { rootRoute } from "./root";
+import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -45,6 +45,7 @@ function fromChallenge(challenge: Challenge): Market {
 }
 
 function Feed() {
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [error, setError] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
@@ -52,6 +53,27 @@ function Feed() {
 
   useEffect(() => {
     api.listChallenges().then((data) => setChallenges(data.challenges)).catch((err: Error) => setError(err.message));
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function refreshAuth() {
+      const currentUser = await getCurrentUser();
+      if (active) {
+        setUser(currentUser);
+      }
+    }
+
+    void refreshAuth();
+    window.addEventListener(authChangeEvent, refreshAuth);
+    window.addEventListener("focus", refreshAuth);
+
+    return () => {
+      active = false;
+      window.removeEventListener(authChangeEvent, refreshAuth);
+      window.removeEventListener("focus", refreshAuth);
+    };
   }, []);
 
   const markets = challenges.map(fromChallenge);
@@ -86,15 +108,26 @@ function Feed() {
                   <Badge variant="outline">Even odds</Badge>
                 </div>
                 <h1>Trade private yes/no markets with humans and agents.</h1>
-                <p>Browse every live bet publicly. Sign up when you want to create a market, match a side, or connect an agent.</p>
-                <div className="hero-actions">
-                  <Button asChild>
-                    <Link to="/login">Sign up to trade</Link>
-                  </Button>
-                  <Button asChild variant="outline">
-                    <Link to="/login">Log in</Link>
-                  </Button>
-                </div>
+                <p>{user ? "Create a challenge, match open positions, or connect an agent with a scoped API key." : "Browse every live bet publicly. Sign up when you want to create a market, match a side, or connect an agent."}</p>
+                {user ? (
+                  <div className="hero-actions">
+                    <Button asChild>
+                      <Link to="/challenge/new">Create market</Link>
+                    </Button>
+                    <Button asChild variant="outline">
+                      <Link to="/settings/api-keys">Connect agent</Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="hero-actions">
+                    <Button asChild>
+                      <Link to="/login">Sign up to trade</Link>
+                    </Button>
+                    <Button asChild variant="outline">
+                      <Link to="/login">Log in</Link>
+                    </Button>
+                  </div>
+                )}
               </div>
               <div className="featured-stats">
                 <div>
@@ -164,10 +197,16 @@ function Feed() {
                   </div>
                   <div className="trade-buttons">
                     <Button asChild variant="secondary">
-                      <Link to="/login">Yes {progress}%</Link>
+                      <Link to={user ? "/challenge/$id" : "/login"} params={{ id: market.id }}>
+                        <span>Yes</span>
+                        <strong>{progress}%</strong>
+                      </Link>
                     </Button>
                     <Button asChild variant="secondary">
-                      <Link to="/login">No {noPrice}%</Link>
+                      <Link to={user ? "/challenge/$id" : "/login"} params={{ id: market.id }}>
+                        <span>No</span>
+                        <strong>{noPrice}%</strong>
+                      </Link>
                     </Button>
                   </div>
                 </article>
@@ -211,7 +250,7 @@ function Feed() {
                   <ShieldCheck size={20} />
                   <h3>For humans</h3>
                   <ol>
-                    <li>Create an account or log in.</li>
+                    <li>{user ? "Create a market with clear terms." : "Create an account or log in."}</li>
                     <li>Post a claim with clear resolution criteria.</li>
                     <li>Share the market and match only what you want at risk.</li>
                   </ol>
@@ -229,7 +268,7 @@ function Feed() {
                 </div>
               )}
               <Button asChild className="w-full">
-                <Link to="/login">Continue</Link>
+                <Link to={user ? (audience === "human" ? "/challenge/new" : "/settings/api-keys") : "/login"}>Continue</Link>
               </Button>
             </CardContent>
           </Card>

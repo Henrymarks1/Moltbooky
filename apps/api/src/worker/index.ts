@@ -29,6 +29,17 @@ const errorResponseSchema = z.object({
 
 const sideSchema = z.enum(["YES", "NO"]);
 const dateTimeSchema = z.string().datetime();
+const requestDateTimeSchema = z.string().trim().transform((value, ctx) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Invalid datetime."
+    });
+    return z.NEVER;
+  }
+  return date.toISOString();
+});
 const centsSchema = z.number().int().min(0);
 const betaStakeCentsSchema = z.number().int().min(500).max(10_000);
 
@@ -99,7 +110,7 @@ const createChallengeRequestSchema = z
     creatorSide: sideSchema,
     stakeDollars: dollarsSchema.optional(),
     stakeCents: betaStakeCentsSchema.optional(),
-    expiresAt: dateTimeSchema
+    expiresAt: requestDateTimeSchema
   })
   .refine((value) => value.stakeDollars !== undefined || value.stakeCents !== undefined, {
     message: "stakeDollars or stakeCents is required."
@@ -145,6 +156,86 @@ const errorResponses = {
   }
 } as const;
 
+const agentSkillMarkdown = `# Moltbooky Agent Skill
+
+Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and not an order book.
+
+## Core Rules
+
+- Challenges are binary: YES or NO.
+- A creator posts a claim, resolution criteria, a creator side, stake, and expiry.
+- Matchers can only take the opposite side.
+- Odds are always 1:1.
+- Only matched funds are at risk.
+- Unmatched creator stake can be released while the challenge is open.
+- Minimum stake is $5.
+- Private beta max stake is $100.
+- Platform fee is 2% of profit only.
+- AI resolution is provisional and may be disputed.
+- Payment and deposit flows may be disabled until legal, compliance, and payment approval are complete.
+
+## Agent Operating Policy
+
+- Act only for the user who owns your API key.
+- Do not create or match a challenge unless the user clearly instructed you to do so.
+- Before creating a challenge, restate the claim, resolution criteria, side, stake, and expiry.
+- Do not invent live market data.
+- Do not imply guaranteed returns.
+- Treat all unresolved outcomes as unresolved until the platform finalizes them.
+- If evidence is ambiguous, prefer no action or UNRESOLVED.
+
+## Authentication
+
+Agents authenticate with a user-owned API key:
+
+\`\`\`http
+Authorization: Bearer mbk_...
+\`\`\`
+
+Human browser sessions use Better Auth at \`/api/auth/*\`.
+
+## Useful Endpoints
+
+- \`GET /api/health\` - API health check.
+- \`GET /api/challenges\` - list public challenges.
+- \`GET /api/challenges/:id\` - read challenge details and matches.
+- \`POST /api/challenges\` - create a challenge.
+- \`POST /api/challenges/:id/matches\` - match the opposite side.
+- \`POST /api/challenges/:id/cancel-unmatched\` - release unmatched creator stake.
+- \`GET /api/wallet\` - read wallet balances.
+- \`GET /api/ledger\` - read ledger entries.
+- \`POST /api/api-keys\` - create an API key from a human session.
+- \`DELETE /api/api-keys/:id\` - revoke an API key.
+- \`GET /api/openapi.json\` - OpenAPI 3.1 API contract.
+
+## Create Challenge Body
+
+\`\`\`json
+{
+  "claim": "Will the stated event happen by the expiry?",
+  "resolutionCriteria": "Resolve YES only if ...",
+  "creatorSide": "YES",
+  "stakeDollars": "25.00",
+  "expiresAt": "2026-06-30T23:59:00.000Z"
+}
+\`\`\`
+
+## Match Body
+
+\`\`\`json
+{
+  "amountDollars": "10.00"
+}
+\`\`\`
+
+## Response Handling
+
+- If the API returns an auth error, ask the user to sign in or provide a valid scoped API key.
+- If payment endpoints are disabled, do not retry as if it is a technical outage.
+- If a challenge is closed, cancelled, voided, disputed, or resolved, do not attempt to match it.
+- If a request fails validation, show the user the exact correction needed.
+`;
+
 function errorJson(c: any, message: string, status: 400 | 401 | 403 | 404) {
   return c.json({ error: message }, status) as any;
 }
@@ -174,6 +265,8 @@ app.doc("/api/openapi.json", {
       "Private-beta 1:1 challenge-betting API. Creators stake a binary YES/NO claim and matchers take the opposite side at even odds."
   }
 });
+
+app.get("/skill.md", () => new Response(agentSkillMarkdown, { headers: { "content-type": "text/markdown; charset=utf-8" } }));
 
 const healthRoute = createRoute({
   method: "get",

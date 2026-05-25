@@ -8,6 +8,7 @@ import { Route as walletRoute } from "./routes/wallet";
 import { Route as apiKeysRoute } from "./routes/settings.api-keys";
 import { Route as adminRoute } from "./routes/admin";
 import { Route as loginRoute } from "./routes/login";
+import { Route as howItWorksRoute } from "./routes/how-it-works";
 import "./styles.css";
 
 const routeTree = rootRoute.addChildren([
@@ -17,7 +18,8 @@ const routeTree = rootRoute.addChildren([
   walletRoute,
   apiKeysRoute,
   adminRoute,
-  loginRoute
+  loginRoute,
+  howItWorksRoute
 ]);
 
 const router = createRouter({ routeTree });

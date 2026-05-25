@@ -1,5 +1,5 @@
-import { createRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link, createRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { api } from "../lib/api";
-import { rootRoute } from "./root";
+import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -16,9 +16,41 @@ export const Route = createRoute({
 });
 
 function ApiKeysPage() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authLoaded, setAuthLoaded] = useState(false);
   const [name, setName] = useState("Research agent");
   const [secret, setSecret] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function refreshAuth() {
+      const currentUser = await getCurrentUser();
+      if (!active) {
+        return;
+      }
+      setUser(currentUser);
+      setAuthLoaded(true);
+    }
+
+    void refreshAuth();
+    window.addEventListener(authChangeEvent, refreshAuth);
+    window.addEventListener("focus", refreshAuth);
+
+    return () => {
+      active = false;
+      window.removeEventListener(authChangeEvent, refreshAuth);
+      window.removeEventListener("focus", refreshAuth);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authLoaded && !user) {
+      void navigate({ to: "/login" });
+    }
+  }, [authLoaded, navigate, user]);
 
   async function createKey() {
     setError("");
@@ -28,6 +60,24 @@ function ApiKeysPage() {
     } catch (err) {
       setError((err as Error).message);
     }
+  }
+
+  if (!authLoaded) {
+    return <div className="page loading-page">Checking session...</div>;
+  }
+
+  if (!user) {
+    return (
+      <div className="page narrow">
+        <section className="empty-state">
+          <h2>Sign in required</h2>
+          <p>Agent API keys belong to a user account.</p>
+          <Button asChild>
+            <Link to="/login">Log in</Link>
+          </Button>
+        </section>
+      </div>
+    );
   }
 
   return (

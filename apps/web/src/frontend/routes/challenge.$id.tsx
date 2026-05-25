@@ -9,7 +9,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { api } from "../lib/api";
 import { matchProgress, money, shortDate } from "../lib/format";
-import { rootRoute } from "./root";
+import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -23,6 +23,7 @@ function ChallengeDetail() {
   const [matches, setMatches] = useState<ChallengeMatch[]>([]);
   const [available, setAvailable] = useState(0);
   const [message, setMessage] = useState("");
+  const [user, setUser] = useState<AuthUser | null>(null);
 
   async function refresh() {
     const data = await api.getChallenge(id);
@@ -34,6 +35,27 @@ function ChallengeDetail() {
   useEffect(() => {
     refresh().catch((err: Error) => setMessage(err.message));
   }, [id]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function refreshAuth() {
+      const currentUser = await getCurrentUser();
+      if (active) {
+        setUser(currentUser);
+      }
+    }
+
+    void refreshAuth();
+    window.addEventListener(authChangeEvent, refreshAuth);
+    window.addEventListener("focus", refreshAuth);
+
+    return () => {
+      active = false;
+      window.removeEventListener(authChangeEvent, refreshAuth);
+      window.removeEventListener("focus", refreshAuth);
+    };
+  }, []);
 
   if (!challenge) {
     return <div className="page loading-page">Loading market...</div>;
@@ -98,13 +120,26 @@ function ChallengeDetail() {
             <span>Take</span>
             <strong>{oppositeSide(challenge.creatorSide)}</strong>
           </div>
-          <p className="fine-print">Log in or sign up to match this market, release stake, or create your own challenge.</p>
-          <Button asChild>
-            <Link to="/login">Sign up to trade</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link to="/login">Log in</Link>
-          </Button>
+          <p className="fine-print">
+            {user ? "Match the opposite side at 1:1 odds, or create your own challenge." : "Log in or sign up to match this market, release stake, or create your own challenge."}
+          </p>
+          {user ? (
+            <>
+              <Button type="button">Match market</Button>
+              <Button asChild variant="outline">
+                <Link to="/challenge/new">Create market</Link>
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button asChild>
+                <Link to="/login">Sign up to trade</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/login">Log in</Link>
+              </Button>
+            </>
+          )}
           </CardContent>
         </Card>
       </section>

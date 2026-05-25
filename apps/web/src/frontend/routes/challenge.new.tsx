@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
+import { api } from "../lib/api";
+import { authChangeEvent } from "./root";
 import { rootRoute } from "./root";
 
 export const Route = createRoute({
@@ -14,6 +16,14 @@ export const Route = createRoute({
   path: "challenge/new",
   component: NewChallenge
 });
+
+function toIsoDateTime(value: FormDataEntryValue | null): string {
+  const date = new Date(String(value ?? ""));
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString();
+}
 
 function NewChallenge() {
   const navigate = useNavigate();
@@ -25,8 +35,28 @@ function NewChallenge() {
     event.preventDefault();
     setLoading(true);
     setError("");
-    await navigate({ to: "/login" });
-    setLoading(false);
+    const form = new FormData(event.currentTarget);
+
+    try {
+      const { challenge } = await api.createChallenge({
+        claim: String(form.get("claim") ?? ""),
+        resolutionCriteria: String(form.get("resolutionCriteria") ?? ""),
+        creatorSide,
+        stakeDollars: String(form.get("stakeDollars") ?? ""),
+        expiresAt: toIsoDateTime(form.get("expiresAt"))
+      });
+      window.dispatchEvent(new Event(authChangeEvent));
+      await navigate({ to: "/challenge/$id", params: { id: challenge.id } });
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.toLowerCase().includes("sign in")) {
+        await navigate({ to: "/login" });
+        return;
+      }
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -38,7 +68,7 @@ function NewChallenge() {
             <Badge variant="outline">Even odds</Badge>
           </div>
           <h1>Launch a market in under a minute.</h1>
-          <p>Preview the market composer here. Log in or sign up to publish a challenge.</p>
+          <p>Post a claim, choose your side, and lock the stake you want available for matching.</p>
         </div>
       </header>
 
@@ -69,6 +99,7 @@ function NewChallenge() {
           <Label>
             <span><TimerReset size={15} /> Expiry</span>
             <Input name="expiresAt" type="datetime-local" required />
+            <small className="field-help">Uses your local timezone and saves as UTC.</small>
           </Label>
         </div>
           </CardContent>
@@ -93,7 +124,7 @@ function NewChallenge() {
           </button>
         </div>
         <Button type="submit" disabled={loading}>
-          <CheckCircle2 size={18} /> {loading ? "Opening..." : "Sign up to publish"}
+          <CheckCircle2 size={18} /> {loading ? "Publishing..." : "Publish challenge"}
         </Button>
           </CardContent>
         </Card>

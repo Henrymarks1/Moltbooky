@@ -56,11 +56,15 @@
   }
 
   .topbar {
-    @apply sticky top-0 z-20 flex min-h-16 items-center gap-5 border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 max-[1080px]:flex-wrap max-[720px]:px-4;
+    @apply sticky top-0 z-20 border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 max-[720px]:px-4;
+  }
+
+  .topbar-inner {
+    @apply mx-auto flex min-h-16 w-full max-w-7xl items-center gap-5 max-[1080px]:flex-wrap;
   }
 
   @media (max-width: 720px) {
-    .topbar {
+    .topbar-inner {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 12px;
@@ -68,13 +72,13 @@
       padding-top: 12px;
     }
 
-    .topbar nav {
+    .topbar-inner nav {
       grid-column: 1 / -1;
       order: initial;
       width: 100%;
     }
 
-    .topbar nav a {
+    .topbar-inner nav a {
       height: 36px;
     }
 
@@ -102,7 +106,7 @@
       max-width: none;
     }
 
-    .topbar > a[href="/challenge/new"] {
+    .topbar-inner > a[href="/challenge/new"] {
       display: none;
     }
 
@@ -160,7 +164,7 @@
   }
 
   .profile-actions {
-    @apply ml-auto flex min-w-0 items-center gap-2;
+    @apply relative ml-auto flex min-w-0 items-center gap-2;
   }
 
   .profile-button {
@@ -173,6 +177,15 @@
 
   .profile-button span {
     @apply truncate;
+  }
+
+  .profile-menu {
+    @apply absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 overflow-hidden rounded-lg border bg-card p-1 text-card-foreground shadow-lg;
+  }
+
+  .profile-menu a,
+  .profile-menu button {
+    @apply flex h-10 w-full items-center gap-2 rounded-md border-0 bg-transparent px-3 text-left text-sm font-medium text-foreground no-underline hover:bg-muted disabled:pointer-events-none disabled:opacity-50;
   }
 
   .page {
@@ -197,6 +210,82 @@
 
   .market-layout {
     @apply grid grid-cols-[minmax(0,1fr)_340px] items-start gap-8 max-[1100px]:grid-cols-1;
+  }
+
+  .how-page {
+    @apply max-w-6xl gap-5;
+  }
+
+  .how-hero {
+    @apply grid grid-cols-[minmax(0,1fr)_auto] items-end gap-6 border-b pb-6 max-[760px]:grid-cols-1;
+  }
+
+  .how-hero h1 {
+    @apply mt-3 max-w-3xl text-4xl font-bold tracking-tight max-[720px]:text-3xl;
+  }
+
+  .how-hero p {
+    @apply mt-2 max-w-3xl text-base leading-7 text-muted-foreground;
+  }
+
+  .how-hero-actions {
+    @apply flex items-center gap-2 max-[760px]:w-full;
+  }
+
+  .how-hero-actions a {
+    @apply max-[760px]:flex-1;
+  }
+
+  .how-flow {
+    @apply grid grid-cols-3 gap-3 max-[860px]:grid-cols-1;
+  }
+
+  .how-flow > div {
+    @apply grid gap-2 rounded-lg border bg-muted/30 p-4;
+  }
+
+  .how-flow span {
+    @apply grid h-8 w-8 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground;
+  }
+
+  .how-flow strong {
+    @apply text-base font-semibold;
+  }
+
+  .how-flow p {
+    @apply text-sm leading-6 text-muted-foreground;
+  }
+
+  .how-grid {
+    @apply grid grid-cols-2 gap-4 max-[860px]:grid-cols-1;
+  }
+
+  .how-card {
+    @apply grid grid-cols-[40px_minmax(0,1fr)] gap-4 rounded-lg border bg-card p-5 text-card-foreground;
+  }
+
+  .how-card-wide {
+    @apply col-span-2 max-[860px]:col-span-1;
+  }
+
+  .how-card-icon {
+    @apply grid h-10 w-10 place-items-center rounded-md bg-muted text-foreground;
+  }
+
+  .how-card-icon svg {
+    @apply h-5 w-5;
+  }
+
+  .info-list {
+    @apply grid gap-3 text-sm leading-6 text-muted-foreground;
+  }
+
+  .info-list h2 {
+    @apply text-lg font-semibold tracking-tight text-foreground;
+  }
+
+  .info-list a {
+    @apply font-semibold text-foreground underline-offset-4 hover:underline;
   }
 
   .market-main,
@@ -282,6 +371,19 @@
 
   .trade-buttons {
     @apply grid grid-cols-2 gap-2;
+  }
+
+  .trade-buttons a {
+    @apply grid h-14 place-items-center gap-0.5 rounded-md px-2 text-center leading-none;
+  }
+
+  .trade-buttons span {
+    @apply text-[11px] font-semibold uppercase text-muted-foreground;
+    letter-spacing: 0.06em;
+  }
+
+  .trade-buttons strong {
+    @apply text-base font-semibold text-foreground;
   }
 
   .trend-list,
@@ -588,6 +690,10 @@
 
   .composer-ticket p {
     @apply text-sm leading-6 text-muted-foreground;
+  }
+
+  .field-help {
+    @apply text-xs font-medium text-muted-foreground;
   }
 
   .side-card span {

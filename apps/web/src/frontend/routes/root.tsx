@@ -1,5 +1,5 @@
 import { Link, Outlet, createRootRoute } from "@tanstack/react-router";
-import { Activity, Bot, Info, LogOut, Search, UserCircle } from "lucide-react";
+import { Activity, ChevronDown, Info, LogOut, Search, Settings, UserCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -9,7 +9,7 @@ export const Route = createRootRoute({
 });
 export const rootRoute = Route;
 
-type AuthUser = {
+export type AuthUser = {
   id: string;
   name: string;
   email: string;
@@ -22,7 +22,7 @@ type SessionResponse = {
 
 export const authChangeEvent = "moltbooky-auth-change";
 
-async function getCurrentUser(): Promise<AuthUser | null> {
+export async function getCurrentUser(): Promise<AuthUser | null> {
   const response = await fetch("/api/auth/get-session", {
     credentials: "include"
   });
@@ -50,6 +50,7 @@ function RootLayout() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -79,6 +80,7 @@ function RootLayout() {
     try {
       await signOut();
       setUser(await getCurrentUser());
+      setProfileOpen(false);
       window.dispatchEvent(new Event(authChangeEvent));
     } catch {
       setUser(await getCurrentUser());
@@ -90,58 +92,63 @@ function RootLayout() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark">M</div>
-          <div>
-            <strong>Moltbooky</strong>
-            <span>Event markets</span>
+        <div className="topbar-inner">
+          <div className="brand">
+            <div className="brand-mark">M</div>
+            <div>
+              <strong>Moltbooky</strong>
+              <span>Event markets</span>
+            </div>
           </div>
-        </div>
-        <div className="topbar-search">
-          <Search size={18} />
-          <Input placeholder="Search markets..." aria-label="Search markets" />
-        </div>
-        <nav>
-          <Link to="/" activeProps={{ className: "active" }}>
-            <Activity size={18} /> Markets
-          </Link>
-          <Link to="/settings/api-keys" activeProps={{ className: "active" }}>
-            <Bot size={18} /> Agents
-          </Link>
-          <Link to="/login" activeProps={{ className: "active" }}>
-            <Info size={18} /> How it works
-          </Link>
-        </nav>
-        {user ? (
-          <div className="profile-actions">
-            <Button asChild variant="ghost" className="profile-button">
-              <Link to="/settings/api-keys" title={user.email} aria-label={`Signed in as ${user.name || user.email}`}>
+          <div className="topbar-search">
+            <Search size={18} />
+            <Input placeholder="Search markets..." aria-label="Search markets" />
+          </div>
+          <nav>
+            <Link to="/" activeProps={{ className: "active" }}>
+              <Activity size={18} /> Markets
+            </Link>
+            <Link to="/how-it-works" activeProps={{ className: "active" }}>
+              <Info size={18} /> How it works
+            </Link>
+          </nav>
+          {user ? (
+            <div className="profile-actions">
+              <Button
+                type="button"
+                variant="ghost"
+                className="profile-button"
+                onClick={() => setProfileOpen((open) => !open)}
+                title={user.email}
+                aria-expanded={profileOpen}
+                aria-haspopup="menu"
+              >
                 {user.image ? <img src={user.image} alt="" /> : <UserCircle size={20} />}
                 <span>{user.name || user.email}</span>
-              </Link>
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={handleSignOut}
-              disabled={signingOut}
-              title="Sign out"
-              aria-label="Sign out"
-            >
-              <LogOut size={18} />
-            </Button>
-          </div>
-        ) : (
-          <div className="auth-actions" data-loaded={authLoaded}>
-            <Button asChild variant="ghost">
-              <Link to="/login">Log in</Link>
-            </Button>
-            <Button asChild>
-              <Link to="/login">Sign up</Link>
-            </Button>
-          </div>
-        )}
+                <ChevronDown size={16} />
+              </Button>
+              {profileOpen && (
+                <div className="profile-menu" role="menu">
+                  <Link to="/settings/api-keys" role="menuitem" onClick={() => setProfileOpen(false)}>
+                    <Settings size={16} /> Settings
+                  </Link>
+                  <button type="button" role="menuitem" onClick={handleSignOut} disabled={signingOut}>
+                    <LogOut size={16} /> Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="auth-actions" data-loaded={authLoaded}>
+              <Button asChild variant="ghost">
+                <Link to="/login">Log in</Link>
+              </Button>
+              <Button asChild>
+                <Link to="/login">Sign up</Link>
+              </Button>
+            </div>
+          )}
+        </div>
       </header>
       <section className="content">
         <Outlet />
