@@ -10,6 +10,7 @@ import { Route as apiKeysRoute } from "./routes/settings.api-keys";
 import { Route as adminRoute } from "./routes/admin";
 import { Route as loginRoute } from "./routes/login";
 import { Route as howItWorksRoute } from "./routes/how-it-works";
+import { initAnalytics } from "./lib/analytics";
 import "./styles.css";
 
 const routeTree = rootRoute.addChildren([
@@ -31,5 +32,7 @@ declare module "@tanstack/react-router" {
     router: typeof router;
   }
 }
+
+initAnalytics();
 
 createRoot(document.getElementById("root")!).render(<RouterProvider router={router} />);

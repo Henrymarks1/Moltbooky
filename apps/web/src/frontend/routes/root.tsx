@@ -1,9 +1,10 @@
-import { Link, Outlet, createRootRoute } from "@tanstack/react-router";
+import { Link, Outlet, createRootRoute, useRouterState } from "@tanstack/react-router";
 import { Activity, ChevronDown, Info, ListChecks, LogOut, Search, Settings, UserCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
+import { capturePageview, identifyAnalyticsUser, resetAnalyticsUser } from "../lib/analytics";
 
 export const Route = createRootRoute({
   component: RootLayout
@@ -48,10 +49,12 @@ async function signOut(): Promise<void> {
 }
 
 function RootLayout() {
+  const href = useRouterState({ select: (state) => state.location.href });
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const previousUserId = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -75,6 +78,27 @@ function RootLayout() {
       window.removeEventListener("focus", refreshAuth);
     };
   }, []);
+
+  useEffect(() => {
+    capturePageview();
+  }, [href]);
+
+  useEffect(() => {
+    if (!authLoaded) {
+      return;
+    }
+
+    if (user) {
+      identifyAnalyticsUser(user);
+      previousUserId.current = user.id;
+      return;
+    }
+
+    if (previousUserId.current) {
+      resetAnalyticsUser();
+      previousUserId.current = null;
+    }
+  }, [authLoaded, user]);
 
   async function handleSignOut() {
     setSigningOut(true);

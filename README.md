@@ -45,6 +45,7 @@ Required production secrets and variables:
 - `apps/api`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and optional Google OAuth variables.
 - `apps/resolver`: `DATABASE_URL`, plus `EXA_API_KEY` and `OPENAI_API_KEY` when automated resolution is enabled.
 - `apps/payments`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and Stripe variables when payment launch is approved.
+- `apps/web` client: optional `VITE_POSTHOG_TOKEN` and `VITE_POSTHOG_HOST` for PostHog analytics.
 - `apps/web` Pages Functions: `API_ORIGIN` and `PAYMENTS_ORIGIN`, pointing at the deployed API and payments Workers.
 
 `PAYMENT_LAUNCH_APPROVED` defaults to `false` in checked-in examples. Keep it disabled until legal, compliance, and payment processor approvals are complete.
