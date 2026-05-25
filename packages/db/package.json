@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",
-    "generate": "drizzle-kit generate"
+    "generate": "pnpm --dir ../.. exec drizzle-kit generate --config drizzle.config.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",

@@ -1,0 +1,5 @@
+DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require"
+
+# Optional. If either key is missing, the resolver leaves challenges UNRESOLVED.
+EXA_API_KEY=""
+OPENAI_API_KEY=""

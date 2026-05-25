@@ -6,3 +6,6 @@ apps/web/dist/
 .wrangler/
 .env
 .env.*
+apps/*/.dev.vars
+apps/*/.dev.vars.*
+!apps/*/.dev.vars.example
