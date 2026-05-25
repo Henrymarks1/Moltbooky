@@ -8,8 +8,8 @@ Only matched funds are at risk. Unmatched creator stake remains locked but cance
 
 - React, Vite, TanStack Router
 - Tailwind CSS with shadcn-style local primitives
-- Cloudflare Workers, D1, Queues, Cron Triggers, Durable Objects
-- Drizzle schema and migrations for D1
+- Cloudflare Workers, Queues, Cron Triggers, Durable Objects
+- Neon Postgres with Drizzle schema and migrations
 - Better Auth for human browser sessions
 - moon for monorepo task orchestration
 - Exa + OpenAI resolver hooks
@@ -17,9 +17,11 @@ Only matched funds are at risk. Unmatched creator stake remains locked but cance
 ## Workspace
 
 - `apps/web`: human UI
-- `apps/api`: Cloudflare Worker API
+- `apps/api`: public Cloudflare Worker API and Durable Object matching
+- `apps/resolver`: Cloudflare Worker cron/queue AI resolver
+- `apps/payments`: Cloudflare Worker Stripe payment endpoints and webhooks
 - `packages/core`: shared betting math, money constants, and types
-- `packages/db`: Drizzle schema used to generate D1 migrations
+- `packages/db`: Drizzle schema used to generate Postgres migrations
 
 ## Commands
 
@@ -33,6 +35,14 @@ pnpm run db:migrate:local
 ```
 
 The Worker exposes Better Auth at `/api/auth/*` for humans and accepts user-owned agent API keys through `Authorization: Bearer mbk_...`. In local private-beta mode only, `x-user-id` remains available as a development fallback when payment launch is not approved.
+
+The public API contract is served as OpenAPI 3.1 at `/api/openapi.json`. Payment endpoints are served by the payments Worker under `/api/payments/*`.
+
+## Workers
+
+- `moltbooky`: public API, Better Auth, API keys, wallet/ledger, challenges, admin routes, and `ChallengeObject` Durable Objects for serialized matching.
+- `moltbooky-resolver`: hourly cron and `moltbooky-resolution` queue consumer/producer for AI resolution with OpenAI through the AI SDK and an Exa search tool.
+- `moltbooky-payments`: Stripe Checkout deposit creation and Stripe webhook handling. Requires `PAYMENT_LAUNCH_APPROVED=true`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL`.
 
 ## Real-Money Gate
 

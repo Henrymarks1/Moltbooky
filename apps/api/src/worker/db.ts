@@ -1,18 +1,6 @@
-import { neon } from "@neondatabase/serverless";
-import { challengeMatches, challenges, createDb } from "@moltbooky/db";
+import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, users, walletAccounts } from "@moltbooky/db";
 import type { Challenge, ChallengeMatch, Side, WalletAccount } from "@moltbooky/core/domain/types";
-import { desc, eq } from "drizzle-orm";
 import { getSessionUserId } from "./auth";
-
-export type Sql = ReturnType<typeof neon>;
-
-export function getSql(env: Env): Sql {
-  return neon(env.DATABASE_URL);
-}
-
-function rows<T>(value: unknown): T[] {
-  return value as T[];
-}
 
 function serializeTimestamp(value: Date | string | null): string | null {
   if (value === null) {
@@ -65,29 +53,45 @@ export function newId(prefix: string): string {
 }
 
 export async function ensureBetaUser(env: Env, userId: string): Promise<void> {
-  const sql = getSql(env);
-  const existing = rows<{ id: string }>(await sql`SELECT id FROM users WHERE id = ${userId} LIMIT 1`);
+  const db = createDb(env.DATABASE_URL);
+  const existing = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
   if (existing.length > 0) {
     return;
   }
 
-  await sql.transaction([
-    sql`INSERT INTO users (id, email, display_name, beta_status) VALUES (${userId}, ${`${userId}@moltbooky.local`}, ${userId}, 'invited') ON CONFLICT (id) DO NOTHING`,
-    sql`INSERT INTO wallet_accounts (user_id, available_cents) VALUES (${userId}, ${25_000}) ON CONFLICT (user_id) DO NOTHING`
-  ]);
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(users)
+      .values({
+        id: userId,
+        email: `${userId}@moltbooky.local`,
+        displayName: userId,
+        betaStatus: "invited"
+      })
+      .onConflictDoNothing();
+
+    await tx
+      .insert(walletAccounts)
+      .values({
+        userId,
+        availableCents: 25_000
+      })
+      .onConflictDoNothing();
+  });
 }
 
 export async function getWallet(env: Env, userId: string): Promise<WalletAccount> {
-  const sql = getSql(env);
-  const result = rows<WalletAccount>(await sql`
-    SELECT user_id as "userId",
-           available_cents as "availableCents",
-           locked_cents as "lockedCents",
-           pending_withdrawal_cents as "pendingWithdrawalCents"
-    FROM wallet_accounts
-    WHERE user_id = ${userId}
-    LIMIT 1
-  `);
+  const db = createDb(env.DATABASE_URL);
+  const result = await db
+    .select({
+      userId: walletAccounts.userId,
+      availableCents: walletAccounts.availableCents,
+      lockedCents: walletAccounts.lockedCents,
+      pendingWithdrawalCents: walletAccounts.pendingWithdrawalCents
+    })
+    .from(walletAccounts)
+    .where(eq(walletAccounts.userId, userId))
+    .limit(1);
 
   if (!result[0]) {
     throw new Error("Wallet not found.");
@@ -106,25 +110,39 @@ export async function lockFunds(params: {
   idempotencyKey: string;
 }): Promise<void> {
   const { env, userId, amountCents, type, challengeId, matchId, description, idempotencyKey } = params;
-  const wallet = await getWallet(env, userId);
-  if (wallet.availableCents < amountCents) {
-    throw new Error("Insufficient available balance.");
-  }
+  const db = createDb(env.DATABASE_URL);
+  await db.transaction(async (tx) => {
+    const wallet = await tx
+      .select()
+      .from(walletAccounts)
+      .where(and(eq(walletAccounts.userId, userId), gte(walletAccounts.availableCents, amountCents)))
+      .for("update")
+      .limit(1);
 
-  const sql = getSql(env);
-  await sql.transaction([
-    sql`
-      UPDATE wallet_accounts
-      SET available_cents = available_cents - ${amountCents},
-          locked_cents = locked_cents + ${amountCents},
-          updated_at = now()
-      WHERE user_id = ${userId}
-    `,
-    sql`
-      INSERT INTO ledger_entries (id, user_id, type, amount_cents, challenge_id, match_id, idempotency_key, description)
-      VALUES (${newId("led")}, ${userId}, ${type}, ${amountCents}, ${challengeId}, ${matchId ?? null}, ${idempotencyKey}, ${description})
-    `
-  ]);
+    if (!wallet[0]) {
+      throw new Error("Insufficient available balance.");
+    }
+
+    await tx
+      .update(walletAccounts)
+      .set({
+        availableCents: wallet[0].availableCents - amountCents,
+        lockedCents: wallet[0].lockedCents + amountCents,
+        updatedAt: new Date()
+      })
+      .where(eq(walletAccounts.userId, userId));
+
+    await tx.insert(ledgerEntries).values({
+      id: newId("led"),
+      userId,
+      type,
+      amountCents,
+      challengeId,
+      matchId: matchId ?? null,
+      idempotencyKey,
+      description
+    });
+  });
 }
 
 export async function listChallenges(env: Env): Promise<Challenge[]> {
@@ -154,14 +172,15 @@ export async function actorFromRequest(env: Env, request: Request): Promise<{ us
   if (authorization?.startsWith("Bearer ")) {
     const { hashApiKey } = await import("@moltbooky/core/domain/apiKeys");
     const keyHash = await hashApiKey(authorization.slice("Bearer ".length));
-    const sql = getSql(env);
-    const result = rows<{ userId: string; scopes: string }>(await sql`
-      SELECT user_id as "userId", scopes
-      FROM api_keys
-      WHERE key_hash = ${keyHash}
-        AND revoked_at IS NULL
-      LIMIT 1
-    `);
+    const db = createDb(env.DATABASE_URL);
+    const result = await db
+      .select({
+        userId: apiKeys.userId,
+        scopes: apiKeys.scopes
+      })
+      .from(apiKeys)
+      .where(and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)))
+      .limit(1);
     const key = result[0];
 
     if (!key) {
@@ -169,7 +188,7 @@ export async function actorFromRequest(env: Env, request: Request): Promise<{ us
     }
 
     await ensureBetaUser(env, key.userId);
-    await sql`UPDATE api_keys SET last_used_at = now() WHERE key_hash = ${keyHash}`;
+    await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.keyHash, keyHash));
     return { userId: key.userId, scopes: JSON.parse(key.scopes) as string[] };
   }
 

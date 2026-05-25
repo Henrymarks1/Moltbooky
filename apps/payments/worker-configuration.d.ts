@@ -1,0 +1,9 @@
+interface Env {
+  DATABASE_URL: string;
+  BETTER_AUTH_SECRET?: string;
+  PAYMENT_LAUNCH_APPROVED?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_SUCCESS_URL?: string;
+  STRIPE_CANCEL_URL?: string;
+}

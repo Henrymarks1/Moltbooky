@@ -1,18 +1,15 @@
 {
-  "name": "@moltbooky/api",
+  "name": "@moltbooky/payments",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8787",
-    "build": "tsc --noEmit -p tsconfig.json",
-    "db-migrate-local": "drizzle-kit migrate"
+    "dev": "wrangler dev --port 8789",
+    "build": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.4.0",
-    "@moltbooky/core": "file:../../packages/core",
     "@moltbooky/db": "file:../../packages/db",
-    "@neondatabase/serverless": "^0.10.4",
     "better-auth": "^1.1.14",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.14",

@@ -1,0 +1,18 @@
+{
+  "name": "@moltbooky/resolver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8788",
+    "build": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.65",
+    "@moltbooky/core": "file:../../packages/core",
+    "@moltbooky/db": "file:../../packages/db",
+    "@neondatabase/serverless": "^0.10.4",
+    "ai": "^6.0.191",
+    "zod": "^4.4.3"
+  }
+}

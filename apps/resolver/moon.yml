@@ -1,0 +1,13 @@
+id: "resolver"
+type: "application"
+language: "typescript"
+
+tasks:
+  dev:
+    command: "pnpm run dev"
+    local: true
+  build:
+    command: "pnpm run build"
+    deps:
+      - "core:build"
+      - "db:build"

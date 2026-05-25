@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"],
+    "baseUrl": "../..",
+    "paths": {
+      "@moltbooky/db": ["packages/db/src/index.ts"],
+      "@moltbooky/db/*": ["packages/db/src/*"]
+    }
+  },
+  "include": ["src", "worker-configuration.d.ts"]
+}
