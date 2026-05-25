@@ -84,6 +84,18 @@
       grid-template-columns: 1fr 1fr;
     }
 
+    .profile-actions {
+      grid-column: 1 / -1;
+      justify-content: stretch;
+      width: 100%;
+    }
+
+    .profile-button {
+      min-width: 0;
+      flex: 1;
+      justify-content: flex-start;
+    }
+
     .topbar-search {
       grid-column: 1 / -1;
       order: 2;
@@ -145,6 +157,22 @@
 
   .auth-actions {
     @apply ml-auto flex items-center gap-2;
+  }
+
+  .profile-actions {
+    @apply ml-auto flex min-w-0 items-center gap-2;
+  }
+
+  .profile-button {
+    @apply max-w-[240px] px-2;
+  }
+
+  .profile-button img {
+    @apply h-6 w-6 rounded-full object-cover;
+  }
+
+  .profile-button span {
+    @apply truncate;
   }
 
   .page {

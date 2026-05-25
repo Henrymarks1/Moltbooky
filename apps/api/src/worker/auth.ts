@@ -1,6 +1,13 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { createDb, schema } from "@moltbooky/db";
+import { authAccount, authSession, authUser, authVerification, createDb } from "@moltbooky/db";
+
+const authSchema = {
+  user: authUser,
+  session: authSession,
+  account: authAccount,
+  verification: authVerification
+};
 
 export function createAuth(env: Env) {
   const googleEnabled = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
@@ -12,7 +19,7 @@ export function createAuth(env: Env) {
     secret: env.BETTER_AUTH_SECRET ?? "local-dev-secret-change-before-deploy",
     database: drizzleAdapter(createDb(env.DATABASE_URL), {
       provider: "pg",
-      schema
+      schema: authSchema
     }),
     emailAndPassword: {
       enabled: true

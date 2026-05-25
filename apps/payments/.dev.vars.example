@@ -1,4 +1,5 @@
 DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require"
+BETTER_AUTH_URL="http://localhost:5173"
 BETTER_AUTH_SECRET="local-dev-secret-change-me"
 PAYMENT_LAUNCH_APPROVED="false"
 

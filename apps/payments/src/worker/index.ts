@@ -1,7 +1,7 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { createDb, eq, ledgerEntries, schema, walletAccounts } from "@moltbooky/db";
+import { authAccount, authSession, authUser, authVerification, createDb, eq, ledgerEntries, walletAccounts } from "@moltbooky/db";
 
 const app = new OpenAPIHono<{ Bindings: Env }>();
 
@@ -10,14 +10,22 @@ const depositRequestSchema = z.object({
   amountCents: z.number().int().min(500).max(10_000)
 });
 
+const authSchema = {
+  user: authUser,
+  session: authSession,
+  account: authAccount,
+  verification: authVerification
+};
+
 function createAuth(env: Env) {
   return betterAuth({
     appName: "Moltbooky",
+    baseURL: env.BETTER_AUTH_URL ?? "http://localhost:5173",
     basePath: "/api/auth",
     secret: env.BETTER_AUTH_SECRET ?? "local-dev-secret-change-before-deploy",
     database: drizzleAdapter(createDb(env.DATABASE_URL), {
       provider: "pg",
-      schema
+      schema: authSchema
     }),
     emailAndPassword: {
       enabled: true
