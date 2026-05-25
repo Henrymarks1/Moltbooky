@@ -31,6 +31,7 @@ function WalletPage() {
   const [error, setError] = useState("");
   const [ledgerError, setLedgerError] = useState("");
   const [testingMode, setTestingMode] = useState(isTestingModeEnabled());
+  const [creditPurchasesEnabled, setCreditPurchasesEnabled] = useState(testingMode);
 
   async function refreshWallet() {
     setError("");
@@ -57,6 +58,27 @@ function WalletPage() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    async function refreshPaymentsConfig() {
+      if (testingMode) {
+        setCreditPurchasesEnabled(true);
+        return;
+      }
+
+      const config = await api.paymentsConfig();
+      if (isMounted) {
+        setCreditPurchasesEnabled(config.creditPurchasesEnabled);
+      }
+    }
+
+    void refreshPaymentsConfig();
+    return () => {
+      isMounted = false;
+    };
+  }, [testingMode]);
+
+  useEffect(() => {
     function refreshTestingMode() {
       setTestingMode(isTestingModeEnabled());
       void refreshWallet();
@@ -78,6 +100,10 @@ function WalletPage() {
     const amountCents = Math.round(amount * 100);
     if (!Number.isFinite(amount) || amountCents < 500 || amountCents > 10_000) {
       setError("Credit purchase amount must be between 5 and 100 credits.");
+      return;
+    }
+    if (!testingMode && !creditPurchasesEnabled) {
+      setError("Credit purchases are not enabled yet. Your beta credits are available above.");
       return;
     }
 
@@ -127,6 +153,11 @@ function WalletPage() {
           </div>
         </CardHeader>
         <CardContent>
+          {!testingMode && !creditPurchasesEnabled && (
+            <div className="notice">
+              Credit purchases are not enabled yet. Your beta credits are already available for creating and matching markets.
+            </div>
+          )}
           <form className="deposit-form" onSubmit={createCreditPurchase}>
             <div>
               <label htmlFor="credit-purchase-amount">Credits</label>
@@ -153,9 +184,17 @@ function WalletPage() {
                 </Button>
               ))}
             </div>
-            <Button type="submit" disabled={isPurchasing}>
+            <Button type="submit" disabled={isPurchasing || (!testingMode && !creditPurchasesEnabled)}>
               <CreditCard size={18} />
-              {isPurchasing ? (testingMode ? "Adding..." : "Opening Checkout") : testingMode ? "Add credits" : "Buy with Stripe"}
+              {isPurchasing
+                ? testingMode
+                  ? "Adding..."
+                  : "Opening Checkout"
+                : testingMode
+                  ? "Add credits"
+                  : creditPurchasesEnabled
+                    ? "Buy with Stripe"
+                    : "Credit purchases unavailable"}
             </Button>
           </form>
         </CardContent>

@@ -104,6 +104,32 @@ const healthRoute = createRoute({
 
 app.openapi(healthRoute, (c) => c.json({ ok: true, name: "Moltbooky Payments" }));
 
+function creditPurchasesEnabled(env: Env): boolean {
+  return (
+    env.PAYMENT_LAUNCH_APPROVED === "true" &&
+    Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_SUCCESS_URL && env.STRIPE_CANCEL_URL && env.STRIPE_WEBHOOK_SECRET)
+  );
+}
+
+const configRoute = createRoute({
+  method: "get",
+  path: "/api/payments/config",
+  responses: {
+    200: {
+      description: "Public payments configuration",
+      content: {
+        "application/json": {
+          schema: z.object({
+            creditPurchasesEnabled: z.boolean()
+          })
+        }
+      }
+    }
+  }
+});
+
+app.openapi(configRoute, (c) => c.json({ creditPurchasesEnabled: creditPurchasesEnabled(c.env) }));
+
 const creditPurchaseResponses = {
   200: {
     description: "Stripe Checkout session created",
@@ -122,11 +148,8 @@ const creditPurchaseResponses = {
 } as const;
 
 async function createCreditPurchase(c: any) {
-  if (c.env.PAYMENT_LAUNCH_APPROVED !== "true") {
+  if (!creditPurchasesEnabled(c.env)) {
     return jsonError(c, "Credit purchases are disabled until legal and Stripe approval are complete.", 403);
-  }
-  if (!c.env.STRIPE_SECRET_KEY || !c.env.STRIPE_SUCCESS_URL || !c.env.STRIPE_CANCEL_URL) {
-    return jsonError(c, "Stripe is not configured.", 500);
   }
 
   const userId = await getSessionUserId(c.env, c.req.raw);

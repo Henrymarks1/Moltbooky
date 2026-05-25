@@ -145,6 +145,12 @@ function createCreditPurchase(amountCents: number) {
 }
 
 export const api = {
+  paymentsConfig: () => {
+    if (isTestingModeEnabled()) {
+      return Promise.resolve({ creditPurchasesEnabled: true });
+    }
+    return request<{ creditPurchasesEnabled: boolean }>("/api/payments/config").catch(() => ({ creditPurchasesEnabled: false }));
+  },
   listChallenges: async () => {
     if (isTestingModeEnabled()) {
       const state = readFakeState();
