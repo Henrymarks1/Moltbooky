@@ -1,5 +1,7 @@
 import { Link, Outlet, createRootRoute } from "@tanstack/react-router";
-import { Activity, KeyRound, LogIn, Plus, ShieldCheck, Wallet } from "lucide-react";
+import { Activity, Bot, Info, Search } from "lucide-react";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 
 export const Route = createRootRoute({
   component: RootLayout
@@ -9,38 +11,38 @@ export const rootRoute = Route;
 function RootLayout() {
   return (
     <main className="app-shell">
-      <aside className="sidebar">
+      <header className="topbar">
         <div className="brand">
           <div className="brand-mark">M</div>
           <div>
             <strong>Moltbooky</strong>
-            <span>Private beta</span>
+            <span>Event markets</span>
           </div>
+        </div>
+        <div className="topbar-search">
+          <Search size={18} />
+          <Input placeholder="Search markets..." aria-label="Search markets" />
         </div>
         <nav>
           <Link to="/" activeProps={{ className: "active" }}>
-            <Activity size={18} /> Feed
-          </Link>
-          <Link to="/challenge/new" activeProps={{ className: "active" }}>
-            <Plus size={18} /> New
-          </Link>
-          <Link to="/wallet" activeProps={{ className: "active" }}>
-            <Wallet size={18} /> Wallet
+            <Activity size={18} /> Markets
           </Link>
           <Link to="/settings/api-keys" activeProps={{ className: "active" }}>
-            <KeyRound size={18} /> API Keys
-          </Link>
-          <Link to="/admin" activeProps={{ className: "active" }}>
-            <ShieldCheck size={18} /> Admin
+            <Bot size={18} /> Agents
           </Link>
           <Link to="/login" activeProps={{ className: "active" }}>
-            <LogIn size={18} /> Login
+            <Info size={18} /> How it works
           </Link>
         </nav>
-        <p className="compliance-note">
-          Real-money launch is gated behind legal review and payment approval. Beta balances are isolated in the internal ledger.
-        </p>
-      </aside>
+        <div className="auth-actions">
+          <Button asChild variant="ghost">
+            <Link to="/login">Log in</Link>
+          </Button>
+          <Button asChild>
+            <Link to="/login">Sign up</Link>
+          </Button>
+        </div>
+      </header>
       <section className="content">
         <Outlet />
       </section>

@@ -1,7 +1,8 @@
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { LogIn } from "lucide-react";
+import { Chrome, LogIn, UserPlus } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { rootRoute } from "./root";
@@ -25,6 +26,23 @@ async function authRequest(path: string, body: unknown) {
   }
 }
 
+async function signInWithGoogle() {
+  const response = await fetch("/api/auth/sign-in/social", {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      provider: "google",
+      callbackURL: window.location.origin
+    })
+  });
+  const data = (await response.json().catch(() => ({}))) as { url?: string; message?: string; error?: { message?: string } };
+  if (!response.ok || !data.url) {
+    throw new Error(data.error?.message ?? data.message ?? "Google sign-in is not configured.");
+  }
+  window.location.href = data.url;
+}
+
 function LoginPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
@@ -45,6 +63,15 @@ function LoginPage() {
     }
   }
 
+  async function submitGoogle() {
+    setError("");
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   return (
     <div className="page narrow">
       <header className="page-header">
@@ -53,8 +80,17 @@ function LoginPage() {
           <p>Better Auth powers human sessions. Agents use scoped API keys after sign-in.</p>
         </div>
       </header>
-      <form className="panel form" onSubmit={submit}>
+      <Card>
+        <CardHeader>
+          <CardTitle>{mode === "sign-in" ? "Welcome back" : "Join the beta"}</CardTitle>
+        </CardHeader>
+        <CardContent>
+      <form className="form" onSubmit={submit}>
         {error && <div className="notice error">{error}</div>}
+        <Button type="button" variant="outline" onClick={submitGoogle}>
+          <Chrome size={18} /> Continue with Google
+        </Button>
+        <div className="divider">or</div>
         {mode === "sign-up" && (
           <Label>
             Name
@@ -73,9 +109,12 @@ function LoginPage() {
           <LogIn size={18} /> {mode === "sign-in" ? "Sign in" : "Create account"}
         </Button>
         <Button type="button" variant="ghost" onClick={() => setMode(mode === "sign-in" ? "sign-up" : "sign-in")}>
+          {mode === "sign-in" ? <UserPlus size={18} /> : <LogIn size={18} />}
           {mode === "sign-in" ? "Need an account?" : "Already have an account?"}
         </Button>
       </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

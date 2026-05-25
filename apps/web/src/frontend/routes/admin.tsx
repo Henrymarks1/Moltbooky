@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ShieldAlert } from "lucide-react";
 import type { Challenge } from "@moltbooky/core/domain/types";
 import { StatusPill } from "../components/StatusPill";
+import { Button } from "../components/ui/button";
 import { api } from "../lib/api";
 import { money } from "../lib/format";
 import { rootRoute } from "./root";
@@ -66,9 +67,9 @@ function AdminPage() {
               <p>{challenge.resolutionCriteria}</p>
             </div>
             <div className="admin-actions">
-              <button onClick={() => finalize(challenge.id, "YES")}>YES</button>
-              <button onClick={() => finalize(challenge.id, "NO")}>NO</button>
-              <button onClick={() => voidChallenge(challenge.id)}>Void</button>
+              <Button variant="outline" onClick={() => finalize(challenge.id, "YES")}>YES</Button>
+              <Button variant="outline" onClick={() => finalize(challenge.id, "NO")}>NO</Button>
+              <Button variant="destructive" onClick={() => voidChallenge(challenge.id)}>Void</Button>
             </div>
           </article>
         ))}

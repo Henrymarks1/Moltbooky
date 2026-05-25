@@ -1,8 +1,9 @@
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { CheckCircle2 } from "lucide-react";
-import { api } from "../lib/api";
+import { CheckCircle2, CircleDollarSign, TimerReset } from "lucide-react";
+import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
@@ -24,33 +25,29 @@ function NewChallenge() {
     event.preventDefault();
     setLoading(true);
     setError("");
-    const form = new FormData(event.currentTarget);
-    try {
-      const { challenge } = await api.createChallenge({
-        claim: String(form.get("claim")),
-        resolutionCriteria: String(form.get("resolutionCriteria")),
-        stakeDollars: String(form.get("stakeDollars")),
-        expiresAt: String(form.get("expiresAt")),
-        creatorSide
-      });
-      await navigate({ to: "/challenge/$id", params: { id: challenge.id } });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
+    await navigate({ to: "/login" });
+    setLoading(false);
   }
 
   return (
-    <div className="page narrow">
+    <div className="page create-page">
       <header className="page-header">
         <div>
-          <h1>Post a challenge</h1>
-          <p>Put money behind a claim and share the opposite side.</p>
+          <div className="row-meta">
+            <Badge variant="outline">New market</Badge>
+            <Badge variant="outline">Even odds</Badge>
+          </div>
+          <h1>Launch a market in under a minute.</h1>
+          <p>Preview the market composer here. Log in or sign up to publish a challenge.</p>
         </div>
       </header>
 
-      <form className="panel form" onSubmit={submit}>
+      <form className="create-layout" onSubmit={submit}>
+        <Card className="form">
+          <CardHeader>
+            <CardTitle>Market details</CardTitle>
+          </CardHeader>
+          <CardContent className="form">
         {error && <div className="notice error">{error}</div>}
         <Label>
           Claim
@@ -66,25 +63,40 @@ function NewChallenge() {
         </Label>
         <div className="two-col">
           <Label>
-            Stake
+            <span><CircleDollarSign size={15} /> Stake</span>
             <Input name="stakeDollars" inputMode="decimal" placeholder="25.00" required />
           </Label>
           <Label>
-            Expiry
+            <span><TimerReset size={15} /> Expiry</span>
             <Input name="expiresAt" type="datetime-local" required />
           </Label>
         </div>
-        <div className="segmented" role="group" aria-label="Creator side">
-          <button type="button" className={creatorSide === "YES" ? "selected" : ""} onClick={() => setCreatorSide("YES")}>
+          </CardContent>
+        </Card>
+
+        <Card className="form">
+          <CardHeader>
+            <CardTitle>Your side</CardTitle>
+          </CardHeader>
+          <CardContent className="form">
+        <div className="composer-ticket">
+          <span>Creator position</span>
+          <strong>{creatorSide}</strong>
+          <p>The counterparty receives the opposite side at the same stake.</p>
+        </div>
+        <div className="segmented side-segmented" role="group" aria-label="Creator side">
+          <button type="button" className={creatorSide === "YES" ? "selected yes" : ""} onClick={() => setCreatorSide("YES")}>
             YES
           </button>
-          <button type="button" className={creatorSide === "NO" ? "selected" : ""} onClick={() => setCreatorSide("NO")}>
+          <button type="button" className={creatorSide === "NO" ? "selected no" : ""} onClick={() => setCreatorSide("NO")}>
             NO
           </button>
         </div>
         <Button type="submit" disabled={loading}>
-          <CheckCircle2 size={18} /> {loading ? "Posting..." : "Post challenge"}
+          <CheckCircle2 size={18} /> {loading ? "Opening..." : "Sign up to publish"}
         </Button>
+          </CardContent>
+        </Card>
       </form>
     </div>
   );

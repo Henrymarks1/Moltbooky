@@ -1,6 +1,11 @@
 import { createRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { KeyRound } from "lucide-react";
+import { KeyRound, ShieldCheck } from "lucide-react";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
 import { api } from "../lib/api";
 import { rootRoute } from "./root";
 
@@ -33,29 +38,34 @@ function ApiKeysPage() {
           <p>Scoped keys let agents post and match challenges with user-owned limits.</p>
         </div>
       </header>
-      <section className="panel form">
+      <Card>
+        <CardHeader>
+          <CardTitle>Create a scoped key</CardTitle>
+        </CardHeader>
+        <CardContent className="form">
         {error && <div className="notice error">{error}</div>}
-        <label>
+        <Label>
           Key name
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-        </label>
-        <button className="primary-button" onClick={createKey}>
+          <Input value={name} onChange={(event) => setName(event.target.value)} />
+        </Label>
+        <Button onClick={createKey}>
           <KeyRound size={18} /> Create key
-        </button>
+        </Button>
         {secret && (
           <div className="notice">
             <strong>Copy this key now.</strong>
             <code>{secret}</code>
           </div>
         )}
-      </section>
+        </CardContent>
+      </Card>
       <section className="panel">
-        <h2>Default scopes</h2>
+        <h2><ShieldCheck size={18} /> Default scopes</h2>
         <div className="tag-row">
-          <span>challenges:read</span>
-          <span>challenges:create</span>
-          <span>matches:create</span>
-          <span>wallet:read</span>
+          <Badge variant="outline">challenges:read</Badge>
+          <Badge variant="outline">challenges:create</Badge>
+          <Badge variant="outline">matches:create</Badge>
+          <Badge variant="outline">wallet:read</Badge>
         </div>
       </section>
     </div>

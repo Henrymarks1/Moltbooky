@@ -1,12 +1,12 @@
-import { createRoute } from "@tanstack/react-router";
+import { Link, createRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Copy, RefreshCw, RotateCcw } from "lucide-react";
+import { Copy, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
 import type { Challenge, ChallengeMatch } from "@moltbooky/core/domain/types";
 import { StatusPill } from "../components/StatusPill";
+import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { api } from "../lib/api";
 import { matchProgress, money, shortDate } from "../lib/format";
 import { rootRoute } from "./root";
@@ -22,7 +22,6 @@ function ChallengeDetail() {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [matches, setMatches] = useState<ChallengeMatch[]>([]);
   const [available, setAvailable] = useState(0);
-  const [amount, setAmount] = useState("10.00");
   const [message, setMessage] = useState("");
 
   async function refresh() {
@@ -36,29 +35,8 @@ function ChallengeDetail() {
     refresh().catch((err: Error) => setMessage(err.message));
   }, [id]);
 
-  async function match() {
-    setMessage("");
-    try {
-      await api.matchChallenge(id, amount);
-      await refresh();
-      setMessage("Matched. Only that amount is at risk.");
-    } catch (err) {
-      setMessage((err as Error).message);
-    }
-  }
-
-  async function cancel() {
-    try {
-      const result = await api.cancelUnmatched(id);
-      await refresh();
-      setMessage(`Released ${money(result.unlockedCents)} of unmatched stake.`);
-    } catch (err) {
-      setMessage((err as Error).message);
-    }
-  }
-
   if (!challenge) {
-    return <div className="page">Loading challenge...</div>;
+    return <div className="page loading-page">Loading market...</div>;
   }
 
   return (
@@ -67,7 +45,8 @@ function ChallengeDetail() {
         <div>
           <div className="row-meta">
             <StatusPill status={challenge.status} />
-            <span>expires {shortDate(challenge.expiresAt)}</span>
+            <Badge variant="outline">Expires {shortDate(challenge.expiresAt)}</Badge>
+            <Badge variant="outline">1:1 odds</Badge>
           </div>
           <h1>{challenge.claim}</h1>
           <p>{challenge.resolutionCriteria}</p>
@@ -80,8 +59,11 @@ function ChallengeDetail() {
       {message && <div className="notice">{message}</div>}
 
       <section className="detail-grid">
-        <div className="panel">
-          <h2>Exposure</h2>
+        <Card className="market-panel">
+          <CardHeader>
+            <CardTitle>Market depth</CardTitle>
+          </CardHeader>
+          <CardContent>
           <div className="meter">
             <span style={{ width: `${matchProgress(challenge)}%` }} />
           </div>
@@ -103,28 +85,33 @@ function ChallengeDetail() {
               <strong>{money(challenge.stakeCents)}</strong>
             </div>
           </div>
-          <p className="fine-print">Only matched funds are at risk. Unmatched creator stake can be released while the challenge remains open.</p>
-        </div>
+          <p className="fine-print"><ShieldCheck size={15} /> Only matched funds are at risk. Unmatched creator stake can be released while the market remains open.</p>
+          </CardContent>
+        </Card>
 
-        <div className="panel">
-          <h2>Take the other side</h2>
-          <p className="large-side">{oppositeSide(challenge.creatorSide)}</p>
-          <Label>
-            Match amount
-            <Input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" />
-          </Label>
-          <Button onClick={match}>
-            Match 1:1
+        <Card className="trade-ticket">
+          <CardHeader>
+            <CardTitle>Trade ticket</CardTitle>
+          </CardHeader>
+          <CardContent>
+          <div className="side-card">
+            <span>Take</span>
+            <strong>{oppositeSide(challenge.creatorSide)}</strong>
+          </div>
+          <p className="fine-print">Log in or sign up to match this market, release stake, or create your own challenge.</p>
+          <Button asChild>
+            <Link to="/login">Sign up to trade</Link>
           </Button>
-          <Button variant="secondary" onClick={cancel}>
-            <RotateCcw size={18} /> Release unmatched
+          <Button asChild variant="outline">
+            <Link to="/login">Log in</Link>
           </Button>
-        </div>
+          </CardContent>
+        </Card>
       </section>
 
-      <section className="panel">
+      <section className="panel share-panel">
         <div className="section-title">
-          <h2>Share card</h2>
+          <h2><Sparkles size={18} /> Share market</h2>
           <Button variant="secondary" size="icon" onClick={() => navigator.clipboard.writeText(window.location.href)} aria-label="Copy link">
             <Copy size={18} />
           </Button>

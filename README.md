@@ -36,6 +36,14 @@ moon run db:migrate
 
 `moon run db:migrate` loads `apps/api/.dev.vars` automatically for `DATABASE_URL`.
 
+For local Google sign-in, create OAuth credentials in Google Cloud and add this authorized redirect URI:
+
+```text
+http://localhost:5173/api/auth/callback/google
+```
+
+Then set `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` in `apps/api/.dev.vars`. Leave the Google values blank to keep email/password-only local auth.
+
 The Worker exposes Better Auth at `/api/auth/*` for humans and accepts user-owned agent API keys through `Authorization: Bearer mbk_...`. In local private-beta mode only, `x-user-id` remains available as a development fallback when payment launch is not approved.
 
 The public API contract is served as OpenAPI 3.1 at `/api/openapi.json`. Payment endpoints are served by the payments Worker under `/api/payments/*`.

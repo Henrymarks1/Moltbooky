@@ -1,7 +1,8 @@
 import { createRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { WalletCards } from "lucide-react";
+import { ArrowDownToLine, LockKeyhole, WalletCards } from "lucide-react";
 import type { WalletAccount } from "@moltbooky/core/domain/types";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { api } from "../lib/api";
 import { money } from "../lib/format";
 import { rootRoute } from "./root";
@@ -49,15 +50,28 @@ function WalletPage() {
           <strong>{money(wallet?.pendingWithdrawalCents ?? 0)}</strong>
         </div>
       </section>
+      <Card>
+        <CardHeader>
+          <div className="section-title">
+            <CardTitle>Deposits</CardTitle>
+            <WalletCards size={20} />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="deposit-disabled">
+            <LockKeyhole size={20} />
+            <div>
+              <strong>Deposits disabled during beta</strong>
+              <p className="fine-print">Live Stripe deposits are intentionally disabled until legal and payment approval are complete.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       <section className="panel">
         <div className="section-title">
-          <h2>Deposits</h2>
-          <WalletCards size={20} />
+          <h2>Ledger</h2>
+          <ArrowDownToLine size={20} />
         </div>
-        <p className="fine-print">Live Stripe deposits are intentionally disabled until legal and payment approval are complete.</p>
-      </section>
-      <section className="panel">
-        <h2>Ledger</h2>
         <div className="ledger-list">
           {ledger.map((entry) => (
             <div key={entry.id}>
