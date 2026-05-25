@@ -1,8 +1,20 @@
 import posthog from "posthog-js";
 import type { AuthUser } from "../routes/root";
 
-const posthogToken = import.meta.env.VITE_POSTHOG_TOKEN ?? import.meta.env.VITE_POSTHOG_KEY;
-const posthogHost = import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com";
+type AnalyticsConfig = {
+  posthogToken?: string;
+  posthogHost?: string;
+};
+
+declare global {
+  interface Window {
+    __MOLTBOOKY_ANALYTICS__?: AnalyticsConfig;
+  }
+}
+
+const runtimeConfig = typeof window === "undefined" ? undefined : window.__MOLTBOOKY_ANALYTICS__;
+const posthogToken = runtimeConfig?.posthogToken ?? import.meta.env.VITE_POSTHOG_TOKEN ?? import.meta.env.VITE_POSTHOG_KEY;
+const posthogHost = runtimeConfig?.posthogHost ?? import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com";
 
 export function initAnalytics(): void {
   if (!posthogToken || posthog.__loaded) {

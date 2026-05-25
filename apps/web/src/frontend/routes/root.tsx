@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import { capturePageview, identifyAnalyticsUser, resetAnalyticsUser } from "../lib/analytics";
+import { isTestingModeEnabled, testingModeChangeEvent, testingUser } from "../lib/testingMode";
 
 export const Route = createRootRoute({
   component: RootLayout
@@ -25,6 +26,10 @@ type SessionResponse = {
 export const authChangeEvent = "moltbooky-auth-change";
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
+  if (isTestingModeEnabled()) {
+    return testingUser;
+  }
+
   const response = await fetch("/api/auth/get-session", {
     credentials: "include"
   });
@@ -54,6 +59,7 @@ function RootLayout() {
   const [authLoaded, setAuthLoaded] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [testingMode, setTestingMode] = useState(isTestingModeEnabled());
   const previousUserId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -70,12 +76,27 @@ function RootLayout() {
 
     void refreshAuth();
     window.addEventListener(authChangeEvent, refreshAuth);
+    window.addEventListener(testingModeChangeEvent, refreshAuth);
     window.addEventListener("focus", refreshAuth);
 
     return () => {
       active = false;
       window.removeEventListener(authChangeEvent, refreshAuth);
+      window.removeEventListener(testingModeChangeEvent, refreshAuth);
       window.removeEventListener("focus", refreshAuth);
+    };
+  }, []);
+
+  useEffect(() => {
+    function refreshTestingMode() {
+      setTestingMode(isTestingModeEnabled());
+    }
+
+    window.addEventListener(testingModeChangeEvent, refreshTestingMode);
+    window.addEventListener("storage", refreshTestingMode);
+    return () => {
+      window.removeEventListener(testingModeChangeEvent, refreshTestingMode);
+      window.removeEventListener("storage", refreshTestingMode);
     };
   }, []);
 
@@ -122,7 +143,7 @@ function RootLayout() {
             <div className="brand-mark">M</div>
             <div>
               <strong>Moltbooky</strong>
-              <span>Event markets</span>
+              <span>{testingMode ? "Play-money testing" : "Event markets"}</span>
             </div>
           </div>
           <div className="topbar-search">

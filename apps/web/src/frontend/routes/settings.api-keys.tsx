@@ -1,12 +1,13 @@
-import { Link, createRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { KeyRound, ShieldCheck } from "lucide-react";
+import { FlaskConical, KeyRound, ShieldCheck } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { api } from "../lib/api";
+import { isTestingModeEnabled, setTestingModeEnabled, testingModeChangeEvent } from "../lib/testingMode";
 import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
 export const Route = createRoute({
@@ -16,12 +17,12 @@ export const Route = createRoute({
 });
 
 function ApiKeysPage() {
-  const navigate = useNavigate();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
   const [name, setName] = useState("Research agent");
   const [secret, setSecret] = useState("");
   const [error, setError] = useState("");
+  const [testingMode, setTestingMode] = useState(isTestingModeEnabled());
 
   useEffect(() => {
     let active = true;
@@ -37,20 +38,29 @@ function ApiKeysPage() {
 
     void refreshAuth();
     window.addEventListener(authChangeEvent, refreshAuth);
+    window.addEventListener(testingModeChangeEvent, refreshAuth);
     window.addEventListener("focus", refreshAuth);
 
     return () => {
       active = false;
       window.removeEventListener(authChangeEvent, refreshAuth);
+      window.removeEventListener(testingModeChangeEvent, refreshAuth);
       window.removeEventListener("focus", refreshAuth);
     };
   }, []);
 
   useEffect(() => {
-    if (authLoaded && !user) {
-      void navigate({ to: "/login" });
+    function refreshTestingMode() {
+      setTestingMode(isTestingModeEnabled());
     }
-  }, [authLoaded, navigate, user]);
+
+    window.addEventListener(testingModeChangeEvent, refreshTestingMode);
+    window.addEventListener("storage", refreshTestingMode);
+    return () => {
+      window.removeEventListener(testingModeChangeEvent, refreshTestingMode);
+      window.removeEventListener("storage", refreshTestingMode);
+    };
+  }, []);
 
   async function createKey() {
     setError("");
@@ -66,29 +76,41 @@ function ApiKeysPage() {
     return <div className="page loading-page">Checking session...</div>;
   }
 
-  if (!user) {
-    return (
-      <div className="page narrow">
-        <section className="empty-state">
-          <h2>Sign in required</h2>
-          <p>Agent API keys belong to a user account.</p>
-          <Button asChild>
-            <Link to="/login">Log in</Link>
-          </Button>
-        </section>
-      </div>
-    );
-  }
-
   return (
     <div className="page narrow">
       <header className="page-header">
         <div>
-          <h1>Agent API keys</h1>
-          <p>Scoped keys let agents post and match challenges with user-owned limits.</p>
+          <h1>Settings</h1>
+          <p>Testing controls and scoped keys for agent workflows.</p>
         </div>
       </header>
       <Card>
+        <CardHeader>
+          <div className="section-title">
+            <CardTitle>Testing mode</CardTitle>
+            <FlaskConical size={20} />
+          </div>
+        </CardHeader>
+        <CardContent className="form">
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={testingMode}
+              onChange={(event) => {
+                setTestingModeEnabled(event.target.checked);
+                window.dispatchEvent(new Event(authChangeEvent));
+              }}
+            />
+            <span>
+              <strong>Bet with fake money</strong>
+              <small>Uses a local play-money wallet, challenges, and matches for testing.</small>
+            </span>
+          </label>
+          {testingMode && <div className="notice">Play-money mode is on. Real wallet balances and Stripe deposits are bypassed in this browser.</div>}
+        </CardContent>
+      </Card>
+      {user ? (
+        <Card>
         <CardHeader>
           <CardTitle>Create a scoped key</CardTitle>
         </CardHeader>
@@ -108,7 +130,16 @@ function ApiKeysPage() {
           </div>
         )}
         </CardContent>
-      </Card>
+        </Card>
+      ) : (
+        <section className="empty-state">
+          <h2>Sign in required</h2>
+          <p>Agent API keys belong to a user account. Testing mode can be enabled without signing in.</p>
+          <Button asChild>
+            <Link to="/login">Log in</Link>
+          </Button>
+        </section>
+      )}
       <section className="panel">
         <h2><ShieldCheck size={18} /> Default scopes</h2>
         <div className="tag-row">

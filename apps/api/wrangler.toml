@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 PAYMENT_LAUNCH_APPROVED = "false"
+BETTER_AUTH_URL = "https://moltbooky.com"
 
 [[durable_objects.bindings]]
 name = "CHALLENGE_OBJECT"

@@ -1,6 +1,6 @@
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Chrome, LogIn, UserPlus } from "lucide-react";
+import { LogIn, UserPlus } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -41,6 +41,29 @@ async function signInWithGoogle() {
     throw new Error(data.error?.message ?? data.message ?? "Google sign-in is not configured.");
   }
   window.location.href = data.url;
+}
+
+function GoogleIcon() {
+  return (
+    <svg className="google-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.82-.07-1.6-.2-2.36H12v4.46h6.46a5.52 5.52 0 0 1-2.39 3.62v2.96h3.87c2.27-2.09 3.55-5.17 3.55-8.68Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.87-2.96c-1.07.72-2.44 1.14-4.07 1.14-3.13 0-5.78-2.11-6.73-4.95H1.29v3.05A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.32A7.2 7.2 0 0 1 4.9 12c0-.8.13-1.58.37-2.32V6.63H1.29A12 12 0 0 0 0 12c0 1.93.46 3.76 1.29 5.37l3.98-3.05Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.73c1.76 0 3.34.61 4.58 1.8l3.43-3.43C17.93 1.17 15.23 0 12 0A12 12 0 0 0 1.29 6.63l3.98 3.05C6.22 6.84 8.87 4.73 12 4.73Z"
+      />
+    </svg>
+  );
 }
 
 function LoginPage() {
@@ -88,8 +111,8 @@ function LoginPage() {
         <CardContent>
       <form className="form" onSubmit={submit}>
         {error && <div className="notice error">{error}</div>}
-        <Button type="button" variant="outline" onClick={submitGoogle}>
-          <Chrome size={18} /> Continue with Google
+        <Button type="button" variant="outline" className="google-button !h-12 !border-[#dadce0] !bg-white !text-[15px] !text-[#3c4043]" onClick={submitGoogle}>
+          <GoogleIcon /> Continue with Google
         </Button>
         <div className="divider">or</div>
         {mode === "sign-up" && (

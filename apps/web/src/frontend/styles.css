@@ -627,6 +627,14 @@
     @apply border-destructive/30 bg-destructive/10 text-destructive;
   }
 
+  .google-button {
+    @apply relative text-[15px] font-semibold shadow-sm transition-[background-color,border-color,box-shadow] hover:!border-[#d2d5d9] hover:!bg-[#f8fafd] hover:!text-[#202124] focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2;
+  }
+
+  .google-icon {
+    @apply h-5 w-5 shrink-0;
+  }
+
   .detail-grid {
     @apply grid grid-cols-[minmax(0,1fr)_360px] gap-4 max-[920px]:grid-cols-1;
   }
@@ -718,6 +726,30 @@
 
   .side-card strong {
     @apply text-3xl font-semibold tracking-tight;
+  }
+
+  .trade-amount {
+    @apply grid gap-2;
+  }
+
+  .trade-amount span {
+    @apply text-sm font-semibold text-muted-foreground;
+  }
+
+  .toggle-row {
+    @apply flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted p-4;
+  }
+
+  .toggle-row input {
+    @apply mt-1 h-5 w-5 accent-primary;
+  }
+
+  .toggle-row span {
+    @apply grid gap-1;
+  }
+
+  .toggle-row small {
+    @apply text-sm leading-6 text-muted-foreground;
   }
 
   .share-panel h2,

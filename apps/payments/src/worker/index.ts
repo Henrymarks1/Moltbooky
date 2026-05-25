@@ -33,6 +33,21 @@ function resolveAuthSecret(env: Env): string {
   throw new Error("BETTER_AUTH_SECRET is required outside local development.");
 }
 
+function resolveTrustedOrigins(env: Env): string[] {
+  const origins = new Set([
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://moltbooky.com",
+    "https://www.moltbooky.com"
+  ]);
+
+  if (env.BETTER_AUTH_URL) {
+    origins.add(new URL(env.BETTER_AUTH_URL).origin);
+  }
+
+  return [...origins];
+}
+
 function createAuth(env: Env) {
   return betterAuth({
     appName: "Moltbooky",
@@ -46,7 +61,7 @@ function createAuth(env: Env) {
     emailAndPassword: {
       enabled: true
     },
-    trustedOrigins: ["http://localhost:5173", "http://127.0.0.1:5173"]
+    trustedOrigins: resolveTrustedOrigins(env)
   });
 }
 

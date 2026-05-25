@@ -7,6 +7,7 @@ import { StatusPill } from "../components/StatusPill";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import { api } from "../lib/api";
 import { matchProgress, money, shortDate } from "../lib/format";
@@ -27,6 +28,8 @@ function ChallengeDetail() {
   const [message, setMessage] = useState("");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [matchDollars, setMatchDollars] = useState("5");
+  const [matching, setMatching] = useState(false);
 
   async function refresh() {
     const data = await api.getChallenge(id);
@@ -79,6 +82,23 @@ function ChallengeDetail() {
       setMessage(err instanceof Error ? err.message : "Bet could not be deleted.");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function matchMarket() {
+    if (!challenge) {
+      return;
+    }
+
+    setMatching(true);
+    setMessage("");
+    try {
+      await api.matchChallenge(challenge.id, matchDollars);
+      await refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Market could not be matched.");
+    } finally {
+      setMatching(false);
     }
   }
 
@@ -146,7 +166,20 @@ function ChallengeDetail() {
           </p>
           {user ? (
             <>
-              <Button type="button">Match market</Button>
+              <label className="trade-amount">
+                <span>Amount</span>
+                <Input
+                  inputMode="decimal"
+                  min="0.01"
+                  max={String(available / 100)}
+                  step="0.01"
+                  value={matchDollars}
+                  onChange={(event) => setMatchDollars(event.target.value)}
+                />
+              </label>
+              <Button type="button" onClick={matchMarket} disabled={matching || available <= 0}>
+                {matching ? "Matching..." : "Match market"}
+              </Button>
               <Button asChild variant="outline">
                 <Link to="/challenge/new">Create market</Link>
               </Button>

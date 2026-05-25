@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input";
 import { api } from "../lib/api";
 import { money } from "../lib/format";
+import { isTestingModeEnabled, testingModeChangeEvent } from "../lib/testingMode";
 import { rootRoute } from "./root";
 
 export const Route = createRoute({
@@ -22,14 +23,34 @@ function WalletPage() {
   const [depositDollars, setDepositDollars] = useState("25");
   const [isDepositing, setIsDepositing] = useState(false);
   const [error, setError] = useState("");
+  const [testingMode, setTestingMode] = useState(isTestingModeEnabled());
+
+  async function refreshWallet() {
+    try {
+      const [walletData, ledgerData] = await Promise.all([api.wallet(), api.ledger()]);
+      setWallet(walletData.wallet);
+      setLedger(ledgerData.ledger);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Wallet could not be loaded.");
+    }
+  }
 
   useEffect(() => {
-    Promise.all([api.wallet(), api.ledger()])
-      .then(([walletData, ledgerData]) => {
-        setWallet(walletData.wallet);
-        setLedger(ledgerData.ledger);
-      })
-      .catch((err: Error) => setError(err.message));
+    void refreshWallet();
+  }, []);
+
+  useEffect(() => {
+    function refreshTestingMode() {
+      setTestingMode(isTestingModeEnabled());
+      void refreshWallet();
+    }
+
+    window.addEventListener(testingModeChangeEvent, refreshTestingMode);
+    window.addEventListener("storage", refreshTestingMode);
+    return () => {
+      window.removeEventListener(testingModeChangeEvent, refreshTestingMode);
+      window.removeEventListener("storage", refreshTestingMode);
+    };
   }, []);
 
   async function createDeposit(event: FormEvent<HTMLFormElement>) {
@@ -46,6 +67,11 @@ function WalletPage() {
     setIsDepositing(true);
     try {
       const deposit = await api.createDeposit(amountCents);
+      if (testingMode) {
+        await refreshWallet();
+        setIsDepositing(false);
+        return;
+      }
       window.location.href = deposit.checkoutUrl;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start Stripe Checkout.");
@@ -58,7 +84,7 @@ function WalletPage() {
       <header className="page-header">
         <div>
           <h1>Wallet</h1>
-          <p>Internal ledger balances for private beta settlement.</p>
+          <p>{testingMode ? "Local play-money balances for testing." : "Internal ledger balances for private beta settlement."}</p>
         </div>
       </header>
       {error && <div className="notice error">{error}</div>}
@@ -100,7 +126,9 @@ function WalletPage() {
                   onChange={(event) => setDepositDollars(event.target.value)}
                 />
               </div>
-              <p className="field-help">Stripe Checkout accepts deposits from $5 to $100.</p>
+              <p className="field-help">
+                {testingMode ? "Add local play money from $5 to $100." : "Stripe Checkout accepts deposits from $5 to $100."}
+              </p>
             </div>
             <div className="deposit-presets">
               {[10, 25, 50, 100].map((amount) => (
@@ -111,7 +139,7 @@ function WalletPage() {
             </div>
             <Button type="submit" disabled={isDepositing}>
               <CreditCard size={18} />
-              {isDepositing ? "Opening Checkout" : "Deposit with Stripe"}
+              {isDepositing ? (testingMode ? "Adding..." : "Opening Checkout") : testingMode ? "Add play money" : "Deposit with Stripe"}
             </Button>
           </form>
         </CardContent>

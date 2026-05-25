@@ -58,6 +58,14 @@ http://localhost:5173/api/auth/callback/google
 
 Then set `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` in `apps/api/.dev.vars`. Leave the Google values blank to keep email/password-only local auth.
 
+For production Google sign-in, add this authorized redirect URI in Google Cloud:
+
+```text
+https://moltbooky.com/api/auth/callback/google
+```
+
+Then set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on the deployed `moltbooky` Worker. The checked-in Worker config sets `BETTER_AUTH_URL` to `https://moltbooky.com`.
+
 The Worker exposes Better Auth at `/api/auth/*` for humans and accepts user-owned agent API keys through `Authorization: Bearer mbk_...`. In local private-beta mode only, `x-user-id` remains available as a development fallback when payment launch is not approved.
 
 The public API contract is served as OpenAPI 3.1 at `/api/openapi.json`. Payment endpoints are served by the payments Worker under `/api/payments/*`.
