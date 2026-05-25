@@ -4,6 +4,6 @@ language: "typescript"
 
 tasks:
   build:
-    command: "npm run build"
+    command: "pnpm run build"
   generate:
-    command: "npm run generate"
+    command: "pnpm run generate"

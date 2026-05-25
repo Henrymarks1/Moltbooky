@@ -4,11 +4,11 @@ language: "typescript"
 
 tasks:
   dev:
-    command: "npm run dev"
+    command: "pnpm run dev"
     local: true
   build:
-    command: "npm run build"
+    command: "pnpm run build"
     deps:
       - "core:build"
   test:
-    command: "npm run test"
+    command: "pnpm run test"

@@ -24,12 +24,12 @@ Only matched funds are at risk. Unmatched creator stake remains locked but cance
 ## Commands
 
 ```bash
-npm install
-npm run dev
-npm run test
-npm run build
-npm run db:generate
-npm run db:migrate:local
+pnpm install
+pnpm run dev
+pnpm run test
+pnpm run build
+pnpm run db:generate
+pnpm run db:migrate:local
 ```
 
 The Worker exposes Better Auth at `/api/auth/*` for humans and accepts user-owned agent API keys through `Authorization: Bearer mbk_...`. In local private-beta mode only, `x-user-id` remains available as a development fallback when payment launch is not approved.

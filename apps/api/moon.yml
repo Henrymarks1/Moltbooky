@@ -4,13 +4,13 @@ language: "typescript"
 
 tasks:
   dev:
-    command: "npm run dev"
+    command: "pnpm run dev"
     local: true
   build:
-    command: "npm run build"
+    command: "pnpm run build"
     deps:
       - "core:build"
       - "db:build"
   db-migrate-local:
-    command: "npm run db-migrate-local"
+    command: "pnpm run db-migrate-local"
     local: true

@@ -3,16 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
-  "scripts": {
-    "dev": "MOON_HOME=.moon/cache moon run web:dev api:dev",
-    "build": "MOON_HOME=.moon/cache moon run web:build api:build db:build core:build",
-    "test": "MOON_HOME=.moon/cache moon run core:test",
-    "db:generate": "MOON_HOME=.moon/cache moon run db:generate",
-    "db:migrate:local": "MOON_HOME=.moon/cache moon run api:db-migrate-local"
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",
@@ -28,5 +24,16 @@
     "vite": "^6.0.3",
     "vitest": "^2.1.8",
     "wrangler": "^3.91.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "MOON_HOME=.moon/cache moon run web:dev api:dev",
+    "build": "MOON_HOME=.moon/cache moon run web:build api:build db:build core:build",
+    "test": "MOON_HOME=.moon/cache moon run core:test",
+    "db:generate": "MOON_HOME=.moon/cache moon run db:generate",
+    "db:migrate:local": "MOON_HOME=.moon/cache moon run api:db-migrate-local"
   }
 }
