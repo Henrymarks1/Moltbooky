@@ -1,5 +1,7 @@
 import { neon } from "@neondatabase/serverless";
+import { challengeMatches, challenges, createDb } from "@moltbooky/db";
 import type { Challenge, ChallengeMatch, Side, WalletAccount } from "@moltbooky/core/domain/types";
+import { desc, eq } from "drizzle-orm";
 import { getSessionUserId } from "./auth";
 
 export type Sql = ReturnType<typeof neon>;
@@ -10,6 +12,42 @@ export function getSql(env: Env): Sql {
 
 function rows<T>(value: unknown): T[] {
   return value as T[];
+}
+
+function serializeTimestamp(value: Date | string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function toChallenge(row: typeof challenges.$inferSelect): Challenge {
+  return {
+    id: row.id,
+    creatorId: row.creatorId,
+    claim: row.claim,
+    resolutionCriteria: row.resolutionCriteria,
+    creatorSide: row.creatorSide as Challenge["creatorSide"],
+    stakeCents: row.stakeCents,
+    matchedCents: row.matchedCents,
+    status: row.status as Challenge["status"],
+    expiresAt: serializeTimestamp(row.expiresAt)!,
+    disputeDeadlineAt: serializeTimestamp(row.disputeDeadlineAt),
+    provisionalOutcome: row.provisionalOutcome as Challenge["provisionalOutcome"],
+    createdAt: serializeTimestamp(row.createdAt)!
+  };
+}
+
+function toChallengeMatch(row: typeof challengeMatches.$inferSelect): ChallengeMatch {
+  return {
+    id: row.id,
+    challengeId: row.challengeId,
+    matcherId: row.matcherId,
+    amountCents: row.amountCents,
+    side: row.side as ChallengeMatch["side"],
+    status: row.status as ChallengeMatch["status"],
+    createdAt: serializeTimestamp(row.createdAt)!
+  };
 }
 
 export function json(data: unknown, init: ResponseInit = {}): Response {
@@ -90,64 +128,25 @@ export async function lockFunds(params: {
 }
 
 export async function listChallenges(env: Env): Promise<Challenge[]> {
-  const sql = getSql(env);
-  const result = rows<Challenge>(await sql`
-    SELECT id,
-           creator_id as "creatorId",
-           claim,
-           resolution_criteria as "resolutionCriteria",
-           creator_side as "creatorSide",
-           stake_cents as "stakeCents",
-           matched_cents as "matchedCents",
-           status,
-           expires_at as "expiresAt",
-           dispute_deadline_at as "disputeDeadlineAt",
-           provisional_outcome as "provisionalOutcome",
-           created_at as "createdAt"
-    FROM challenges
-    ORDER BY created_at DESC
-    LIMIT 100
-  `);
-  return result;
+  const db = createDb(env.DATABASE_URL);
+  const result = await db.select().from(challenges).orderBy(desc(challenges.createdAt)).limit(100);
+  return result.map(toChallenge);
 }
 
 export async function getChallenge(env: Env, id: string): Promise<Challenge | null> {
-  const sql = getSql(env);
-  const result = rows<Challenge>(await sql`
-    SELECT id,
-           creator_id as "creatorId",
-           claim,
-           resolution_criteria as "resolutionCriteria",
-           creator_side as "creatorSide",
-           stake_cents as "stakeCents",
-           matched_cents as "matchedCents",
-           status,
-           expires_at as "expiresAt",
-           dispute_deadline_at as "disputeDeadlineAt",
-           provisional_outcome as "provisionalOutcome",
-           created_at as "createdAt"
-    FROM challenges
-    WHERE id = ${id}
-    LIMIT 1
-  `);
-  return result[0] ?? null;
+  const db = createDb(env.DATABASE_URL);
+  const result = await db.select().from(challenges).where(eq(challenges.id, id)).limit(1);
+  return result[0] ? toChallenge(result[0]) : null;
 }
 
 export async function listMatches(env: Env, challengeId: string): Promise<ChallengeMatch[]> {
-  const sql = getSql(env);
-  const result = rows<ChallengeMatch>(await sql`
-    SELECT id,
-           challenge_id as "challengeId",
-           matcher_id as "matcherId",
-           amount_cents as "amountCents",
-           side,
-           status,
-           created_at as "createdAt"
-    FROM challenge_matches
-    WHERE challenge_id = ${challengeId}
-    ORDER BY created_at ASC
-  `);
-  return result;
+  const db = createDb(env.DATABASE_URL);
+  const result = await db
+    .select()
+    .from(challengeMatches)
+    .where(eq(challengeMatches.challengeId, challengeId))
+    .orderBy(challengeMatches.createdAt);
+  return result.map(toChallengeMatch);
 }
 
 export async function actorFromRequest(env: Env, request: Request): Promise<{ userId: string; scopes: string[] }> {

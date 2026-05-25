@@ -17,6 +17,7 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
+      "@moltbooky/db": ["packages/db/src/index.ts"],
       "@moltbooky/core/*": ["packages/core/src/*"],
       "@moltbooky/db/*": ["packages/db/src/*"]
     }

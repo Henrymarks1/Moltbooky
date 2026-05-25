@@ -1,15 +1,13 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-import * as schema from "@moltbooky/db/schema";
+import { createDb, schema } from "@moltbooky/db";
 
 export function createAuth(env: Env) {
   return betterAuth({
     appName: "Moltbooky",
     basePath: "/api/auth",
     secret: env.BETTER_AUTH_SECRET ?? "local-dev-secret-change-before-deploy",
-    database: drizzleAdapter(drizzle(neon(env.DATABASE_URL), { schema }), {
+    database: drizzleAdapter(createDb(env.DATABASE_URL), {
       provider: "pg",
       schema
     }),

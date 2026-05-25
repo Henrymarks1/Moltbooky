@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    ".": "./src/index.ts",
     "./schema": "./src/db/schema.ts"
   },
   "scripts": {
@@ -11,6 +12,7 @@
     "generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
     "drizzle-orm": "^0.45.2"
   }
 }
