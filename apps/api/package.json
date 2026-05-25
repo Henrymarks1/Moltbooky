@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8787",
+    "dev": "wrangler dev --port 8787 --inspector-port 0",
     "build": "tsc --noEmit -p tsconfig.json",
     "db-migrate-local": "drizzle-kit migrate"
   },

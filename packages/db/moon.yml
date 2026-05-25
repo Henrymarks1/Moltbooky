@@ -7,3 +7,7 @@ tasks:
     command: "pnpm run build"
   generate:
     command: "pnpm run generate"
+    local: true
+  migrate:
+    command: "pnpm run migrate"
+    local: true
