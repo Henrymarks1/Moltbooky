@@ -31,15 +31,19 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     return testingUser;
   }
 
-  const response = await fetch("/api/auth/get-session", {
-    credentials: "include"
-  });
-  if (!response.ok) {
+  try {
+    const response = await fetch("/api/auth/get-session", {
+      credentials: "include"
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = (await response.json().catch(() => null)) as SessionResponse | null;
+    return data?.user ?? null;
+  } catch {
     return null;
   }
-
-  const data = (await response.json().catch(() => null)) as SessionResponse | null;
-  return data?.user ?? null;
 }
 
 async function signOut(): Promise<void> {

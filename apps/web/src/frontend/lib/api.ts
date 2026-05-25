@@ -118,6 +118,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data;
 }
 
+function canUseLocalDevFallback(): boolean {
+  return import.meta.env.DEV && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+}
+
 function createCreditPurchase(amountCents: number) {
   if (isTestingModeEnabled()) {
     const state = readFakeState();
@@ -150,7 +154,13 @@ export const api = {
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       };
     }
-    return request<{ challenges: Challenge[] }>("/api/challenges");
+    return request<{ challenges: Challenge[] }>("/api/challenges").catch((error) => {
+      if (canUseLocalDevFallback()) {
+        console.warn("Using an empty local market feed because /api/challenges could not be loaded.", error);
+        return { challenges: [] };
+      }
+      throw error;
+    });
   },
   listMyChallenges: async () => {
     if (isTestingModeEnabled()) {
