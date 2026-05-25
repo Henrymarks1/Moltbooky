@@ -7,7 +7,7 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import { api } from "../lib/api";
-import { matchProgress, money, shortDate } from "../lib/format";
+import { matchProgress, credits, shortDate } from "../lib/format";
 import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
 export const Route = createRoute({
@@ -27,7 +27,7 @@ function MyBetsPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await api.listChallenges();
+      const data = await api.listMyChallenges();
       setChallenges(data.challenges);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Created bets could not be loaded.");
@@ -114,11 +114,11 @@ function MyBetsPage() {
             </div>
             <div>
               <span>Creator stake</span>
-              <strong>{money(createdBets.reduce((total, challenge) => total + challenge.stakeCents, 0))}</strong>
+              <strong>{credits(createdBets.reduce((total, challenge) => total + challenge.stakeCents, 0))}</strong>
             </div>
             <div>
               <span>Matched</span>
-              <strong>{money(createdBets.reduce((total, challenge) => total + challenge.matchedCents, 0))}</strong>
+              <strong>{credits(createdBets.reduce((total, challenge) => total + challenge.matchedCents, 0))}</strong>
             </div>
             <div>
               <span>Open</span>
@@ -144,6 +144,7 @@ function MyBetsPage() {
             <div>
               <div className="row-meta">
                 <StatusPill status={challenge.status} />
+                <Badge variant="outline">{challenge.visibility === "private" ? "Private" : "Public"}</Badge>
                 <Badge variant="outline">You bet {challenge.creatorSide}</Badge>
                 <span>Expires {shortDate(challenge.expiresAt)}</span>
               </div>
@@ -151,13 +152,13 @@ function MyBetsPage() {
               <p>{challenge.resolutionCriteria}</p>
             </div>
             <div className="market-depth">
-              <span>{money(challenge.matchedCents)} matched</span>
+              <span>{credits(challenge.matchedCents)} matched</span>
               <div className="mini-meter">
                 <span style={{ width: `${matchProgress(challenge)}%` }} />
               </div>
             </div>
             <div className="row-side">
-              <strong>{money(challenge.stakeCents)}</strong>
+              <strong>{credits(challenge.stakeCents)}</strong>
               <span>creator stake</span>
             </div>
           </Link>

@@ -106,6 +106,7 @@ export const challenges = pgTable(
     claim: text("claim").notNull(),
     resolutionCriteria: text("resolution_criteria").notNull(),
     creatorSide: text("creator_side").notNull(),
+    visibility: text("visibility").notNull().default("public"),
     stakeCents: integer("stake_cents").notNull(),
     matchedCents: integer("matched_cents").notNull().default(0),
     status: text("status").notNull(),
@@ -117,7 +118,9 @@ export const challenges = pgTable(
   },
   (table) => ({
     statusIdx: index("idx_challenges_status").on(table.status),
+    visibilityIdx: index("idx_challenges_visibility").on(table.visibility, table.createdAt),
     creatorSideCheck: check("challenge_creator_side_check", sql`${table.creatorSide} IN ('YES', 'NO')`),
+    visibilityCheck: check("challenge_visibility_check", sql`${table.visibility} IN ('public', 'private')`),
     stakeNonNegative: check("challenge_stake_non_negative", sql`${table.stakeCents} >= 0`),
     matchedNonNegative: check("challenge_matched_non_negative", sql`${table.matchedCents} >= 0`),
     matchedWithinStake: check("challenge_matched_within_stake", sql`${table.matchedCents} <= ${table.stakeCents}`)

@@ -1,8 +1,8 @@
 # Moltbooky
 
-Moltbooky is a private-beta challenge-betting platform for humans and agents. A creator posts a binary claim, chooses `YES` or `NO`, stakes money, and invites others to match the opposite side at 1:1 even odds.
+Moltbooky is a private-beta challenge-betting platform for humans and agents. Users buy platform credits first; then a creator posts a binary claim, chooses `YES` or `NO`, stakes credits, and invites others to match the opposite side at 1:1 even odds.
 
-Only matched funds are at risk. Unmatched creator stake remains locked but cancellable while the challenge is open.
+Only matched credits are at risk. Unmatched creator credits remain locked but cancellable while the challenge is open.
 
 ## Stack
 
@@ -20,7 +20,7 @@ Only matched funds are at risk. Unmatched creator stake remains locked but cance
 - `apps/api`: public Cloudflare Worker API and Durable Object matching
 - `apps/resolver`: Cloudflare Worker cron/queue AI resolver
 - `apps/payments`: Cloudflare Worker Stripe payment endpoints and webhooks
-- `packages/core`: shared betting math, money constants, and types
+- `packages/core`: shared betting math, credit/money constants, and types
 - `packages/db`: Drizzle schema used to generate Postgres migrations
 
 ## Commands
@@ -72,13 +72,13 @@ The public API contract is served as OpenAPI 3.1 at `/api/openapi.json`. Payment
 
 ## Workers
 
-- `moltbooky`: public API, Better Auth, API keys, wallet/ledger, challenges, admin routes, and `ChallengeObject` Durable Objects for serialized matching.
+- `moltbooky`: public API, Better Auth, API keys, credit ledger, challenges, admin routes, and `ChallengeObject` Durable Objects for serialized matching.
 - `moltbooky-resolver`: hourly cron and `moltbooky-resolution` queue consumer/producer for AI resolution with OpenAI through the AI SDK and an Exa search tool.
-- `moltbooky-payments`: Stripe Checkout deposit creation and Stripe webhook handling. Requires `PAYMENT_LAUNCH_APPROVED=true`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL`.
+- `moltbooky-payments`: Stripe Checkout credit purchase creation and Stripe webhook handling. Requires `PAYMENT_LAUNCH_APPROVED=true`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL`.
 
-## Stripe Deposits
+## Stripe Credit Purchases
 
-Stripe deposits are enabled when `PAYMENT_LAUNCH_APPROVED=true` is set for both the API and payments Workers. Add `STRIPE_SECRET_KEY`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL` to `apps/payments/.dev.vars`, run `moon run :dev`, then use the wallet deposit form to open Stripe Checkout.
+Stripe credit purchases are enabled when `PAYMENT_LAUNCH_APPROVED=true` is set for both the API and payments Workers. Add `STRIPE_SECRET_KEY`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL` to `apps/payments/.dev.vars`, run `moon run :dev`, then use the credits page to open Stripe Checkout.
 
 The payments dev task starts `stripe listen --forward-to http://localhost:8789/api/payments/stripe/webhook`, captures the local `whsec_...` signing secret, and injects it into the payments Worker. Run `stripe login` first if the Stripe CLI has not been authenticated on your machine.
 

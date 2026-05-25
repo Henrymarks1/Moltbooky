@@ -8,6 +8,7 @@ const baseChallenge: Challenge = {
   claim: "I bet YES that OpenAI launches a new model by June 30, 2026.",
   resolutionCriteria: "Resolve from official OpenAI announcements or API documentation before the expiry.",
   creatorSide: "YES",
+  visibility: "public",
   stakeCents: 10_000,
   matchedCents: 0,
   status: "open",

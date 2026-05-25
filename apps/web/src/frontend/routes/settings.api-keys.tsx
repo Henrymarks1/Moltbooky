@@ -102,11 +102,11 @@ function ApiKeysPage() {
               }}
             />
             <span>
-              <strong>Bet with fake money</strong>
-              <small>Uses a local play-money wallet, challenges, and matches for testing.</small>
+              <strong>Bet with testing credits</strong>
+              <small>Uses local credits, challenges, and matches for testing.</small>
             </span>
           </label>
-          {testingMode && <div className="notice">Play-money mode is on. Real wallet balances and Stripe deposits are bypassed in this browser.</div>}
+          {testingMode && <div className="notice">Testing-credit mode is on. Real credit balances and Stripe purchases are bypassed in this browser.</div>}
         </CardContent>
       </Card>
       {user ? (

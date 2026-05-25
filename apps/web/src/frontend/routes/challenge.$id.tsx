@@ -1,6 +1,6 @@
 import { Link, createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Copy, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { Copy, Flame, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
 import type { Challenge, ChallengeMatch } from "@moltbooky/core/domain/types";
 import { StatusPill } from "../components/StatusPill";
@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import { api } from "../lib/api";
-import { matchProgress, money, shortDate } from "../lib/format";
+import { matchProgress, credits, shortDate } from "../lib/format";
+import { setSeoMeta } from "../lib/seo";
 import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
 export const Route = createRoute({
@@ -28,7 +29,7 @@ function ChallengeDetail() {
   const [message, setMessage] = useState("");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [matchDollars, setMatchDollars] = useState("5");
+  const [matchCredits, setMatchCredits] = useState("5");
   const [matching, setMatching] = useState(false);
 
   async function refresh() {
@@ -41,6 +42,19 @@ function ChallengeDetail() {
   useEffect(() => {
     refresh().catch((err: Error) => setMessage(err.message));
   }, [id]);
+
+  useEffect(() => {
+    if (!challenge) {
+      return;
+    }
+
+    setSeoMeta({
+      title: `${challenge.claim.slice(0, 82)} | Moltbooky`,
+      description: `${credits(challenge.stakeCents)} ${challenge.creatorSide} at 1:1 odds. ${credits(available)} still available to match before ${shortDate(challenge.expiresAt)}.`,
+      path: `/challenge/${challenge.id}`,
+      image: `${window.location.origin}/share/challenge/${encodeURIComponent(challenge.id)}`
+    });
+  }, [available, challenge]);
 
   useEffect(() => {
     let active = true;
@@ -68,9 +82,12 @@ function ChallengeDetail() {
   }
 
   const canDelete = user?.id === challenge.creatorId && challenge.matchedCents === 0 && matches.length === 0;
+  const creatorSideClass = challenge.creatorSide.toLowerCase();
+  const takerSide = oppositeSide(challenge.creatorSide);
+  const takerSideClass = takerSide.toLowerCase();
 
   async function deleteChallenge() {
-    if (!challenge || !window.confirm("Delete this unmatched bet and return the locked stake to your wallet?")) {
+    if (!challenge || !window.confirm("Delete this unmatched bet and return the locked credits?")) {
       return;
     }
     setDeleting(true);
@@ -93,7 +110,7 @@ function ChallengeDetail() {
     setMatching(true);
     setMessage("");
     try {
-      await api.matchChallenge(challenge.id, matchDollars);
+      await api.matchChallenge(challenge.id, matchCredits);
       await refresh();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Market could not be matched.");
@@ -103,20 +120,34 @@ function ChallengeDetail() {
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
+    <div className="page challenge-page">
+      <header className="challenge-hero">
+        <div className="challenge-hero-copy">
           <div className="row-meta">
             <StatusPill status={challenge.status} />
             <Badge variant="outline">Expires {shortDate(challenge.expiresAt)}</Badge>
+            <Badge variant="outline">{challenge.visibility === "private" ? "Private link" : "Public"}</Badge>
             <Badge variant="outline">1:1 odds</Badge>
           </div>
           <h1>{challenge.claim}</h1>
           <p>{challenge.resolutionCriteria}</p>
         </div>
-        <Button variant="secondary" size="icon" onClick={refresh} aria-label="Refresh challenge">
-          <RefreshCw size={18} />
-        </Button>
+        <div className="challenge-hero-card">
+          <span>Creator is taking</span>
+          <strong className={creatorSideClass}>{challenge.creatorSide}</strong>
+          <div>
+            <span>{credits(challenge.stakeCents)} stake</span>
+            <span>{credits(available)} open</span>
+          </div>
+        </div>
+        <div className="challenge-hero-actions">
+          <Button variant="secondary" size="icon" onClick={refresh} aria-label="Refresh challenge">
+            <RefreshCw size={18} />
+          </Button>
+          <Button variant="secondary" size="icon" onClick={() => navigator.clipboard.writeText(window.location.href)} aria-label="Copy link">
+            <Copy size={18} />
+          </Button>
+        </div>
       </header>
 
       {message && <div className="notice">{message}</div>}
@@ -124,31 +155,46 @@ function ChallengeDetail() {
       <section className="detail-grid">
         <Card className="market-panel">
           <CardHeader>
-            <CardTitle>Market depth</CardTitle>
+            <CardTitle className="challenge-card-title"><Flame size={18} /> Market state</CardTitle>
           </CardHeader>
           <CardContent>
-          <div className="meter">
-            <span style={{ width: `${matchProgress(challenge)}%` }} />
-          </div>
-          <div className="stats-grid">
-            <div>
-              <span>Creator side</span>
-              <strong>{challenge.creatorSide}</strong>
+            <div className="side-matchup">
+              <div className={`side-tile ${creatorSideClass}`}>
+                <span>Creator</span>
+                <strong>{challenge.creatorSide}</strong>
+                <small>{credits(challenge.stakeCents)} posted</small>
+              </div>
+              <div className="versus-mark">vs</div>
+              <div className={`side-tile ${takerSideClass}`}>
+                <span>Open side</span>
+                <strong>{takerSide}</strong>
+                <small>{credits(available)} available</small>
+              </div>
             </div>
-            <div>
-              <span>Matched</span>
-              <strong>{money(challenge.matchedCents)}</strong>
+            <div className="market-progress">
+              <div>
+                <span>Matched</span>
+                <strong>{credits(challenge.matchedCents)}</strong>
+              </div>
+              <div className="meter">
+                <span style={{ width: `${matchProgress(challenge)}%` }} />
+              </div>
             </div>
-            <div>
-              <span>Available</span>
-              <strong>{money(available)}</strong>
+            <div className="stats-grid challenge-stats">
+              <div>
+                <span>Available</span>
+                <strong>{credits(available)}</strong>
+              </div>
+              <div>
+                <span>Total stake</span>
+                <strong>{credits(challenge.stakeCents)}</strong>
+              </div>
+              <div>
+                <span>Odds</span>
+                <strong>1:1</strong>
+              </div>
             </div>
-            <div>
-              <span>Stake</span>
-              <strong>{money(challenge.stakeCents)}</strong>
-            </div>
-          </div>
-          <p className="fine-print"><ShieldCheck size={15} /> Only matched funds are at risk. Unmatched creator stake can be released while the market remains open.</p>
+            <p className="fine-print"><ShieldCheck size={15} /> Only matched credits are at risk. Unmatched creator credits can be released while the market remains open.</p>
           </CardContent>
         </Card>
 
@@ -156,49 +202,52 @@ function ChallengeDetail() {
           <CardHeader>
             <CardTitle>Trade ticket</CardTitle>
           </CardHeader>
-          <CardContent>
-          <div className="side-card">
-            <span>Take</span>
-            <strong>{oppositeSide(challenge.creatorSide)}</strong>
-          </div>
-          <p className="fine-print">
-            {user ? "Match the opposite side at 1:1 odds, or create your own challenge." : "Log in or sign up to match this market, release stake, or create your own challenge."}
-          </p>
-          {user ? (
-            <>
-              <label className="trade-amount">
-                <span>Amount</span>
-                <Input
-                  inputMode="decimal"
-                  min="0.01"
-                  max={String(available / 100)}
-                  step="0.01"
-                  value={matchDollars}
-                  onChange={(event) => setMatchDollars(event.target.value)}
-                />
-              </label>
-              <Button type="button" onClick={matchMarket} disabled={matching || available <= 0}>
-                {matching ? "Matching..." : "Match market"}
-              </Button>
-              <Button asChild variant="outline">
-                <Link to="/challenge/new">Create market</Link>
-              </Button>
-              {canDelete && (
-                <Button type="button" variant="destructive" onClick={deleteChallenge} disabled={deleting}>
-                  <Trash2 size={18} /> {deleting ? "Deleting..." : "Delete bet"}
+          <CardContent className="trade-ticket-content">
+            <div className={`trade-side ${takerSideClass}`}>
+              <span>Take the other side</span>
+              <strong>{takerSide}</strong>
+              <small>Win {credits(Number(matchCredits || 0) * 100)} at even odds</small>
+            </div>
+            <p className="fine-print">
+              {user ? "Match any open amount at 1:1 odds, or spin up your own challenge." : "Log in or sign up to match this market, release stake, or create your own challenge."}
+            </p>
+            {user ? (
+              <>
+                <label className="trade-amount">
+                  <span>Credits</span>
+                  <Input
+                    inputMode="decimal"
+                    min="0.01"
+                    max={String(available / 100)}
+                    step="0.01"
+                    value={matchCredits}
+                    onChange={(event) => setMatchCredits(event.target.value)}
+                  />
+                </label>
+                <div className="trade-ticket-actions">
+                  <Button type="button" onClick={matchMarket} disabled={matching || available <= 0}>
+                    {matching ? "Matching..." : "Match market"}
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link to="/challenge/new">Create market</Link>
+                  </Button>
+                </div>
+                {canDelete && (
+                  <Button type="button" variant="destructive" onClick={deleteChallenge} disabled={deleting}>
+                    <Trash2 size={18} /> {deleting ? "Deleting..." : "Delete bet"}
+                  </Button>
+                )}
+              </>
+            ) : (
+              <>
+                <Button asChild>
+                  <Link to="/login">Sign up to trade</Link>
                 </Button>
-              )}
-            </>
-          ) : (
-            <>
-              <Button asChild>
-                <Link to="/login">Sign up to trade</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link to="/login">Log in</Link>
-              </Button>
-            </>
-          )}
+                <Button asChild variant="outline">
+                  <Link to="/login">Log in</Link>
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       </section>
@@ -210,10 +259,13 @@ function ChallengeDetail() {
             <Copy size={18} />
           </Button>
         </div>
-        <div className="share-card">
-          <strong>I bet {money(challenge.stakeCents)} {challenge.creatorSide}</strong>
-          <span>{challenge.claim}</span>
-          <small>{money(available)} still available to match.</small>
+        <div className="share-card challenge-share-card">
+          <div>
+            <span>{challenge.visibility === "private" ? "Private Moltbooky challenge" : "Moltbooky challenge"}</span>
+            <strong>I’m taking {challenge.creatorSide} for {credits(challenge.stakeCents)}</strong>
+            <p>{challenge.claim}</p>
+          </div>
+          <small>{credits(available)} still available to match on {takerSide}.</small>
         </div>
       </section>
 
@@ -223,7 +275,7 @@ function ChallengeDetail() {
           {matches.map((matchItem) => (
             <div key={matchItem.id}>
               <span>{matchItem.matcherId}</span>
-              <strong>{money(matchItem.amountCents)} {matchItem.side}</strong>
+              <strong>{credits(matchItem.amountCents)} {matchItem.side}</strong>
             </div>
           ))}
           {matches.length === 0 && <p className="fine-print">No one has taken the other side yet.</p>}

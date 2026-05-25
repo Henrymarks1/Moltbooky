@@ -639,13 +639,104 @@
     @apply grid grid-cols-[minmax(0,1fr)_360px] gap-4 max-[920px]:grid-cols-1;
   }
 
+  .challenge-page {
+    @apply gap-5;
+  }
+
+  .challenge-hero {
+    @apply relative grid grid-cols-[minmax(0,1fr)_300px_auto] items-stretch gap-5 overflow-hidden rounded-lg bg-[#0f172a] p-6 text-white shadow-sm max-[1040px]:grid-cols-[minmax(0,1fr)_260px] max-[760px]:grid-cols-1 max-[560px]:p-5;
+  }
+
+  .challenge-hero::before {
+    content: "";
+    @apply pointer-events-none absolute inset-0 opacity-80;
+    background:
+      radial-gradient(circle at 12% 0%, rgb(80 240 180 / 0.22), transparent 28%),
+      radial-gradient(circle at 86% 18%, rgb(248 214 109 / 0.18), transparent 26%),
+      linear-gradient(135deg, rgb(15 23 42 / 0), rgb(127 29 29 / 0.18));
+  }
+
+  .challenge-hero-copy,
+  .challenge-hero-card,
+  .challenge-hero-actions {
+    @apply relative z-10;
+  }
+
+  .challenge-hero .row-meta {
+    @apply mb-5;
+  }
+
+  .challenge-hero .row-meta > * {
+    @apply border-white/15 bg-white/10 text-slate-100;
+  }
+
+  .challenge-hero h1 {
+    @apply max-w-[900px] text-5xl font-black leading-[1.02] tracking-normal text-white max-[900px]:text-4xl max-[560px]:text-3xl;
+  }
+
+  .challenge-hero p {
+    @apply mt-4 max-w-3xl text-base leading-7 text-slate-300;
+  }
+
+  .challenge-hero-card {
+    @apply grid min-h-[220px] content-between rounded-lg border border-white/10 bg-white/10 p-5 shadow-2xl shadow-black/20 backdrop-blur;
+  }
+
+  .challenge-hero-card > span {
+    @apply text-xs font-black uppercase text-slate-300;
+    letter-spacing: 0.08em;
+  }
+
+  .challenge-hero-card strong {
+    @apply text-7xl font-black leading-none tracking-normal;
+  }
+
+  .challenge-hero-card strong.yes {
+    @apply text-emerald-300;
+  }
+
+  .challenge-hero-card strong.no {
+    @apply text-red-300;
+  }
+
+  .challenge-hero-card div {
+    @apply grid grid-cols-2 gap-2;
+  }
+
+  .challenge-hero-card div span {
+    @apply rounded-md bg-slate-950/40 px-3 py-2 text-sm font-bold text-slate-100;
+  }
+
+  .challenge-hero-actions {
+    @apply flex flex-col gap-2 max-[1040px]:col-span-2 max-[1040px]:flex-row max-[760px]:col-span-1;
+  }
+
+  .challenge-hero-actions button {
+    @apply border-white/10 bg-white/10 text-white hover:bg-white/20 hover:text-white;
+  }
+
   .market-panel,
   .trade-ticket {
     @apply shadow-none;
   }
 
+  .market-panel,
+  .trade-ticket,
+  .share-panel,
+  .challenge-page > .panel:not(.share-panel) {
+    @apply border-slate-200 shadow-sm;
+  }
+
+  .challenge-card-title {
+    @apply inline-flex items-center gap-2;
+  }
+
   .stats-grid {
     @apply grid-cols-4 max-[920px]:grid-cols-2 max-[560px]:grid-cols-1;
+  }
+
+  .challenge-stats {
+    @apply grid-cols-3 max-[720px]:grid-cols-1;
   }
 
   .wallet-stats {
@@ -700,6 +791,51 @@
     @apply grid gap-1 rounded-md border border-border bg-muted p-4;
   }
 
+  .side-matchup {
+    @apply grid grid-cols-[minmax(0,1fr)_44px_minmax(0,1fr)] items-stretch gap-3 max-[680px]:grid-cols-1;
+  }
+
+  .side-tile {
+    @apply grid gap-2 rounded-lg border p-5;
+  }
+
+  .side-tile.yes {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-950;
+  }
+
+  .side-tile.no {
+    @apply border-red-200 bg-red-50 text-red-950;
+  }
+
+  .side-tile span,
+  .side-tile small {
+    @apply text-sm font-bold text-slate-500;
+  }
+
+  .side-tile strong {
+    @apply text-5xl font-black leading-none tracking-normal;
+  }
+
+  .versus-mark {
+    @apply grid place-items-center rounded-full bg-slate-950 text-xs font-black uppercase text-white max-[680px]:mx-auto max-[680px]:h-10 max-[680px]:w-10;
+  }
+
+  .market-progress {
+    @apply mt-5 grid gap-3 rounded-lg border bg-slate-50 p-4;
+  }
+
+  .market-progress > div:first-child {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .market-progress span {
+    @apply text-sm font-bold text-muted-foreground;
+  }
+
+  .market-progress strong {
+    @apply text-lg font-black;
+  }
+
   .composer-ticket {
     @apply grid gap-2 rounded-lg border bg-muted p-4 text-foreground;
   }
@@ -728,12 +864,45 @@
     @apply text-3xl font-semibold tracking-tight;
   }
 
+  .trade-ticket-content {
+    @apply grid gap-4;
+  }
+
+  .trade-side {
+    @apply grid gap-2 rounded-lg border p-5;
+  }
+
+  .trade-side.yes {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-950;
+  }
+
+  .trade-side.no {
+    @apply border-red-200 bg-red-50 text-red-950;
+  }
+
+  .trade-side span {
+    @apply text-xs font-black uppercase text-slate-500;
+    letter-spacing: 0.08em;
+  }
+
+  .trade-side strong {
+    @apply text-6xl font-black leading-none tracking-normal;
+  }
+
+  .trade-side small {
+    @apply text-sm font-bold text-slate-600;
+  }
+
   .trade-amount {
     @apply grid gap-2;
   }
 
   .trade-amount span {
     @apply text-sm font-semibold text-muted-foreground;
+  }
+
+  .trade-ticket-actions {
+    @apply grid grid-cols-2 gap-2 max-[420px]:grid-cols-1;
   }
 
   .toggle-row {
@@ -761,12 +930,49 @@
     @apply mt-4 grid gap-2 rounded-lg border bg-muted p-5 text-foreground;
   }
 
+  .challenge-share-card {
+    @apply relative overflow-hidden border-0 bg-[#0f172a] p-7 text-white;
+  }
+
+  .challenge-share-card::before {
+    content: "";
+    @apply pointer-events-none absolute inset-0;
+    background:
+      linear-gradient(90deg, rgb(80 240 180 / 0.16), rgb(248 214 109 / 0.16), rgb(255 107 107 / 0.16)),
+      radial-gradient(circle at 88% 22%, rgb(255 255 255 / 0.16), transparent 24%);
+  }
+
+  .challenge-share-card > * {
+    @apply relative z-10;
+  }
+
+  .challenge-share-card div {
+    @apply grid gap-2;
+  }
+
+  .challenge-share-card span {
+    @apply text-xs font-black uppercase text-slate-300;
+    letter-spacing: 0.08em;
+  }
+
   .share-card strong {
     @apply text-xl font-semibold;
   }
 
+  .challenge-share-card strong {
+    @apply text-3xl font-black tracking-normal text-white max-[560px]:text-2xl;
+  }
+
+  .challenge-share-card p {
+    @apply max-w-4xl text-base leading-7 text-slate-200;
+  }
+
   .share-card small {
     @apply text-muted-foreground;
+  }
+
+  .challenge-share-card small {
+    @apply text-sm font-bold text-amber-200;
   }
 
   .ledger-list > div {

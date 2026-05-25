@@ -16,6 +16,7 @@ function toChallenge(row: typeof challenges.$inferSelect): Challenge {
     claim: row.claim,
     resolutionCriteria: row.resolutionCriteria,
     creatorSide: row.creatorSide as Challenge["creatorSide"],
+    visibility: row.visibility as Challenge["visibility"],
     stakeCents: row.stakeCents,
     matchedCents: row.matchedCents,
     status: row.status as Challenge["status"],
@@ -94,7 +95,7 @@ export async function getWallet(env: Env, userId: string): Promise<WalletAccount
     .limit(1);
 
   if (!result[0]) {
-    throw new Error("Wallet not found.");
+    throw new Error("Credit account not found.");
   }
   return result[0];
 }
@@ -120,7 +121,7 @@ export async function lockFunds(params: {
       .limit(1);
 
     if (!wallet[0]) {
-      throw new Error("Insufficient available balance.");
+      throw new Error("Not enough available credits.");
     }
 
     await tx
@@ -147,7 +148,23 @@ export async function lockFunds(params: {
 
 export async function listChallenges(env: Env): Promise<Challenge[]> {
   const db = createDb(env.DATABASE_URL);
-  const result = await db.select().from(challenges).orderBy(desc(challenges.createdAt)).limit(100);
+  const result = await db
+    .select()
+    .from(challenges)
+    .where(eq(challenges.visibility, "public"))
+    .orderBy(desc(challenges.createdAt))
+    .limit(100);
+  return result.map(toChallenge);
+}
+
+export async function listUserChallenges(env: Env, userId: string): Promise<Challenge[]> {
+  const db = createDb(env.DATABASE_URL);
+  const result = await db
+    .select()
+    .from(challenges)
+    .where(eq(challenges.creatorId, userId))
+    .orderBy(desc(challenges.createdAt))
+    .limit(100);
   return result.map(toChallenge);
 }
 

@@ -7,5 +7,5 @@ PAYMENT_LAUNCH_APPROVED="false"
 STRIPE_SECRET_KEY=""
 # `pnpm run dev` captures this from `stripe listen` automatically for local dev.
 STRIPE_WEBHOOK_SECRET=""
-STRIPE_SUCCESS_URL="http://localhost:5173/wallet"
-STRIPE_CANCEL_URL="http://localhost:5173/wallet"
+STRIPE_SUCCESS_URL="http://localhost:5173/credits"
+STRIPE_CANCEL_URL="http://localhost:5173/credits"

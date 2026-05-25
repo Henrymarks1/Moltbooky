@@ -1,4 +1,5 @@
 export type Side = "YES" | "NO";
+export type ChallengeVisibility = "public" | "private";
 
 export type ChallengeStatus =
   | "draft"
@@ -12,6 +13,7 @@ export type ChallengeStatus =
   | "disputed";
 
 export type LedgerEntryType =
+  | "credit_purchase"
   | "deposit"
   | "lock"
   | "unlock"
@@ -29,6 +31,7 @@ export interface Challenge {
   claim: string;
   resolutionCriteria: string;
   creatorSide: Side;
+  visibility: ChallengeVisibility;
   stakeCents: number;
   matchedCents: number;
   status: ChallengeStatus;

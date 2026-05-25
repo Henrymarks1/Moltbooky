@@ -5,8 +5,8 @@ export const testingModeChangeEvent = "moltbooky-testing-mode-change";
 const testingModeKey = "moltbooky.testingMode.enabled";
 
 export const testingUser: AuthUser = {
-  id: "play-money-user",
-  name: "Play Money Tester",
+  id: "testing-credit-user",
+  name: "Credit Tester",
   email: "tester@moltbooky.local"
 };
 

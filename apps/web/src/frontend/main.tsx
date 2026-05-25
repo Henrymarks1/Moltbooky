@@ -5,7 +5,7 @@ import { Route as indexRoute } from "./routes/index";
 import { Route as newChallengeRoute } from "./routes/challenge.new";
 import { Route as challengeDetailRoute } from "./routes/challenge.$id";
 import { Route as myBetsRoute } from "./routes/my-bets";
-import { Route as walletRoute } from "./routes/wallet";
+import { Route as walletRoute, WalletAliasRoute as walletAliasRoute } from "./routes/wallet";
 import { Route as apiKeysRoute } from "./routes/settings.api-keys";
 import { Route as adminRoute } from "./routes/admin";
 import { Route as loginRoute } from "./routes/login";
@@ -19,6 +19,7 @@ const routeTree = rootRoute.addChildren([
   challengeDetailRoute,
   myBetsRoute,
   walletRoute,
+  walletAliasRoute,
   apiKeysRoute,
   adminRoute,
   loginRoute,

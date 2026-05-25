@@ -33,11 +33,16 @@ export async function fetchChallengePreview(request: Request, env: ShareEnv, id:
   }
 
   const targetUrl = new URL(`/api/challenges/${encodeURIComponent(id)}`, targetOrigin);
-  const response = await fetch(targetUrl, {
-    headers: {
-      accept: "application/json"
-    }
-  });
+  let response: Response;
+  try {
+    response = await fetch(targetUrl, {
+      headers: {
+        accept: "application/json"
+      }
+    });
+  } catch {
+    return null;
+  }
 
   if (!response.ok) {
     return null;
@@ -46,12 +51,14 @@ export async function fetchChallengePreview(request: Request, env: ShareEnv, id:
   return (await response.json()) as ChallengeResponse;
 }
 
-export function money(cents: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: cents % 100 === 0 ? 0 : 2
-  }).format(cents / 100);
+export function credits(cents: number): string {
+  const value = cents / 100;
+  const formatted = new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2
+  }).format(value);
+
+  return `${formatted} ${value === 1 ? "credit" : "credits"}`;
 }
 
 export function formatShortDate(dateValue: string): string {

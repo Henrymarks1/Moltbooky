@@ -6,7 +6,7 @@ import { authAccount, authSession, authUser, authVerification, createDb, eq, led
 const app = new OpenAPIHono<{ Bindings: Env }>();
 
 const errorResponseSchema = z.object({ error: z.string() });
-const depositRequestSchema = z.object({
+const creditPurchaseRequestSchema = z.object({
   amountCents: z.number().int().min(500).max(10_000)
 });
 
@@ -83,7 +83,7 @@ app.doc("/api/openapi.json", {
   info: {
     title: "Moltbooky Payments API",
     version: "0.1.0",
-    description: "Stripe-backed payment endpoints. Launch remains gated by PAYMENT_LAUNCH_APPROVED."
+    description: "Stripe-backed platform credit purchase endpoints. Launch remains gated by PAYMENT_LAUNCH_APPROVED."
   }
 });
 
@@ -104,39 +104,26 @@ const healthRoute = createRoute({
 
 app.openapi(healthRoute, (c) => c.json({ ok: true, name: "Moltbooky Payments" }));
 
-const createDepositRoute = createRoute({
-  method: "post",
-  path: "/api/payments/deposits",
-  request: {
-    body: {
-      content: {
-        "application/json": {
-          schema: depositRequestSchema
-        }
+const creditPurchaseResponses = {
+  200: {
+    description: "Stripe Checkout session created",
+    content: {
+      "application/json": {
+        schema: z.object({
+          checkoutUrl: z.string().url(),
+          sessionId: z.string()
+        })
       }
     }
   },
-  responses: {
-    200: {
-      description: "Stripe Checkout session created",
-      content: {
-        "application/json": {
-          schema: z.object({
-            checkoutUrl: z.string().url(),
-            sessionId: z.string()
-          })
-        }
-      }
-    },
-    401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
-    403: { description: "Payments disabled", content: { "application/json": { schema: errorResponseSchema } } },
-    500: { description: "Stripe error", content: { "application/json": { schema: errorResponseSchema } } }
-  }
-});
+  401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
+  403: { description: "Payments disabled", content: { "application/json": { schema: errorResponseSchema } } },
+  500: { description: "Stripe error", content: { "application/json": { schema: errorResponseSchema } } }
+} as const;
 
-app.openapi(createDepositRoute, async (c) => {
+async function createCreditPurchase(c: any) {
   if (c.env.PAYMENT_LAUNCH_APPROVED !== "true") {
-    return jsonError(c, "Real-money deposits are disabled until legal and Stripe approval are complete.", 403);
+    return jsonError(c, "Credit purchases are disabled until legal and Stripe approval are complete.", 403);
   }
   if (!c.env.STRIPE_SECRET_KEY || !c.env.STRIPE_SUCCESS_URL || !c.env.STRIPE_CANCEL_URL) {
     return jsonError(c, "Stripe is not configured.", 500);
@@ -144,7 +131,7 @@ app.openapi(createDepositRoute, async (c) => {
 
   const userId = await getSessionUserId(c.env, c.req.raw);
   if (!userId) {
-    return jsonError(c, "Sign in before creating a deposit.", 401);
+    return jsonError(c, "Sign in before buying credits.", 401);
   }
 
   const { amountCents } = c.req.valid("json");
@@ -155,7 +142,7 @@ app.openapi(createDepositRoute, async (c) => {
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "usd",
     "line_items[0][price_data][unit_amount]": String(amountCents),
-    "line_items[0][price_data][product_data][name]": "Moltbooky deposit",
+    "line_items[0][price_data][product_data][name]": "Moltbooky platform credits",
     "metadata[userId]": userId,
     "metadata[amountCents]": String(amountCents)
   });
@@ -175,7 +162,41 @@ app.openapi(createDepositRoute, async (c) => {
   }
 
   return c.json({ checkoutUrl: stripeSession.url, sessionId: stripeSession.id });
+}
+
+const createCreditPurchaseRoute = createRoute({
+  method: "post",
+  path: "/api/payments/credit-purchases",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: creditPurchaseRequestSchema
+        }
+      }
+    }
+  },
+  responses: creditPurchaseResponses
 });
+
+app.openapi(createCreditPurchaseRoute, createCreditPurchase);
+
+const createDepositRoute = createRoute({
+  method: "post",
+  path: "/api/payments/deposits",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: creditPurchaseRequestSchema
+        }
+      }
+    }
+  },
+  responses: creditPurchaseResponses
+});
+
+app.openapi(createDepositRoute, createCreditPurchase);
 
 const webhookRoute = createRoute({
   method: "post",
@@ -228,10 +249,10 @@ app.openapi(webhookRoute, async (c) => {
       .values({
         id: newId("led"),
         userId,
-        type: "deposit",
+        type: "credit_purchase",
         amountCents,
         idempotencyKey: `stripe:checkout:${session.id}`,
-        description: "Stripe deposit"
+        description: "Stripe credit purchase"
       })
       .onConflictDoNothing()
       .returning({ id: ledgerEntries.id });
@@ -242,7 +263,7 @@ app.openapi(webhookRoute, async (c) => {
 
     const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
     if (!wallet[0]) {
-      throw new Error("Wallet not found.");
+      throw new Error("Credit account not found.");
     }
 
     await tx

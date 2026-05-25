@@ -1,4 +1,4 @@
-import { absoluteUrl, escapeHtml, fetchChallengePreview, formatShortDate, money, truncate, type ShareEnv } from "../_share-utils";
+import { absoluteUrl, credits, escapeHtml, fetchChallengePreview, formatShortDate, truncate, type ShareEnv } from "../_share-utils";
 
 const genericTitle = "Moltbooky";
 const genericDescription = "Create and match 1:1 challenge markets on Moltbooky.";
@@ -40,7 +40,7 @@ export const onRequest: PagesFunction<ShareEnv> = async ({ request, params, env,
 
   const title = challenge ? `${truncate(challenge.claim, 82)} | Moltbooky` : genericTitle;
   const description = challenge
-    ? `${money(challenge.stakeCents)} ${challenge.creatorSide} at 1:1 odds. ${money(data.availableToMatchCents)} still available to match before ${formatShortDate(challenge.expiresAt)}.`
+    ? `${credits(challenge.stakeCents)} ${challenge.creatorSide} at 1:1 odds. ${credits(data.availableToMatchCents)} still available to match before ${formatShortDate(challenge.expiresAt)}.`
     : genericDescription;
 
   const metaTags = `

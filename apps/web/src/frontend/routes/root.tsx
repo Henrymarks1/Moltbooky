@@ -1,10 +1,11 @@
 import { Link, Outlet, createRootRoute, useRouterState } from "@tanstack/react-router";
-import { Activity, ChevronDown, Info, ListChecks, LogOut, Search, Settings, UserCircle } from "lucide-react";
+import { Activity, ChevronDown, Coins, Info, ListChecks, LogOut, Search, Settings, UserCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import { capturePageview, identifyAnalyticsUser, resetAnalyticsUser } from "../lib/analytics";
+import { seoForPath, setSeoMeta } from "../lib/seo";
 import { isTestingModeEnabled, testingModeChangeEvent, testingUser } from "../lib/testingMode";
 
 export const Route = createRootRoute({
@@ -55,6 +56,7 @@ async function signOut(): Promise<void> {
 
 function RootLayout() {
   const href = useRouterState({ select: (state) => state.location.href });
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -105,6 +107,10 @@ function RootLayout() {
   }, [href]);
 
   useEffect(() => {
+    setSeoMeta(seoForPath(pathname));
+  }, [pathname]);
+
+  useEffect(() => {
     if (!authLoaded) {
       return;
     }
@@ -143,7 +149,7 @@ function RootLayout() {
             <div className="brand-mark">M</div>
             <div>
               <strong>Moltbooky</strong>
-              <span>{testingMode ? "Play-money testing" : "Event markets"}</span>
+              <span>{testingMode ? "Testing credits" : "Event markets"}</span>
             </div>
           </div>
           <div className="topbar-search">
@@ -156,6 +162,9 @@ function RootLayout() {
             </Link>
             <Link to="/my-bets" activeProps={{ className: "active" }}>
               <ListChecks size={18} /> My bets
+            </Link>
+            <Link to="/credits" activeProps={{ className: "active" }}>
+              <Coins size={18} /> Credits
             </Link>
             <Link to="/how-it-works" activeProps={{ className: "active" }}>
               <Info size={18} /> How it works
@@ -185,6 +194,9 @@ function RootLayout() {
                 <div className="profile-menu" role="menu">
                   <Link to="/my-bets" role="menuitem" onClick={() => setProfileOpen(false)}>
                     <ListChecks size={16} /> My bets
+                  </Link>
+                  <Link to="/credits" role="menuitem" onClick={() => setProfileOpen(false)}>
+                    <Coins size={16} /> Credits
                   </Link>
                   <Link to="/settings/api-keys" role="menuitem" onClick={() => setProfileOpen(false)}>
                     <Settings size={16} /> Settings

@@ -5,7 +5,7 @@ import type { Challenge } from "@moltbooky/core/domain/types";
 import { StatusPill } from "../components/StatusPill";
 import { Button } from "../components/ui/button";
 import { api } from "../lib/api";
-import { money } from "../lib/format";
+import { credits } from "../lib/format";
 import { rootRoute } from "./root";
 
 export const Route = createRoute({
@@ -61,7 +61,7 @@ function AdminPage() {
             <div>
               <div className="row-meta">
                 <StatusPill status={challenge.status} />
-                <span>{money(challenge.matchedCents)} matched</span>
+                <span>{credits(challenge.matchedCents)} matched</span>
               </div>
               <h2>{challenge.claim}</h2>
               <p>{challenge.resolutionCriteria}</p>

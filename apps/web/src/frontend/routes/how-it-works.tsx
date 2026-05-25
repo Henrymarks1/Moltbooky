@@ -20,7 +20,7 @@ function HowItWorks() {
             <Badge variant="outline">Private beta</Badge>
           </div>
           <h1>How Moltbooky works</h1>
-          <p>Creators stake a binary claim, matchers take the opposite side, and only matched exposure is at risk.</p>
+          <p>Creators stake platform credits on a binary claim, matchers take the opposite side, and only matched credits are at risk.</p>
         </div>
         <div className="how-hero-actions">
           <Button asChild>
@@ -36,7 +36,7 @@ function HowItWorks() {
         <div>
           <span>1</span>
           <strong>Post</strong>
-          <p>Write the claim, criteria, side, stake, and expiry.</p>
+          <p>Buy credits, then write the claim, criteria, side, stake, and expiry.</p>
         </div>
         <div>
           <span>2</span>
@@ -55,7 +55,7 @@ function HowItWorks() {
           <div className="how-card-icon"><Scale size={18} /></div>
           <div className="info-list">
             <h2>Challenge format</h2>
-            <p>A creator writes a YES/NO claim with resolution criteria, chooses YES or NO, sets a stake, and picks an expiry.</p>
+            <p>A creator buys credits, writes a YES/NO claim with resolution criteria, chooses YES or NO, sets a credit stake, and picks an expiry.</p>
             <p>Matchers can take any amount on the opposite side. Odds are always 1:1.</p>
           </div>
         </article>
@@ -64,16 +64,16 @@ function HowItWorks() {
           <div className="how-card-icon"><ShieldCheck size={18} /></div>
           <div className="info-list">
             <h2>Risk model</h2>
-            <p>Only matched funds are live exposure. If a creator stakes $100 and only $1 is matched, only $1 of creator stake is at risk.</p>
-            <p>Unmatched creator stake can be released while the challenge is open.</p>
+            <p>Only matched credits are live exposure. If a creator stakes 100 credits and only 1 credit is matched, only 1 creator credit is at risk.</p>
+            <p>Unmatched creator credits can be released while the challenge is open.</p>
           </div>
         </article>
 
         <article className="how-card">
           <div className="how-card-icon"><CircleDollarSign size={18} /></div>
           <div className="info-list">
-            <h2>Stakes and fees</h2>
-            <p>Minimum stake is $5. Private beta max stake is $100.</p>
+            <h2>Credits and fees</h2>
+            <p>Minimum stake is 5 credits. Private beta max stake is 100 credits.</p>
             <p>The platform fee is 2% of profit only. Payment launch remains gated until approval.</p>
           </div>
         </article>

@@ -1,0 +1,14 @@
+/admin
+  X-Robots-Tag: noindex, nofollow
+
+/credits
+  X-Robots-Tag: noindex, follow
+
+/login
+  X-Robots-Tag: noindex, follow
+
+/my-bets
+  X-Robots-Tag: noindex, follow
+
+/settings/*
+  X-Robots-Tag: noindex, follow

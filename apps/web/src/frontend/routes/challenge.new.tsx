@@ -1,6 +1,6 @@
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { CheckCircle2, CircleDollarSign, TimerReset } from "lucide-react";
+import { CheckCircle2, CircleDollarSign, Globe2, Link2, TimerReset } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -28,6 +28,7 @@ function toIsoDateTime(value: FormDataEntryValue | null): string {
 function NewChallenge() {
   const navigate = useNavigate();
   const [creatorSide, setCreatorSide] = useState<"YES" | "NO">("YES");
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -42,7 +43,8 @@ function NewChallenge() {
         claim: String(form.get("claim") ?? ""),
         resolutionCriteria: String(form.get("resolutionCriteria") ?? ""),
         creatorSide,
-        stakeDollars: String(form.get("stakeDollars") ?? ""),
+        visibility,
+        stakeCredits: String(form.get("stakeCredits") ?? ""),
         expiresAt: toIsoDateTime(form.get("expiresAt"))
       });
       window.dispatchEvent(new Event(authChangeEvent));
@@ -68,7 +70,7 @@ function NewChallenge() {
             <Badge variant="outline">Even odds</Badge>
           </div>
           <h1>Launch a market in under a minute.</h1>
-          <p>Post a claim, choose your side, and lock the stake you want available for matching.</p>
+          <p>Post a claim, choose your side, and lock platform credits for matching.</p>
         </div>
       </header>
 
@@ -94,7 +96,7 @@ function NewChallenge() {
         <div className="two-col">
           <Label>
             <span><CircleDollarSign size={15} /> Stake</span>
-            <Input name="stakeDollars" inputMode="decimal" placeholder="25.00" required />
+            <Input name="stakeCredits" inputMode="decimal" placeholder="25.00" required />
           </Label>
           <Label>
             <span><TimerReset size={15} /> Expiry</span>
@@ -107,7 +109,7 @@ function NewChallenge() {
 
         <Card className="form">
           <CardHeader>
-            <CardTitle>Your side</CardTitle>
+            <CardTitle>Position and access</CardTitle>
           </CardHeader>
           <CardContent className="form">
         <div className="composer-ticket">
@@ -121,6 +123,23 @@ function NewChallenge() {
           </button>
           <button type="button" className={creatorSide === "NO" ? "selected no" : ""} onClick={() => setCreatorSide("NO")}>
             NO
+          </button>
+        </div>
+        <div className="composer-ticket">
+          <span>{visibility === "public" ? "Public bet" : "Private bet"}</span>
+          <strong>{visibility === "public" ? "Listed" : "Share link"}</strong>
+          <p>
+            {visibility === "public"
+              ? "Visible in the public market feed and accessible by link."
+              : "Hidden from the public feed. Anyone with the share link can open it."}
+          </p>
+        </div>
+        <div className="segmented visibility-segmented" role="group" aria-label="Bet visibility">
+          <button type="button" className={visibility === "public" ? "selected" : ""} onClick={() => setVisibility("public")}>
+            <Globe2 size={16} /> Public
+          </button>
+          <button type="button" className={visibility === "private" ? "selected" : ""} onClick={() => setVisibility("private")}>
+            <Link2 size={16} /> Private
           </button>
         </div>
         <Button type="submit" disabled={loading}>

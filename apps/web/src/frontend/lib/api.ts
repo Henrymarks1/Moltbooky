@@ -1,5 +1,5 @@
 import { availableToMatch, oppositeSide, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
-import { dollarsToCents } from "@moltbooky/core/domain/money";
+import { creditsToCents } from "@moltbooky/core/domain/money";
 import type { Challenge, ChallengeMatch, LedgerEntryType, WalletAccount } from "@moltbooky/core/domain/types";
 import { isTestingModeEnabled, testingUser } from "./testingMode";
 
@@ -36,9 +36,9 @@ function initialFakeState(): FakeState {
     ledger: [
       {
         id: newId("le"),
-        type: "deposit",
+        type: "credit_purchase",
         amountCents: startingBalanceCents,
-        description: "Seed play-money balance",
+        description: "Seed platform credits",
         createdAt: nowIso()
       }
     ]
@@ -58,7 +58,7 @@ function readFakeState(): FakeState {
     return {
       ...parsed,
       wallet: { ...initialFakeState().wallet, ...parsed.wallet },
-      challenges: parsed.challenges ?? [],
+      challenges: (parsed.challenges ?? []).map((challenge) => ({ ...challenge, visibility: challenge.visibility ?? "public" })),
       matches: parsed.matches ?? [],
       ledger: parsed.ledger ?? []
     };
@@ -85,7 +85,7 @@ function fakeLedger(type: LedgerEntryType, amountCents: number, description: str
 
 function requireFakeFunds(state: FakeState, amountCents: number): void {
   if (state.wallet.availableCents < amountCents) {
-    throw new Error("Play-money wallet does not have enough available balance.");
+    throw new Error("Not enough available credits.");
   }
 }
 
@@ -99,27 +99,76 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
   });
 
-  const data = (await response.json()) as T & { error?: string };
+  const rawBody = await response.text();
+  let data: (T & { error?: string }) | null = null;
+  if (rawBody.trim()) {
+    try {
+      data = JSON.parse(rawBody) as T & { error?: string };
+    } catch {
+      throw new Error(response.ok ? `Unexpected response from ${path}.` : `Request failed for ${path}.`);
+    }
+  }
+
   if (!response.ok) {
-    throw new Error(data.error ?? "Request failed.");
+    throw new Error(data?.error ?? `Request failed for ${path}.`);
+  }
+  if (!data) {
+    throw new Error(`Empty response from ${path}.`);
   }
   return data;
+}
+
+function createCreditPurchase(amountCents: number) {
+  if (isTestingModeEnabled()) {
+    const state = readFakeState();
+    state.wallet.availableCents += amountCents;
+    state.ledger.unshift(fakeLedger("credit_purchase", amountCents, "Add testing credits"));
+    writeFakeState(state);
+    return Promise.resolve({ checkoutUrl: window.location.href, sessionId: newId("play_credit_purchase") });
+  }
+
+  const requestInit = {
+    method: "POST",
+    body: JSON.stringify({ amountCents })
+  };
+
+  return request<{ checkoutUrl: string; sessionId: string }>("/api/payments/credit-purchases", requestInit).catch((error) => {
+    if (error instanceof Error && error.message.includes("/api/payments/credit-purchases")) {
+      return request<{ checkoutUrl: string; sessionId: string }>("/api/payments/deposits", requestInit);
+    }
+    throw error;
+  });
 }
 
 export const api = {
   listChallenges: async () => {
     if (isTestingModeEnabled()) {
       const state = readFakeState();
-      return { challenges: [...state.challenges].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) };
+      return {
+        challenges: state.challenges
+          .filter((challenge) => challenge.visibility === "public")
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      };
     }
     return request<{ challenges: Challenge[] }>("/api/challenges");
+  },
+  listMyChallenges: async () => {
+    if (isTestingModeEnabled()) {
+      const state = readFakeState();
+      return {
+        challenges: [...state.challenges]
+          .filter((challenge) => challenge.creatorId === testingUser.id)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      };
+    }
+    return request<{ challenges: Challenge[] }>("/api/my/challenges");
   },
   getChallenge: async (id: string) => {
     if (isTestingModeEnabled()) {
       const state = readFakeState();
       const challenge = state.challenges.find((item) => item.id === id);
       if (!challenge) {
-        throw new Error("Play-money challenge not found.");
+        throw new Error("Testing challenge not found.");
       }
       return {
         challenge,
@@ -133,12 +182,13 @@ export const api = {
     claim: string;
     resolutionCriteria: string;
     creatorSide: "YES" | "NO";
-    stakeDollars: string;
+    visibility: "public" | "private";
+    stakeCredits: string;
     expiresAt: string;
   }) => {
     if (isTestingModeEnabled()) {
       const state = readFakeState();
-      const stakeCents = dollarsToCents(body.stakeDollars);
+      const stakeCents = creditsToCents(body.stakeCredits);
       validateChallengeInput({ ...body, stakeCents });
       requireFakeFunds(state, stakeCents);
 
@@ -148,6 +198,7 @@ export const api = {
         claim: body.claim.trim(),
         resolutionCriteria: body.resolutionCriteria.trim(),
         creatorSide: body.creatorSide,
+        visibility: body.visibility,
         stakeCents,
         matchedCents: 0,
         status: "open",
@@ -158,21 +209,21 @@ export const api = {
       state.wallet.availableCents -= stakeCents;
       state.wallet.lockedCents += stakeCents;
       state.challenges.push(challenge);
-      state.ledger.unshift(fakeLedger("lock", stakeCents, "Lock play-money creator stake"));
+      state.ledger.unshift(fakeLedger("lock", stakeCents, "Lock creator credit stake"));
       writeFakeState(state);
       return Promise.resolve({ challenge });
     }
 
     return request<{ challenge: Challenge }>("/api/challenges", { method: "POST", body: JSON.stringify(body) });
   },
-  matchChallenge: (id: string, amountDollars: string) => {
+  matchChallenge: (id: string, amountCredits: string) => {
     if (isTestingModeEnabled()) {
       const state = readFakeState();
       const challenge = state.challenges.find((item) => item.id === id);
       if (!challenge) {
-        throw new Error("Play-money challenge not found.");
+        throw new Error("Testing challenge not found.");
       }
-      const amountCents = dollarsToCents(amountDollars);
+      const amountCents = creditsToCents(amountCredits);
       validateMatchAmount(challenge, amountCents);
       requireFakeFunds(state, amountCents);
 
@@ -190,14 +241,14 @@ export const api = {
       state.wallet.availableCents -= amountCents;
       state.wallet.lockedCents += amountCents;
       state.matches.push(match);
-      state.ledger.unshift(fakeLedger("match_lock", amountCents, "Lock play-money match stake"));
+      state.ledger.unshift(fakeLedger("match_lock", amountCents, "Lock matcher credit stake"));
       writeFakeState(state);
       return Promise.resolve({ challenge, match });
     }
 
     return request<{ challenge: Challenge; match: ChallengeMatch }>(`/api/challenges/${id}/matches`, {
       method: "POST",
-      body: JSON.stringify({ amountDollars })
+      body: JSON.stringify({ amountCredits })
     });
   },
   cancelUnmatched: (id: string) =>
@@ -207,16 +258,16 @@ export const api = {
       const state = readFakeState();
       const challenge = state.challenges.find((item) => item.id === id);
       if (!challenge) {
-        throw new Error("Play-money challenge not found.");
+        throw new Error("Testing challenge not found.");
       }
       if (challenge.matchedCents > 0 || state.matches.some((match) => match.challengeId === id)) {
-        throw new Error("Only play-money challenges with no matches can be deleted.");
+        throw new Error("Only testing challenges with no matches can be deleted.");
       }
 
       state.challenges = state.challenges.filter((item) => item.id !== id);
       state.wallet.availableCents += challenge.stakeCents;
       state.wallet.lockedCents -= challenge.stakeCents;
-      state.ledger.unshift(fakeLedger("unlock", challenge.stakeCents, "Release deleted play-money stake"));
+      state.ledger.unshift(fakeLedger("unlock", challenge.stakeCents, "Release deleted credit stake"));
       writeFakeState(state);
       return Promise.resolve({ deleted: true, unlockedCents: challenge.stakeCents });
     }
@@ -235,20 +286,8 @@ export const api = {
     }
     return request<{ ledger: LedgerEntry[] }>("/api/ledger");
   },
-  createDeposit: (amountCents: number) => {
-    if (isTestingModeEnabled()) {
-      const state = readFakeState();
-      state.wallet.availableCents += amountCents;
-      state.ledger.unshift(fakeLedger("deposit", amountCents, "Add play money"));
-      writeFakeState(state);
-      return Promise.resolve({ checkoutUrl: window.location.href, sessionId: newId("play_deposit") });
-    }
-
-    return request<{ checkoutUrl: string; sessionId: string }>("/api/payments/deposits", {
-      method: "POST",
-      body: JSON.stringify({ amountCents })
-    });
-  },
+  createCreditPurchase,
+  createDeposit: createCreditPurchase,
   createApiKey: (name: string) => {
     if (isTestingModeEnabled()) {
       return Promise.resolve({ apiKey: { id: newId("play_key"), secret: `play_${name.trim().toLowerCase().replace(/\s+/g, "_") || "agent"}_key` } });

@@ -1,4 +1,4 @@
-import { escapeHtml, fetchChallengePreview, formatShortDate, money, wrapText, type ShareEnv } from "../../_share-utils";
+import { credits, escapeHtml, fetchChallengePreview, formatShortDate, wrapText, type ShareEnv } from "../../_share-utils";
 
 export const onRequest: PagesFunction<ShareEnv> = async ({ request, params, env }) => {
   const idParam = params.id;
@@ -8,9 +8,9 @@ export const onRequest: PagesFunction<ShareEnv> = async ({ request, params, env 
 
   const claim = challenge?.claim ?? "A live Moltbooky challenge is open";
   const side = challenge?.creatorSide ?? "YES";
-  const stake = money(challenge?.stakeCents ?? 2500);
-  const available = money(data?.availableToMatchCents ?? 2500);
-  const matched = money(challenge?.matchedCents ?? 0);
+  const stake = credits(challenge?.stakeCents ?? 2500);
+  const available = credits(data?.availableToMatchCents ?? 2500);
+  const matched = credits(challenge?.matchedCents ?? 0);
   const expires = challenge ? formatShortDate(challenge.expiresAt) : "Open now";
   const oppositeSide = side === "YES" ? "NO" : "YES";
   const progress = challenge && challenge.stakeCents > 0 ? Math.min(100, Math.round((challenge.matchedCents / challenge.stakeCents) * 100)) : 18;

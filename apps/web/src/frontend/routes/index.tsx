@@ -8,7 +8,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Skeleton } from "../components/ui/skeleton";
 import { api } from "../lib/api";
-import { money, shortDate } from "../lib/format";
+import { credits, shortDate } from "../lib/format";
 import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
 export const Route = createRoute({
@@ -27,6 +27,7 @@ type Market = {
   stakeCents: number;
   status: Challenge["status"];
   creatorSide: "YES" | "NO";
+  visibility: Challenge["visibility"];
 };
 
 const categories = ["All", "AI", "Markets", "Sports", "Politics", "Crypto", "Tech", "Culture", "Agents"];
@@ -41,7 +42,8 @@ function fromChallenge(challenge: Challenge): Market {
     matchedCents: challenge.matchedCents,
     stakeCents: challenge.stakeCents,
     status: challenge.status,
-    creatorSide: challenge.creatorSide
+    creatorSide: challenge.creatorSide,
+    visibility: challenge.visibility
   };
 }
 
@@ -120,8 +122,8 @@ function Feed() {
                   {!authLoaded
                     ? "Browse every live bet publicly while your session is checked."
                     : user
-                      ? "Create a challenge, match open positions, or connect an agent with a scoped API key."
-                      : "Browse every live bet publicly. Sign up when you want to create a market, match a side, or connect an agent."}
+                      ? "Buy credits, create a challenge, match open positions, or connect an agent with a scoped API key."
+                      : "Browse every live bet publicly. Sign up when you want to buy credits, create a market, match a side, or connect an agent."}
                 </p>
                 {!authLoaded ? (
                   <div className="hero-actions">
@@ -159,7 +161,7 @@ function Feed() {
                     </div>
                     <div>
                       <span>Matched</span>
-                      <strong>{money(openInterest)}</strong>
+                      <strong>{credits(openInterest)}</strong>
                     </div>
                     <div>
                       <span>Pricing</span>
@@ -209,6 +211,7 @@ function Feed() {
                   <Link className="market-question" to="/challenge/$id" params={{ id: market.id }}>
                     <div className="row-meta">
                       <StatusPill status={market.status} />
+                      <Badge variant="outline">{market.visibility === "private" ? "Private" : "Public"}</Badge>
                       <Badge variant="outline">{market.category}</Badge>
                       <span>Expires {shortDate(market.expiresAt)}</span>
                     </div>
@@ -216,7 +219,7 @@ function Feed() {
                     <p>{market.resolutionCriteria}</p>
                   </Link>
                   <div className="market-depth">
-                    <span>{money(market.matchedCents)} matched</span>
+                    <span>{credits(market.matchedCents)} matched</span>
                     <div className="mini-meter">
                       <span style={{ width: `${progress}%` }} />
                     </div>
@@ -277,7 +280,7 @@ function Feed() {
                   <ShieldCheck size={20} />
                   <h3>For humans</h3>
                   <ol>
-                    <li>{!authLoaded ? "Checking your session." : user ? "Create a market with clear terms." : "Create an account or log in."}</li>
+                    <li>{!authLoaded ? "Checking your session." : user ? "Buy credits and create a market with clear terms." : "Create an account or log in."}</li>
                     <li>Post a claim with clear resolution criteria.</li>
                     <li>Share the market and match only what you want at risk.</li>
                   </ol>
@@ -310,8 +313,8 @@ function Feed() {
             </CardHeader>
             <CardContent className="trust-list">
               <p><Flame size={16} /> Even-odds markets only.</p>
-              <p><ShieldCheck size={16} /> Only matched exposure is at risk.</p>
-              <p><ArrowRight size={16} /> Unmatched creator stake can be released.</p>
+              <p><ShieldCheck size={16} /> Only matched credits are at risk.</p>
+              <p><ArrowRight size={16} /> Unmatched creator credits can be released.</p>
             </CardContent>
           </Card>
         </aside>

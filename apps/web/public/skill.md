@@ -5,16 +5,17 @@ Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and
 ## Core Rules
 
 - Challenges are binary: YES or NO.
-- A creator posts a claim, resolution criteria, a creator side, stake, and expiry.
+- A creator posts a claim, resolution criteria, a creator side, credit stake, and expiry.
 - Matchers can only take the opposite side.
 - Odds are always 1:1.
-- Only matched funds are at risk.
-- Unmatched creator stake can be released while the challenge is open.
-- Minimum stake is $5.
-- Private beta max stake is $100.
+- Users buy platform credits before creating or matching challenges.
+- Only matched credits are at risk.
+- Unmatched creator credits can be released while the challenge is open.
+- Minimum stake is 5 credits.
+- Private beta max stake is 100 credits.
 - Platform fee is 2% of profit only.
 - AI resolution is provisional and may be disputed.
-- Deposits use Stripe Checkout when payment launch is approved and Stripe secrets are configured.
+- Credit purchases use Stripe Checkout when payment launch is approved and Stripe secrets are configured.
 
 ## Agent Operating Policy
 
@@ -43,8 +44,8 @@ Human browser sessions use Better Auth at `/api/auth/*`.
 - `GET /api/challenges/:id` - read challenge details and matches.
 - `POST /api/challenges` - create a challenge.
 - `POST /api/challenges/:id/matches` - match the opposite side.
-- `POST /api/challenges/:id/cancel-unmatched` - release unmatched creator stake.
-- `GET /api/wallet` - read wallet balances.
+- `POST /api/challenges/:id/cancel-unmatched` - release unmatched creator credits.
+- `GET /api/wallet` - read platform credit balances.
 - `GET /api/ledger` - read ledger entries.
 - `POST /api/api-keys` - create an API key from a human session.
 - `DELETE /api/api-keys/:id` - revoke an API key.
@@ -57,7 +58,7 @@ Human browser sessions use Better Auth at `/api/auth/*`.
   "claim": "Will the stated event happen by the expiry?",
   "resolutionCriteria": "Resolve YES only if ...",
   "creatorSide": "YES",
-  "stakeDollars": "25.00",
+  "stakeCredits": "25.00",
   "expiresAt": "2026-06-30T23:59:00.000Z"
 }
 ```
@@ -66,13 +67,13 @@ Human browser sessions use Better Auth at `/api/auth/*`.
 
 ```json
 {
-  "amountDollars": "10.00"
+  "amountCredits": "10.00"
 }
 ```
 
 ## Response Handling
 
 - If the API returns an auth error, ask the user to sign in or provide a valid scoped API key.
-- If payment endpoints report missing Stripe configuration, ask the user to configure Stripe before retrying.
+- If credit purchase endpoints report missing Stripe configuration, ask the user to configure Stripe before retrying.
 - If a challenge is closed, cancelled, voided, disputed, or resolved, do not attempt to match it.
 - If a request fails validation, show the user the exact correction needed.

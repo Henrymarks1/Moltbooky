@@ -1,8 +1,8 @@
-import { formatMoney } from "@moltbooky/core/domain/money";
+import { formatCredits } from "@moltbooky/core/domain/money";
 import type { Challenge } from "@moltbooky/core/domain/types";
 
-export function money(cents: number): string {
-  return formatMoney(cents);
+export function credits(cents: number): string {
+  return formatCredits(cents);
 }
 
 export function matchProgress(challenge: Challenge): number {

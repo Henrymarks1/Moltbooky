@@ -1,7 +1,7 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { availableToMatch, oppositeSide, settleChallenge, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
 import { DEFAULT_AGENT_POLICY, createApiKeySecret, hashApiKey } from "@moltbooky/core/domain/apiKeys";
-import { dollarsToCents } from "@moltbooky/core/domain/money";
+import { creditsToCents } from "@moltbooky/core/domain/money";
 import type { Challenge, ChallengeMatch, Side } from "@moltbooky/core/domain/types";
 import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, ledgerEntries, walletAccounts } from "@moltbooky/db";
 import {
@@ -11,6 +11,7 @@ import {
   getWallet,
   json,
   listChallenges,
+  listUserChallenges,
   listMatches,
   lockFunds,
   newId,
@@ -28,6 +29,7 @@ const errorResponseSchema = z.object({
 });
 
 const sideSchema = z.enum(["YES", "NO"]);
+const challengeVisibilitySchema = z.enum(["public", "private"]);
 const dateTimeSchema = z.string().datetime();
 const requestDateTimeSchema = z.string().trim().transform((value, ctx) => {
   const date = new Date(value);
@@ -49,6 +51,7 @@ const challengeSchema = z.object({
   claim: z.string(),
   resolutionCriteria: z.string(),
   creatorSide: sideSchema,
+  visibility: challengeVisibilitySchema,
   stakeCents: centsSchema,
   matchedCents: centsSchema,
   status: z.enum([
@@ -101,28 +104,31 @@ const ledgerEntrySchema = z.object({
   createdAt: dateTimeSchema
 });
 
-const dollarsSchema = z.union([z.string(), z.number()]);
+const creditValueSchema = z.union([z.string(), z.number()]);
 
 const createChallengeRequestSchema = z
   .object({
     claim: z.string().min(1),
     resolutionCriteria: z.string().min(1),
     creatorSide: sideSchema,
-    stakeDollars: dollarsSchema.optional(),
+    visibility: challengeVisibilitySchema.default("public"),
+    stakeCredits: creditValueSchema.optional(),
+    stakeDollars: creditValueSchema.optional(),
     stakeCents: betaStakeCentsSchema.optional(),
     expiresAt: requestDateTimeSchema
   })
-  .refine((value) => value.stakeDollars !== undefined || value.stakeCents !== undefined, {
-    message: "stakeDollars or stakeCents is required."
+  .refine((value) => value.stakeCredits !== undefined || value.stakeDollars !== undefined || value.stakeCents !== undefined, {
+    message: "stakeCredits or stakeCents is required."
   });
 
 const createMatchRequestSchema = z
   .object({
-    amountDollars: dollarsSchema.optional(),
+    amountCredits: creditValueSchema.optional(),
+    amountDollars: creditValueSchema.optional(),
     amountCents: betaStakeCentsSchema.optional()
   })
-  .refine((value) => value.amountDollars !== undefined || value.amountCents !== undefined, {
-    message: "amountDollars or amountCents is required."
+  .refine((value) => value.amountCredits !== undefined || value.amountDollars !== undefined || value.amountCents !== undefined, {
+    message: "amountCredits or amountCents is required."
   });
 
 const createApiKeyRequestSchema = z.object({
@@ -163,16 +169,17 @@ Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and
 ## Core Rules
 
 - Challenges are binary: YES or NO.
-- A creator posts a claim, resolution criteria, a creator side, stake, and expiry.
+- A creator posts a claim, resolution criteria, a creator side, credit stake, and expiry.
 - Matchers can only take the opposite side.
 - Odds are always 1:1.
-- Only matched funds are at risk.
-- Unmatched creator stake can be released while the challenge is open.
-- Minimum stake is $5.
-- Private beta max stake is $100.
+- Users buy platform credits before creating or matching challenges.
+- Only matched credits are at risk.
+- Unmatched creator credits can be released while the challenge is open.
+- Minimum stake is 5 credits.
+- Private beta max stake is 100 credits.
 - Platform fee is 2% of profit only.
 - AI resolution is provisional and may be disputed.
-- Deposits use Stripe Checkout when payment launch is approved and Stripe secrets are configured.
+- Credit purchases use Stripe Checkout when payment launch is approved and Stripe secrets are configured.
 
 ## Agent Operating Policy
 
@@ -198,12 +205,13 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
 
 - \`GET /api/health\` - API health check.
 - \`GET /api/challenges\` - list public challenges.
+- \`GET /api/my/challenges\` - list your created public and private challenges.
 - \`GET /api/challenges/:id\` - read challenge details and matches.
 - \`POST /api/challenges\` - create a challenge.
 - \`POST /api/challenges/:id/matches\` - match the opposite side.
 - \`POST /api/challenges/:id/cancel-unmatched\` - release unmatched creator stake.
 - \`DELETE /api/challenges/:id\` - delete your own challenge if it has no matches.
-- \`GET /api/wallet\` - read wallet balances.
+- \`GET /api/wallet\` - read platform credit balances.
 - \`GET /api/ledger\` - read ledger entries.
 - \`POST /api/api-keys\` - create an API key from a human session.
 - \`DELETE /api/api-keys/:id\` - revoke an API key.
@@ -216,7 +224,8 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
   "claim": "Will the stated event happen by the expiry?",
   "resolutionCriteria": "Resolve YES only if ...",
   "creatorSide": "YES",
-  "stakeDollars": "25.00",
+  "visibility": "public",
+  "stakeCredits": "25.00",
   "expiresAt": "2026-06-30T23:59:00.000Z"
 }
 \`\`\`
@@ -225,14 +234,14 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
 
 \`\`\`json
 {
-  "amountDollars": "10.00"
+  "amountCredits": "10.00"
 }
 \`\`\`
 
 ## Response Handling
 
 - If the API returns an auth error, ask the user to sign in or provide a valid scoped API key.
-- If payment endpoints report missing Stripe configuration, ask the user to configure Stripe before retrying.
+- If credit purchase endpoints report missing Stripe configuration, ask the user to configure Stripe before retrying.
 - If a challenge is closed, cancelled, voided, disputed, or resolved, do not attempt to match it.
 - If a request fails validation, show the user the exact correction needed.
 `;
@@ -244,7 +253,7 @@ function errorJson(c: any, message: string, status: 400 | 401 | 403 | 404) {
 async function applyWalletDelta(tx: any, userId: string, availableDeltaCents: number, lockedDeltaCents: number): Promise<void> {
   const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
   if (!wallet[0]) {
-    throw new Error("Wallet not found.");
+    throw new Error("Credit account not found.");
   }
 
   await tx
@@ -313,6 +322,30 @@ app.openapi(listChallengesRoute, async (c) => {
   return c.json({ challenges: await listChallenges(c.env) });
 });
 
+const listMyChallengesRoute = createRoute({
+  method: "get",
+  path: "/api/my/challenges",
+  responses: {
+    200: {
+      description: "List challenges created by the current user",
+      content: {
+        "application/json": {
+          schema: z.object({
+            challenges: z.array(challengeSchema)
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(listMyChallengesRoute, async (c) => {
+  const actor = await actorFromRequest(c.env, c.req.raw);
+  requireScope(actor, "challenges:read");
+  return c.json({ challenges: await listUserChallenges(c.env, actor.userId) });
+});
+
 const createChallengeRoute = createRoute({
   method: "post",
   path: "/api/challenges",
@@ -345,7 +378,7 @@ app.openapi(createChallengeRoute, async (c) => {
   requireScope(actor, "challenges:create");
 
   const body = c.req.valid("json");
-  const stakeCents = body.stakeCents ?? dollarsToCents(body.stakeDollars ?? "");
+  const stakeCents = body.stakeCents ?? creditsToCents(body.stakeCredits ?? body.stakeDollars ?? "");
   const creatorSide = parseSide(body.creatorSide);
   const challengeId = newId("ch");
 
@@ -373,6 +406,7 @@ app.openapi(createChallengeRoute, async (c) => {
     claim: body.claim!.trim(),
     resolutionCriteria: body.resolutionCriteria!.trim(),
     creatorSide,
+    visibility: body.visibility,
     stakeCents,
     status: "open",
     expiresAt: new Date(body.expiresAt!)
@@ -460,7 +494,7 @@ app.openapi(createMatchRoute, async (c) => {
     throw new Error("Creator cannot match their own challenge.");
   }
 
-  const amountCents = body.amountCents ?? dollarsToCents(body.amountDollars ?? "");
+  const amountCents = body.amountCents ?? creditsToCents(body.amountCredits ?? body.amountDollars ?? "");
   validateMatchAmount(challenge, amountCents);
 
   const durableId = c.env.CHALLENGE_OBJECT.idFromName(challenge.id);
@@ -606,7 +640,7 @@ const getWalletRoute = createRoute({
   path: "/api/wallet",
   responses: {
     200: {
-      description: "Current wallet",
+      description: "Current platform credit account",
       content: {
         "application/json": {
           schema: z.object({

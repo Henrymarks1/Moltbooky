@@ -8,6 +8,13 @@
       "when": 1779738124178,
       "tag": "0000_smooth_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779749467508,
+      "tag": "0001_opposite_northstar",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /credits
+Disallow: /login
+Disallow: /my-bets
+Disallow: /settings/
+
+Sitemap: https://moltbooky.com/sitemap.xml
