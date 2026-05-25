@@ -1,0 +1,19 @@
+{
+  "name": "@moltbooky/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "db-migrate-local": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@moltbooky/core": "file:../../packages/core",
+    "@moltbooky/db": "file:../../packages/db",
+    "@neondatabase/serverless": "^0.10.4",
+    "better-auth": "^1.1.14",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.6.14"
+  }
+}

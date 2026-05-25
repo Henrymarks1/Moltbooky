@@ -1,0 +1,14 @@
+id: "web"
+type: "application"
+language: "typescript"
+
+tasks:
+  dev:
+    command: "npm run dev"
+    local: true
+  build:
+    command: "npm run build"
+    deps:
+      - "core:build"
+  test:
+    command: "npm run test"

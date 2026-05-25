@@ -1,0 +1,16 @@
+id: "api"
+type: "application"
+language: "typescript"
+
+tasks:
+  dev:
+    command: "npm run dev"
+    local: true
+  build:
+    command: "npm run build"
+    deps:
+      - "core:build"
+      - "db:build"
+  db-migrate-local:
+    command: "npm run db-migrate-local"
+    local: true

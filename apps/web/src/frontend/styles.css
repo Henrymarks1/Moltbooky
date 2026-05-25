@@ -1,0 +1,260 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 72 23% 96%;
+    --foreground: 144 17% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 144 17% 11%;
+    --primary: 158 59% 30%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 90 13% 89%;
+    --secondary-foreground: 144 17% 11%;
+    --muted: 96 18% 93%;
+    --muted-foreground: 122 7% 45%;
+    --destructive: 12 67% 33%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 96 16% 88%;
+    --input: 96 16% 82%;
+    --ring: 158 59% 30%;
+    --radius: 0.5rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply m-0 bg-background text-foreground antialiased;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply grid min-h-screen grid-cols-[280px_minmax(0,1fr)] max-[860px]:grid-cols-1;
+  }
+
+  .sidebar {
+    @apply flex flex-col gap-7 bg-[#17201c] p-6 text-white;
+  }
+
+  .brand {
+    @apply flex items-center gap-3;
+  }
+
+  .brand-mark {
+    @apply grid h-10 w-10 place-items-center rounded-md bg-[#f0c85a] font-black text-[#17201c];
+  }
+
+  .brand span,
+  .compliance-note {
+    @apply text-sm text-[#b9c3ba];
+  }
+
+  nav {
+    @apply grid gap-2;
+  }
+
+  nav a {
+    @apply inline-flex min-h-10 items-center justify-start gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white no-underline hover:bg-white/10;
+  }
+
+  nav a.active {
+    @apply bg-white/10;
+  }
+
+  .content {
+    @apply p-8 max-[860px]:p-5;
+  }
+
+  .page {
+    @apply mx-auto grid max-w-[1180px] gap-5;
+  }
+
+  .narrow {
+    @apply max-w-[760px];
+  }
+
+  .page-header,
+  .section-title {
+    @apply flex items-start justify-between gap-4;
+  }
+
+  .page-header h1 {
+    @apply text-[34px] font-black leading-tight;
+  }
+
+  .page-header p,
+  .challenge-row p,
+  .row-meta,
+  .fine-print,
+  .stats-grid span {
+    @apply text-muted-foreground;
+  }
+
+  .primary-button {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-bold text-primary-foreground no-underline hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .secondary-button,
+  .icon-button {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-secondary px-4 text-sm font-semibold text-secondary-foreground hover:bg-secondary/80;
+  }
+
+  .icon-button {
+    @apply w-10 px-0;
+  }
+
+  .panel,
+  .challenge-row,
+  .empty-state,
+  .notice,
+  .stats-grid > div {
+    @apply rounded-md border border-border bg-card text-card-foreground;
+  }
+
+  .panel,
+  .empty-state {
+    @apply p-5;
+  }
+
+  .challenge-list,
+  .form,
+  .ledger-list {
+    @apply grid gap-3;
+  }
+
+  .challenge-row {
+    @apply grid grid-cols-[minmax(0,1fr)_210px] gap-4 p-5 no-underline hover:border-primary/50 max-[860px]:grid-cols-1;
+  }
+
+  .row-meta,
+  .tag-row {
+    @apply flex flex-wrap items-center gap-2 text-xs;
+  }
+
+  .row-side {
+    @apply grid content-center justify-items-end gap-1 max-[860px]:justify-items-start;
+  }
+
+  .row-side strong {
+    @apply text-3xl;
+  }
+
+  .status,
+  .tag-row span {
+    @apply inline-flex min-h-6 items-center rounded-full bg-muted px-2 text-xs font-bold text-muted-foreground;
+  }
+
+  .status-open {
+    @apply bg-emerald-100 text-emerald-800;
+  }
+
+  .status-disputed,
+  .status-voided,
+  .status-cancelled {
+    @apply bg-red-100 text-red-800;
+  }
+
+  .notice {
+    @apply p-4;
+  }
+
+  .notice.error {
+    @apply border-red-200 text-red-800;
+  }
+
+  .detail-grid {
+    @apply grid grid-cols-[minmax(0,1fr)_360px] gap-4 max-[860px]:grid-cols-1;
+  }
+
+  .stats-grid {
+    @apply grid grid-cols-4 gap-3 max-[860px]:grid-cols-1;
+  }
+
+  .wallet-stats {
+    @apply grid-cols-3 max-[860px]:grid-cols-1;
+  }
+
+  .stats-grid > div {
+    @apply grid gap-1 p-4;
+  }
+
+  .stats-grid strong {
+    @apply text-2xl;
+  }
+
+  .meter {
+    @apply my-4 h-3 overflow-hidden rounded-full bg-muted;
+  }
+
+  .meter span {
+    @apply block h-full bg-primary;
+  }
+
+  label {
+    @apply grid gap-2 text-sm font-semibold text-foreground;
+  }
+
+  input,
+  textarea {
+    @apply w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring;
+  }
+
+  textarea {
+    @apply min-h-28 resize-y;
+  }
+
+  .two-col {
+    @apply grid grid-cols-2 gap-3 max-[860px]:grid-cols-1;
+  }
+
+  .segmented {
+    @apply grid grid-cols-2 rounded-md bg-secondary p-1;
+  }
+
+  .segmented button {
+    @apply min-h-10 rounded-sm border-0 bg-transparent font-extrabold;
+  }
+
+  .segmented button.selected {
+    @apply bg-white text-primary;
+  }
+
+  .large-side {
+    @apply text-4xl font-black text-primary;
+  }
+
+  .share-card {
+    @apply grid gap-2 rounded-md border border-[#24352d] bg-[#17201c] p-5 text-white;
+  }
+
+  .share-card small {
+    @apply text-[#cfd8d0];
+  }
+
+  .ledger-list > div {
+    @apply flex justify-between gap-4 border-b border-border py-3;
+  }
+
+  .admin-actions {
+    @apply grid grid-cols-3 content-center gap-2;
+  }
+
+  .admin-actions button {
+    @apply min-h-10 rounded-md border border-border bg-background hover:bg-muted;
+  }
+
+  code {
+    @apply mt-2 block overflow-auto break-all text-foreground;
+  }
+}
