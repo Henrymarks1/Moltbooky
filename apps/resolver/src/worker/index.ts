@@ -1,6 +1,6 @@
 import { provisionalDisputeDeadline } from "@moltbooky/core/domain/challenge";
 import type { ResolutionOutcome } from "@moltbooky/core/domain/types";
-import { and, challenges, createDb, eq, lte, resolutionRuns } from "@moltbooky/db";
+import { and, challenges, createDb, eq, lte, or, resolutionRuns } from "@moltbooky/db";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
@@ -52,6 +52,14 @@ export async function enqueueOpenChallenges(env: Env): Promise<number> {
 
 export async function resolveChallenge(env: Env, challengeId: string): Promise<ResolverResult> {
   const db = createDb(env.DATABASE_URL);
+  await db
+    .update(challenges)
+    .set({
+      status: "resolving",
+      updatedAt: new Date()
+    })
+    .where(and(eq(challenges.id, challengeId), eq(challenges.status, "open")));
+
   const rows = await db
     .select({
       claim: challenges.claim,
@@ -79,17 +87,15 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
     confidence: resolverResult.confidence
   });
 
-  if ((resolverResult.outcome === "YES" || resolverResult.outcome === "NO") && resolverResult.confidence >= 0.85) {
-    await db
-      .update(challenges)
-      .set({
-        status: "provisional_resolved",
-        provisionalOutcome: resolverResult.outcome,
-        disputeDeadlineAt: new Date(provisionalDisputeDeadline()),
-        updatedAt: new Date()
-      })
-      .where(and(eq(challenges.id, challengeId), eq(challenges.status, "open")));
-  }
+  await db
+    .update(challenges)
+    .set({
+      status: "provisional_resolved",
+      provisionalOutcome: resolverResult.outcome,
+      disputeDeadlineAt: new Date(provisionalDisputeDeadline()),
+      updatedAt: new Date()
+    })
+    .where(and(eq(challenges.id, challengeId), or(eq(challenges.status, "open"), eq(challenges.status, "resolving"))));
 
   return resolverResult;
 }

@@ -1,5 +1,5 @@
-import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, users, walletAccounts } from "@moltbooky/db";
-import type { Challenge, ChallengeMatch, Side, WalletAccount } from "@moltbooky/core/domain/types";
+import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionRuns, users, walletAccounts } from "@moltbooky/db";
+import type { Challenge, ChallengeMatch, ResolutionRun, Side, WalletAccount } from "@moltbooky/core/domain/types";
 import { getSessionUserId } from "./auth";
 
 function serializeTimestamp(value: Date | string | null): string | null {
@@ -35,6 +35,27 @@ function toChallengeMatch(row: typeof challengeMatches.$inferSelect): ChallengeM
     amountCents: row.amountCents,
     side: row.side as ChallengeMatch["side"],
     status: row.status as ChallengeMatch["status"],
+    createdAt: serializeTimestamp(row.createdAt)!
+  };
+}
+
+function toResolutionRun(row: typeof resolutionRuns.$inferSelect): ResolutionRun {
+  let sourceUrls: string[] = [];
+  try {
+    const parsed = JSON.parse(row.sourceUrls) as unknown;
+    sourceUrls = Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === "string") : [];
+  } catch {
+    sourceUrls = [];
+  }
+
+  return {
+    id: row.id,
+    challengeId: row.challengeId,
+    exaQuery: row.exaQuery,
+    sourceUrls,
+    aiRationale: row.aiRationale,
+    proposedOutcome: row.proposedOutcome as ResolutionRun["proposedOutcome"],
+    confidence: row.confidence,
     createdAt: serializeTimestamp(row.createdAt)!
   };
 }
@@ -182,6 +203,17 @@ export async function listMatches(env: Env, challengeId: string): Promise<Challe
     .where(eq(challengeMatches.challengeId, challengeId))
     .orderBy(challengeMatches.createdAt);
   return result.map(toChallengeMatch);
+}
+
+export async function listResolutionRuns(env: Env, challengeId: string): Promise<ResolutionRun[]> {
+  const db = createDb(env.DATABASE_URL);
+  const result = await db
+    .select()
+    .from(resolutionRuns)
+    .where(eq(resolutionRuns.challengeId, challengeId))
+    .orderBy(desc(resolutionRuns.createdAt))
+    .limit(10);
+  return result.map(toResolutionRun);
 }
 
 export async function actorFromRequest(env: Env, request: Request): Promise<{ userId: string; scopes: string[] }> {

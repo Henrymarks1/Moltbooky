@@ -51,6 +51,17 @@ export interface ChallengeMatch {
   createdAt: string;
 }
 
+export interface ResolutionRun {
+  id: string;
+  challengeId: string;
+  exaQuery: string;
+  sourceUrls: string[];
+  aiRationale: string;
+  proposedOutcome: ResolutionOutcome;
+  confidence: number;
+  createdAt: string;
+}
+
 export interface WalletAccount {
   userId: string;
   availableCents: number;
