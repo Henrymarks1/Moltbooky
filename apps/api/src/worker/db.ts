@@ -203,13 +203,38 @@ export async function listChallenges(env: Env): Promise<Challenge[]> {
 
 export async function listUserChallenges(env: Env, userId: string): Promise<Challenge[]> {
   const db = createDb(env.DATABASE_URL);
-  const result = await db
+  const createdRows = await db
     .select()
     .from(challenges)
     .where(eq(challenges.creatorId, userId))
     .orderBy(desc(challenges.createdAt))
     .limit(100);
-  return result.map(toChallenge);
+  const matchedRows = await db
+    .select({ challenge: challenges })
+    .from(challengeMatches)
+    .innerJoin(challenges, eq(challengeMatches.challengeId, challenges.id))
+    .where(eq(challengeMatches.matcherId, userId))
+    .orderBy(desc(challengeMatches.createdAt))
+    .limit(100);
+
+  const uniqueChallenges = new Map<string, Challenge>();
+  for (const row of [...createdRows, ...matchedRows.map((row) => row.challenge)]) {
+    if (!uniqueChallenges.has(row.id)) {
+      uniqueChallenges.set(row.id, toChallenge(row));
+    }
+  }
+  return [...uniqueChallenges.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
+}
+
+export async function listUserMatches(env: Env, userId: string): Promise<ChallengeMatch[]> {
+  const db = createDb(env.DATABASE_URL);
+  const result = await db
+    .select()
+    .from(challengeMatches)
+    .where(eq(challengeMatches.matcherId, userId))
+    .orderBy(desc(challengeMatches.createdAt))
+    .limit(100);
+  return result.map((row) => toChallengeMatch(row));
 }
 
 export async function getChallenge(env: Env, id: string): Promise<Challenge | null> {

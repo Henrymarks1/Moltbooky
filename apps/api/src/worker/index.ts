@@ -12,6 +12,7 @@ import {
   json,
   listChallenges,
   listUserChallenges,
+  listUserMatches,
   listMatches,
   listResolutionRuns,
   lockFunds,
@@ -218,7 +219,7 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
 
 - \`GET /api/health\` - API health check.
 - \`GET /api/challenges\` - list public challenges.
-- \`GET /api/my/challenges\` - list your created public and private challenges.
+- \`GET /api/my/challenges\` - list challenges you created or matched.
 - \`GET /api/challenges/:id\` - read challenge details and matches.
 - \`POST /api/challenges\` - create a challenge.
 - \`POST /api/challenges/:id/matches\` - match the opposite side.
@@ -340,11 +341,12 @@ const listMyChallengesRoute = createRoute({
   path: "/api/my/challenges",
   responses: {
     200: {
-      description: "List challenges created by the current user",
+      description: "List challenges created or matched by the current user",
       content: {
         "application/json": {
           schema: z.object({
-            challenges: z.array(challengeSchema)
+            challenges: z.array(challengeSchema),
+            matches: z.array(challengeMatchSchema)
           })
         }
       }
@@ -356,7 +358,10 @@ const listMyChallengesRoute = createRoute({
 app.openapi(listMyChallengesRoute, async (c) => {
   const actor = await actorFromRequest(c.env, c.req.raw);
   requireScope(actor, "challenges:read");
-  return c.json({ challenges: await listUserChallenges(c.env, actor.userId) });
+  return c.json({
+    challenges: await listUserChallenges(c.env, actor.userId),
+    matches: await listUserMatches(c.env, actor.userId)
+  });
 });
 
 const createChallengeRoute = createRoute({

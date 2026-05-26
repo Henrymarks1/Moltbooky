@@ -174,13 +174,16 @@ export const api = {
   listMyChallenges: async () => {
     if (isTestingModeEnabled()) {
       const state = readFakeState();
+      const matches = state.matches.filter((match) => match.matcherId === testingUser.id);
+      const matchedChallengeIds = new Set(matches.map((match) => match.challengeId));
       return {
         challenges: [...state.challenges]
-          .filter((challenge) => challenge.creatorId === testingUser.id)
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .filter((challenge) => challenge.creatorId === testingUser.id || matchedChallengeIds.has(challenge.id))
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        matches
       };
     }
-    return request<{ challenges: Challenge[] }>("/api/my/challenges");
+    return request<{ challenges: Challenge[]; matches: ChallengeMatch[] }>("/api/my/challenges");
   },
   getChallenge: async (id: string) => {
     if (isTestingModeEnabled()) {
