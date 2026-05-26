@@ -56,11 +56,11 @@
   }
 
   .topbar {
-    @apply sticky top-0 z-20 border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 max-[720px]:px-4;
+    @apply sticky top-0 z-20 bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 max-[720px]:px-4;
   }
 
   .topbar-inner {
-    @apply mx-auto flex min-h-16 w-full max-w-7xl items-center gap-5 max-[1080px]:flex-wrap;
+    @apply mx-auto flex min-h-16 w-full max-w-7xl items-center gap-3 max-[720px]:flex-wrap;
   }
 
   @media (max-width: 720px) {
@@ -85,7 +85,7 @@
     .auth-actions {
       grid-column: 1 / -1;
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
     }
 
     .profile-actions {
@@ -100,12 +100,6 @@
       justify-content: flex-start;
     }
 
-    .topbar-search {
-      grid-column: 1 / -1;
-      order: 2;
-      max-width: none;
-    }
-
     .topbar-inner > a[href="/challenge/new"] {
       display: none;
     }
@@ -116,11 +110,11 @@
   }
 
   .brand {
-    @apply flex min-w-[170px] items-center gap-3 no-underline;
+    @apply flex min-w-0 items-center gap-2 no-underline;
   }
 
   .brand-mark {
-    @apply grid h-9 w-9 place-items-center rounded-md bg-primary text-sm font-semibold text-primary-foreground;
+    @apply grid h-8 w-8 place-items-center rounded-md bg-primary text-xs font-semibold text-primary-foreground;
   }
 
   .brand strong {
@@ -132,7 +126,7 @@
   }
 
   nav {
-    @apply flex items-center gap-1 overflow-x-auto max-[1080px]:order-3 max-[1080px]:w-full;
+    @apply flex items-center gap-1 overflow-x-auto;
   }
 
   nav a {
@@ -147,16 +141,76 @@
     @apply px-6 py-5 max-[720px]:px-4;
   }
 
-  .topbar-search {
-    @apply relative flex max-w-xl flex-1 items-center;
+  .home-shell .content {
+    @apply py-0;
   }
 
-  .topbar-search svg {
-    @apply pointer-events-none absolute left-3 text-muted-foreground;
+  .home-shell nav {
+    @apply hidden;
   }
 
-  .topbar-search input {
-    @apply pl-10;
+  .prompt-home {
+    @apply mx-auto grid min-h-[calc(100vh-65px)] w-full max-w-6xl place-items-center px-4 py-10;
+  }
+
+  .prompt-hero {
+    @apply grid w-full max-w-4xl gap-5;
+  }
+
+  .prompt-heading {
+    @apply grid justify-items-center gap-4 text-center;
+  }
+
+  .prompt-heading h1 {
+    @apply text-5xl font-bold tracking-normal text-foreground max-[720px]:text-4xl;
+  }
+
+  .market-composer {
+    @apply grid min-h-[210px] overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-[0_24px_80px_rgba(15,23,42,0.10)];
+  }
+
+  .market-composer textarea {
+    @apply min-h-[146px] resize-none border-0 bg-transparent px-6 py-5 text-lg leading-8 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-0 max-[560px]:px-4 max-[560px]:text-base;
+  }
+
+  .composer-actions {
+    @apply flex min-h-16 items-center justify-between gap-3 border-t bg-muted/35 px-4 py-3;
+  }
+
+  .composer-mode {
+    @apply inline-flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground;
+  }
+
+  .composer-mode span {
+    @apply truncate;
+  }
+
+  .resolver-tools {
+    @apply grid grid-cols-3 gap-3 max-[820px]:grid-cols-2 max-[560px]:grid-cols-1;
+  }
+
+  .resolver-tools > div {
+    @apply grid grid-cols-[36px_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card p-3 text-card-foreground;
+  }
+
+  .resolver-tools svg {
+    @apply h-9 w-9 rounded-md bg-muted p-2 text-foreground;
+  }
+
+  .resolver-tools span {
+    @apply grid min-w-0 gap-0.5;
+  }
+
+  .resolver-tools strong {
+    @apply truncate text-sm font-semibold;
+  }
+
+  .resolver-tools small {
+    @apply truncate text-xs font-medium text-muted-foreground;
+  }
+
+  .prompt-links {
+    @apply flex flex-wrap justify-center gap-2;
   }
 
   .auth-actions {

@@ -1,8 +1,7 @@
 import { Link, Outlet, createRootRoute, useRouterState } from "@tanstack/react-router";
-import { Activity, ChevronDown, Coins, Info, ListChecks, LogOut, Search, Settings, UserCircle } from "lucide-react";
+import { Activity, ChevronDown, Coins, ListChecks, LogOut, Settings, UserCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import { capturePageview, identifyAnalyticsUser, resetAnalyticsUser } from "../lib/analytics";
 import { seoForPath, setSeoMeta } from "../lib/seo";
@@ -146,7 +145,7 @@ function RootLayout() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={pathname === "/" ? "app-shell home-shell" : "app-shell"}>
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand">
@@ -156,27 +155,15 @@ function RootLayout() {
               <span>{testingMode ? "Testing credits" : "Event markets"}</span>
             </div>
           </div>
-          <div className="topbar-search">
-            <Search size={18} />
-            <Input placeholder="Search markets..." aria-label="Search markets" />
-          </div>
           <nav>
             <Link to="/" activeProps={{ className: "active" }}>
               <Activity size={18} /> Markets
             </Link>
             {user && (
-              <>
-                <Link to="/my-bets" activeProps={{ className: "active" }}>
-                  <ListChecks size={18} /> My bets
-                </Link>
-                <Link to="/credits" activeProps={{ className: "active" }}>
-                  <Coins size={18} /> Credits
-                </Link>
-              </>
+              <Link to="/my-bets" activeProps={{ className: "active" }}>
+                <ListChecks size={18} /> My bets
+              </Link>
             )}
-            <Link to="/how-it-works" activeProps={{ className: "active" }}>
-              <Info size={18} /> How it works
-            </Link>
           </nav>
           {!authLoaded ? (
             <div className="auth-actions auth-actions-pending" aria-label="Checking session">
@@ -217,11 +204,8 @@ function RootLayout() {
             </div>
           ) : (
             <div className="auth-actions">
-              <Button asChild variant="ghost">
-                <Link to="/login">Log in</Link>
-              </Button>
               <Button asChild>
-                <Link to="/login">Sign up</Link>
+                <Link to="/login">Sign in</Link>
               </Button>
             </div>
           )}

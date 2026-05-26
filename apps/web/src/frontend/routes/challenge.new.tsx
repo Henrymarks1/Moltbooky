@@ -8,6 +8,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { api } from "../lib/api";
+import { draftClaimKey } from "../lib/drafts";
 import { authChangeEvent } from "./root";
 import { rootRoute } from "./root";
 
@@ -27,6 +28,14 @@ function toIsoDateTime(value: FormDataEntryValue | null): string {
 
 function NewChallenge() {
   const navigate = useNavigate();
+  const [draftClaim] = useState(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+    const draft = window.sessionStorage.getItem(draftClaimKey) ?? "";
+    window.sessionStorage.removeItem(draftClaimKey);
+    return draft;
+  });
   const [creatorSide, setCreatorSide] = useState<"YES" | "NO">("YES");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [error, setError] = useState("");
@@ -83,7 +92,12 @@ function NewChallenge() {
         {error && <div className="notice error">{error}</div>}
         <Label>
           Claim
-          <Textarea name="claim" placeholder="I bet YES that OpenAI launches a new model by June 30, 2026." required />
+          <Textarea
+            name="claim"
+            placeholder="I bet YES that OpenAI launches a new model by June 30, 2026."
+            defaultValue={draftClaim}
+            required
+          />
         </Label>
         <Label>
           Resolution criteria
