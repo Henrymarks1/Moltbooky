@@ -77,6 +77,15 @@ function jsonError(c: any, message: string, status: 400 | 401 | 403 | 500) {
   return c.json({ error: message }, status) as any;
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+app.onError((error, c) => {
+  console.error(error);
+  return jsonError(c, errorMessage(error, "Payments request failed."), 500);
+});
+
 function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 }
