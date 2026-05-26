@@ -55,6 +55,8 @@ export const users = pgTable(
     displayName: text("display_name").notNull(),
     betaStatus: text("beta_status").notNull().default("invited"),
     kycStatus: text("kyc_status").notNull().default("not_started"),
+    stripeConnectAccountId: text("stripe_connect_account_id"),
+    stripeConnectPayoutsEnabled: boolean("stripe_connect_payouts_enabled").notNull().default(false),
     complianceNotes: text("compliance_notes"),
     createdAt: timestamp("created_at").notNull().defaultNow()
   },

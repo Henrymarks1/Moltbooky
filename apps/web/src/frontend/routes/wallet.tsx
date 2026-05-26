@@ -1,7 +1,7 @@
 import { createRoute } from "@tanstack/react-router";
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
-import { ArrowDownToLine, Coins, CreditCard } from "lucide-react";
+import { ArrowDownToLine, Banknote, Coins, CreditCard } from "lucide-react";
 import type { WalletAccount } from "@moltbooky/core/domain/types";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -27,11 +27,16 @@ function WalletPage() {
   const [wallet, setWallet] = useState<WalletAccount | null>(null);
   const [ledger, setLedger] = useState<Array<{ id: string; type: string; amountCents: number; description: string; createdAt: string }>>([]);
   const [purchaseCredits, setPurchaseCredits] = useState("25");
+  const [cashoutCredits, setCashoutCredits] = useState("25");
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [isCashingOut, setIsCashingOut] = useState(false);
   const [error, setError] = useState("");
   const [ledgerError, setLedgerError] = useState("");
   const [testingMode, setTestingMode] = useState(isTestingModeEnabled());
   const [creditPurchasesEnabled, setCreditPurchasesEnabled] = useState(testingMode);
+  const [cashoutsEnabled, setCashoutsEnabled] = useState(testingMode);
+  const [payoutsEnabled, setPayoutsEnabled] = useState(testingMode);
+  const [isSettingUpPayouts, setIsSettingUpPayouts] = useState(false);
 
   async function refreshWallet() {
     setError("");
@@ -63,12 +68,27 @@ function WalletPage() {
     async function refreshPaymentsConfig() {
       if (testingMode) {
         setCreditPurchasesEnabled(true);
+        setCashoutsEnabled(true);
+        setPayoutsEnabled(true);
         return;
       }
 
       const config = await api.paymentsConfig();
       if (isMounted) {
         setCreditPurchasesEnabled(config.creditPurchasesEnabled);
+        setCashoutsEnabled(config.cashoutsEnabled);
+      }
+
+      try {
+        const status = await api.payoutStatus();
+        if (isMounted) {
+          setCashoutsEnabled(status.cashoutsEnabled);
+          setPayoutsEnabled(status.payoutsEnabled);
+        }
+      } catch {
+        if (isMounted) {
+          setPayoutsEnabled(false);
+        }
       }
     }
 
@@ -119,6 +139,52 @@ function WalletPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start Stripe Checkout.");
       setIsPurchasing(false);
+    }
+  }
+
+  async function createWithdrawal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+
+    const amount = Number(cashoutCredits);
+    const amountCents = Math.round(amount * 100);
+    if (!Number.isFinite(amount) || amountCents <= 0) {
+      setError("Cashout amount must be greater than 0 credits.");
+      return;
+    }
+    if (wallet && amountCents > wallet.availableCents) {
+      setError("Cashout amount cannot exceed your available credits.");
+      return;
+    }
+    if (!testingMode && !cashoutsEnabled) {
+      setError("Cashouts are temporarily unavailable while bank account payouts are being checked.");
+      return;
+    }
+    if (!testingMode && !payoutsEnabled) {
+      setError("Connect a bank account before cashing out.");
+      return;
+    }
+
+    setIsCashingOut(true);
+    try {
+      await api.createWithdrawal(amountCents);
+      await refreshWallet();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to request cashout.");
+    } finally {
+      setIsCashingOut(false);
+    }
+  }
+
+  async function setupPayouts() {
+    setError("");
+    setIsSettingUpPayouts(true);
+    try {
+      const link = await api.createPayoutOnboardingLink();
+      window.location.href = link.onboardingUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start bank account setup.");
+      setIsSettingUpPayouts(false);
     }
   }
 
@@ -195,6 +261,67 @@ function WalletPage() {
                   : creditPurchasesEnabled
                     ? "Buy with Stripe"
                     : "Credit purchases unavailable"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <div className="section-title">
+            <CardTitle>Cash out</CardTitle>
+            <Banknote size={20} />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!testingMode && !cashoutsEnabled && (
+            <div className="notice">
+              Cashouts are temporarily unavailable while bank account payouts are being checked.
+            </div>
+          )}
+          {!testingMode && cashoutsEnabled && !payoutsEnabled && (
+            <div className="notice">
+              <p>Connect a bank account before requesting a cashout.</p>
+              <Button type="button" variant="outline" onClick={setupPayouts} disabled={isSettingUpPayouts}>
+                <Banknote size={18} />
+                {isSettingUpPayouts ? "Opening secure setup..." : "Connect bank account"}
+              </Button>
+            </div>
+          )}
+          <form className="deposit-form" onSubmit={createWithdrawal}>
+            <div>
+              <label htmlFor="cashout-amount">Credits</label>
+              <div className="deposit-input">
+                <Input
+                  id="cashout-amount"
+                  inputMode="decimal"
+                  min="0.01"
+                  max={String((wallet?.availableCents ?? 0) / 100)}
+                  step="0.01"
+                  type="number"
+                  value={cashoutCredits}
+                  onChange={(event) => setCashoutCredits(event.target.value)}
+                />
+              </div>
+              <p className="field-help">
+                Cashouts send the dollar equivalent to your connected bank account.
+              </p>
+            </div>
+            <div className="deposit-presets">
+              {[10, 25, 50, 100].map((amount) => (
+                <Button
+                  key={amount}
+                  type="button"
+                  variant="outline"
+                  disabled={(wallet?.availableCents ?? 0) < amount * 100}
+                  onClick={() => setCashoutCredits(String(amount))}
+                >
+                  {credits(amount * 100)}
+                </Button>
+              ))}
+            </div>
+            <Button type="submit" disabled={isCashingOut || (wallet?.availableCents ?? 0) <= 0 || (!testingMode && (!cashoutsEnabled || !payoutsEnabled))}>
+              <Banknote size={18} />
+              {isCashingOut ? "Requesting..." : "Request cashout"}
             </Button>
           </form>
         </CardContent>

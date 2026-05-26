@@ -118,8 +118,7 @@ export async function ensureBetaUser(env: Env, userId: string): Promise<void> {
     await tx
       .insert(walletAccounts)
       .values({
-        userId,
-        availableCents: 25_000
+        userId
       })
       .onConflictDoNothing();
   });

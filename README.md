@@ -44,11 +44,11 @@ Required production secrets and variables:
 
 - `apps/api`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and optional Google OAuth variables.
 - `apps/resolver`: `DATABASE_URL`, plus `EXA_API_KEY` and `OPENAI_API_KEY` when automated resolution is enabled.
-- `apps/payments`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and Stripe variables for credit purchases.
+- `apps/payments`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and Stripe variables for credit purchases and Connect cashouts.
 - `apps/web` client: optional `VITE_POSTHOG_TOKEN` and `VITE_POSTHOG_HOST` for PostHog analytics.
 - `apps/web` Pages Functions: `API_ORIGIN` and `PAYMENTS_ORIGIN`, pointing at the deployed API and payments Workers.
 
-Credit purchases are publicly available when the payments Worker has Stripe Checkout and webhook secrets configured.
+Credit purchases are publicly available when the payments Worker has Stripe Checkout and webhook secrets configured. Cashouts let users connect bank accounts through Stripe-hosted onboarding and require Connect onboarding URLs in addition to the Stripe secret.
 
 For local Google sign-in, create OAuth credentials in Google Cloud and add this authorized redirect URI:
 
@@ -74,13 +74,19 @@ The public API contract is served as OpenAPI 3.1 at `/api/openapi.json`. Payment
 
 - `moltbooky`: public API, Better Auth, API keys, credit ledger, challenges, admin routes, and `ChallengeObject` Durable Objects for serialized matching.
 - `moltbooky-resolver`: hourly cron and `moltbooky-resolution` queue consumer/producer for AI resolution with OpenAI through the AI SDK and an Exa search tool.
-- `moltbooky-payments`: Stripe Checkout credit purchase creation and Stripe webhook handling. Requires `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL`.
+- `moltbooky-payments`: Stripe Checkout credit purchase creation, Stripe Connect cashouts, and Stripe webhook handling. Requires `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL`, `STRIPE_CONNECT_RETURN_URL`, and `STRIPE_CONNECT_REFRESH_URL`.
 
 ## Stripe Credit Purchases
 
 Stripe credit purchases are enabled when the payments Worker has `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL` configured. Add those values to `apps/payments/.dev.vars`, run `moon run :dev`, then use the credits page to open Stripe Checkout.
 
 The payments dev task starts `stripe listen --forward-to http://localhost:8789/api/payments/stripe/webhook`, captures the local `whsec_...` signing secret, and injects it into the payments Worker. Run `stripe login` first if the Stripe CLI has not been authenticated on your machine.
+
+## Stripe Cashouts
+
+Cashouts use Stripe Connect Express under the hood so users can connect bank accounts through Stripe-hosted onboarding. Users must complete bank account setup before requesting a cashout. A cashout transfers the equivalent USD amount to the user's connected account, creates a Stripe payout to their bank account, moves credits into pending cashout, and reconciles pending cashout on `payout.paid` or `payout.failed` webhooks.
+
+Set `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL` on the payments Worker. In production, configure Stripe webhooks to send Connect payout events to `/api/payments/stripe/webhook`.
 
 ## Open Source
 

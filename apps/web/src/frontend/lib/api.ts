@@ -150,9 +150,12 @@ function createCreditPurchase(amountCents: number) {
 export const api = {
   paymentsConfig: () => {
     if (isTestingModeEnabled()) {
-      return Promise.resolve({ creditPurchasesEnabled: true });
+      return Promise.resolve({ creditPurchasesEnabled: true, cashoutsEnabled: true });
     }
-    return request<{ creditPurchasesEnabled: boolean }>("/api/payments/config").catch(() => ({ creditPurchasesEnabled: false }));
+    return request<{ creditPurchasesEnabled: boolean; cashoutsEnabled: boolean }>("/api/payments/config").catch(() => ({
+      creditPurchasesEnabled: false,
+      cashoutsEnabled: false
+    }));
   },
   listChallenges: async () => {
     if (isTestingModeEnabled()) {
@@ -328,6 +331,29 @@ export const api = {
   },
   createCreditPurchase,
   createDeposit: createCreditPurchase,
+  payoutStatus: () => {
+    if (isTestingModeEnabled()) {
+      return Promise.resolve({ cashoutsEnabled: true, connected: true, payoutsEnabled: true, onboardingRequired: false });
+    }
+    return request<{ cashoutsEnabled: boolean; connected: boolean; payoutsEnabled: boolean; onboardingRequired: boolean }>("/api/payments/connect/status");
+  },
+  createPayoutOnboardingLink: () => request<{ onboardingUrl: string; accountId: string }>("/api/payments/connect/account-link", { method: "POST" }),
+  createWithdrawal: (amountCents: number) => {
+    if (isTestingModeEnabled()) {
+      if (amountCents <= 0) {
+        throw new Error("Cashout amount must be positive.");
+      }
+      const state = readFakeState();
+      requireFakeFunds(state, amountCents);
+      state.wallet.availableCents -= amountCents;
+      state.wallet.pendingWithdrawalCents += amountCents;
+      state.ledger.unshift(fakeLedger("withdrawal", amountCents, "Cashout requested"));
+      writeFakeState(state);
+      return Promise.resolve({ wallet: state.wallet });
+    }
+
+    return request<{ wallet: WalletAccount }>("/api/payments/withdrawals", { method: "POST", body: JSON.stringify({ amountCents }) });
+  },
   createApiKey: (name: string) => {
     if (isTestingModeEnabled()) {
       return Promise.resolve({ apiKey: { id: newId("play_key"), secret: `play_${name.trim().toLowerCase().replace(/\s+/g, "_") || "agent"}_key` } });
