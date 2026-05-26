@@ -1,4 +1,4 @@
-import { and, apiKeys, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionRuns, users, walletAccounts } from "@moltbooky/db";
+import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionRuns, walletAccounts } from "@moltbooky/db";
 import type { Challenge, ChallengeMatch, ResolutionRun, Side, WalletAccount } from "@moltbooky/core/domain/types";
 import { getSessionUserId } from "./auth";
 
@@ -90,7 +90,7 @@ export function newId(prefix: string): string {
 
 export async function ensureBetaUser(env: Env, userId: string): Promise<void> {
   const db = createDb(env.DATABASE_URL);
-  const existing = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+  const existing = await db.select({ id: appUsers.id }).from(appUsers).where(eq(appUsers.id, userId)).limit(1);
   if (existing.length > 0) {
     return;
   }
@@ -106,7 +106,7 @@ export async function ensureBetaUser(env: Env, userId: string): Promise<void> {
 
   await db.transaction(async (tx) => {
     await tx
-      .insert(users)
+      .insert(appUsers)
       .values({
         id: userId,
         email: authRecord[0]?.email ?? `${userId}@moltbooky.local`,
@@ -247,11 +247,11 @@ export async function listMatches(env: Env, challengeId: string): Promise<Challe
   const result = await db
     .select({
       match: challengeMatches,
-      displayName: users.displayName,
+      displayName: appUsers.displayName,
       authName: authUser.name
     })
     .from(challengeMatches)
-    .leftJoin(users, eq(challengeMatches.matcherId, users.id))
+    .leftJoin(appUsers, eq(challengeMatches.matcherId, appUsers.id))
     .leftJoin(authUser, eq(challengeMatches.matcherId, authUser.id))
     .where(eq(challengeMatches.challengeId, challengeId))
     .orderBy(challengeMatches.createdAt);

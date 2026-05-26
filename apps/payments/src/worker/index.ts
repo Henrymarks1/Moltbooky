@@ -1,7 +1,7 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { and, authAccount, authSession, authUser, authVerification, createDb, eq, gte, ledgerEntries, users, walletAccounts } from "@moltbooky/db";
+import { and, appUsers, authAccount, authSession, authUser, authVerification, createDb, eq, gte, ledgerEntries, walletAccounts } from "@moltbooky/db";
 
 const app = new OpenAPIHono<{ Bindings: Env }>();
 
@@ -123,13 +123,13 @@ async function ensurePaymentsUser(env: Env, userId: string): Promise<{ email: st
   const db = createDb(env.DATABASE_URL);
   const existing = await db
     .select({
-      email: users.email,
-      name: users.displayName,
-      stripeConnectAccountId: users.stripeConnectAccountId,
-      stripeConnectPayoutsEnabled: users.stripeConnectPayoutsEnabled
+      email: appUsers.email,
+      name: appUsers.displayName,
+      stripeConnectAccountId: appUsers.stripeConnectAccountId,
+      stripeConnectPayoutsEnabled: appUsers.stripeConnectPayoutsEnabled
     })
-    .from(users)
-    .where(eq(users.id, userId))
+    .from(appUsers)
+    .where(eq(appUsers.id, userId))
     .limit(1);
   if (existing[0]) {
     return existing[0];
@@ -148,7 +148,7 @@ async function ensurePaymentsUser(env: Env, userId: string): Promise<{ email: st
   const name = authRecord[0]?.name?.trim() || userId;
   await db.transaction(async (tx) => {
     await tx
-      .insert(users)
+      .insert(appUsers)
       .values({
         id: userId,
         email,
@@ -166,12 +166,12 @@ async function syncConnectAccount(env: Env, userId: string, accountId: string): 
   const account = await stripeRequest(env, `/accounts/${accountId}`) as { payouts_enabled?: boolean; details_submitted?: boolean };
   const payoutsEnabled = Boolean(account.payouts_enabled);
   await createDb(env.DATABASE_URL)
-    .update(users)
+    .update(appUsers)
     .set({
       stripeConnectPayoutsEnabled: payoutsEnabled,
       kycStatus: payoutsEnabled ? "verified" : "pending"
     })
-    .where(eq(users.id, userId));
+    .where(eq(appUsers.id, userId));
   return { payoutsEnabled, detailsSubmitted: Boolean(account.details_submitted) };
 }
 
@@ -404,13 +404,13 @@ app.openapi(connectAccountLinkRoute, async (c) => {
     const account = await stripeRequest(c.env, "/accounts", { body: form, idempotencyKey: `connect-account:${userId}` }) as { id: string };
     accountId = account.id;
     await createDb(c.env.DATABASE_URL)
-      .update(users)
+      .update(appUsers)
       .set({
         stripeConnectAccountId: accountId,
         stripeConnectPayoutsEnabled: false,
         kycStatus: "pending"
       })
-      .where(eq(users.id, userId));
+      .where(eq(appUsers.id, userId));
   }
 
   const linkForm = new URLSearchParams({
