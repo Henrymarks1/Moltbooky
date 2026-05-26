@@ -47,26 +47,28 @@ export const authVerification = pgTable("verification", {
   updatedAt: timestamp("updated_at")
 });
 
-export const users = pgTable(
-  "users",
+export const appUsers = pgTable(
+  "app_users",
   {
     id: text("id").primaryKey(),
     email: text("email").notNull(),
     displayName: text("display_name").notNull(),
     betaStatus: text("beta_status").notNull().default("invited"),
     kycStatus: text("kyc_status").notNull().default("not_started"),
+    stripeConnectAccountId: text("stripe_connect_account_id"),
+    stripeConnectPayoutsEnabled: boolean("stripe_connect_payouts_enabled").notNull().default(false),
     complianceNotes: text("compliance_notes"),
     createdAt: timestamp("created_at").notNull().defaultNow()
   },
   (table) => ({
-    emailIdx: uniqueIndex("users_email_unique").on(table.email)
+    emailIdx: uniqueIndex("app_users_email_unique").on(table.email)
   })
 );
 
 export const walletAccounts = pgTable(
   "wallet_accounts",
   {
-    userId: text("user_id").primaryKey().references(() => users.id),
+    userId: text("user_id").primaryKey().references(() => appUsers.id),
     availableCents: integer("available_cents").notNull().default(0),
     lockedCents: integer("locked_cents").notNull().default(0),
     pendingWithdrawalCents: integer("pending_withdrawal_cents").notNull().default(0),
@@ -83,7 +85,7 @@ export const ledgerEntries = pgTable(
   "ledger_entries",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull().references(() => users.id),
+    userId: text("user_id").notNull().references(() => appUsers.id),
     type: text("type").notNull(),
     amountCents: integer("amount_cents").notNull(),
     challengeId: text("challenge_id"),
@@ -102,7 +104,7 @@ export const challenges = pgTable(
   "challenges",
   {
     id: text("id").primaryKey(),
-    creatorId: text("creator_id").notNull().references(() => users.id),
+    creatorId: text("creator_id").notNull().references(() => appUsers.id),
     claim: text("claim").notNull(),
     resolutionCriteria: text("resolution_criteria").notNull(),
     creatorSide: text("creator_side").notNull(),
@@ -132,7 +134,7 @@ export const challengeMatches = pgTable(
   {
     id: text("id").primaryKey(),
     challengeId: text("challenge_id").notNull().references(() => challenges.id),
-    matcherId: text("matcher_id").notNull().references(() => users.id),
+    matcherId: text("matcher_id").notNull().references(() => appUsers.id),
     amountCents: integer("amount_cents").notNull(),
     side: text("side").notNull(),
     status: text("status").notNull().default("active"),
@@ -165,7 +167,7 @@ export const resolutionRuns = pgTable(
 export const disputes = pgTable("disputes", {
   id: text("id").primaryKey(),
   challengeId: text("challenge_id").notNull().references(() => challenges.id),
-  challengerId: text("challenger_id").notNull().references(() => users.id),
+  challengerId: text("challenger_id").notNull().references(() => appUsers.id),
   reason: text("reason").notNull(),
   status: text("status").notNull().default("open"),
   adminDecision: text("admin_decision"),
@@ -177,7 +179,7 @@ export const apiKeys = pgTable(
   "api_keys",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull().references(() => users.id),
+    userId: text("user_id").notNull().references(() => appUsers.id),
     name: text("name").notNull(),
     keyHash: text("key_hash").notNull(),
     scopes: text("scopes").notNull(),

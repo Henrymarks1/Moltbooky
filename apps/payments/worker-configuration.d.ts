@@ -7,4 +7,6 @@ interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_SUCCESS_URL?: string;
   STRIPE_CANCEL_URL?: string;
+  STRIPE_CONNECT_RETURN_URL?: string;
+  STRIPE_CONNECT_REFRESH_URL?: string;
 }
