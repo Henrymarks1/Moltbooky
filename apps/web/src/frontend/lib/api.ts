@@ -207,7 +207,7 @@ export const api = {
       }
       return {
         challenge,
-        matches: state.matches.filter((match) => match.challengeId === id),
+        matches: state.matches.filter((match) => match.challengeId === id).map((match) => ({ ...match, matcherName: testingUser.name })),
         resolutionRuns: state.resolutionRuns.filter((run) => run.challengeId === id),
         availableToMatchCents: availableToMatch(challenge)
       };
@@ -267,6 +267,7 @@ export const api = {
         id: newId("play_ma"),
         challengeId: challenge.id,
         matcherId: testingUser.id,
+        matcherName: testingUser.name,
         amountCents,
         side: oppositeSide(challenge.creatorSide),
         status: "active",

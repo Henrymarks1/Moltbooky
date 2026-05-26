@@ -115,6 +115,7 @@ function ChallengeDetail() {
   const expiresAt = new Date(challenge.expiresAt).getTime();
   const resolutionStartsInMs = Math.max(0, expiresAt - now);
   const agentState = getAgentState(challenge, latestRun, now);
+  const matcherNames = [...new Set(matches.map((match) => match.matcherName || match.matcherId))];
 
   async function deleteChallenge() {
     if (!challenge || !window.confirm("Delete this unmatched bet and return the locked credits?")) {
@@ -151,8 +152,8 @@ function ChallengeDetail() {
 
   return (
     <div className="page challenge-page">
-      <header className="challenge-hero">
-        <div className="challenge-hero-copy">
+      <header className="page-header challenge-detail-header">
+        <div>
           <div className="row-meta">
             <StatusPill status={challenge.status} />
             <Badge variant="outline">Expires {shortDate(challenge.expiresAt)}</Badge>
@@ -162,15 +163,7 @@ function ChallengeDetail() {
           <h1>{challenge.claim}</h1>
           <p>{challenge.resolutionCriteria}</p>
         </div>
-        <div className="challenge-hero-card">
-          <span>Creator is taking</span>
-          <strong className={creatorSideClass}>{challenge.creatorSide}</strong>
-          <div>
-            <span>{credits(challenge.stakeCents)} stake</span>
-            <span>{credits(available)} open</span>
-          </div>
-        </div>
-        <div className="challenge-hero-actions">
+        <div className="hero-actions">
           <Button variant="secondary" size="icon" onClick={refresh} aria-label="Refresh challenge">
             <RefreshCw size={18} />
           </Button>
@@ -179,6 +172,25 @@ function ChallengeDetail() {
           </Button>
         </div>
       </header>
+
+      <section className="stats-grid challenge-summary">
+        <div>
+          <span>Creator side</span>
+          <strong>{challenge.creatorSide}</strong>
+        </div>
+        <div>
+          <span>Matched</span>
+          <strong>{credits(challenge.matchedCents)}</strong>
+        </div>
+        <div>
+          <span>Open</span>
+          <strong>{credits(available)}</strong>
+        </div>
+        <div>
+          <span>Matched by</span>
+          <strong>{matcherNames.length > 0 ? matcherNames.join(", ") : "No one yet"}</strong>
+        </div>
+      </section>
 
       {message && <div className="notice">{message}</div>}
 
@@ -377,7 +389,7 @@ function ChallengeDetail() {
         <div className="ledger-list">
           {matches.map((matchItem) => (
             <div key={matchItem.id}>
-              <span>{matchItem.matcherId}</span>
+              <span>{matchItem.matcherName || matchItem.matcherId}</span>
               <strong>{credits(matchItem.amountCents)} {matchItem.side}</strong>
             </div>
           ))}

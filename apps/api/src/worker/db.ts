@@ -1,4 +1,4 @@
-import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionRuns, users, walletAccounts } from "@moltbooky/db";
+import { and, apiKeys, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionRuns, users, walletAccounts } from "@moltbooky/db";
 import type { Challenge, ChallengeMatch, ResolutionRun, Side, WalletAccount } from "@moltbooky/core/domain/types";
 import { getSessionUserId } from "./auth";
 
@@ -27,11 +27,25 @@ function toChallenge(row: typeof challenges.$inferSelect): Challenge {
   };
 }
 
-function toChallengeMatch(row: typeof challengeMatches.$inferSelect): ChallengeMatch {
+function resolveDisplayName(params: { matcherId: string; displayName?: string | null; authName?: string | null }): string {
+  const { matcherId, displayName, authName } = params;
+  const normalizedDisplayName = displayName?.trim();
+  if (normalizedDisplayName && normalizedDisplayName !== matcherId) {
+    return normalizedDisplayName;
+  }
+
+  return authName?.trim() || normalizedDisplayName || matcherId;
+}
+
+function toChallengeMatch(
+  row: typeof challengeMatches.$inferSelect,
+  matcher?: { displayName?: string | null; authName?: string | null }
+): ChallengeMatch {
   return {
     id: row.id,
     challengeId: row.challengeId,
     matcherId: row.matcherId,
+    matcherName: resolveDisplayName({ matcherId: row.matcherId, displayName: matcher?.displayName, authName: matcher?.authName }),
     amountCents: row.amountCents,
     side: row.side as ChallengeMatch["side"],
     status: row.status as ChallengeMatch["status"],
@@ -81,13 +95,22 @@ export async function ensureBetaUser(env: Env, userId: string): Promise<void> {
     return;
   }
 
+  const authRecord = await db
+    .select({
+      name: authUser.name,
+      email: authUser.email
+    })
+    .from(authUser)
+    .where(eq(authUser.id, userId))
+    .limit(1);
+
   await db.transaction(async (tx) => {
     await tx
       .insert(users)
       .values({
         id: userId,
-        email: `${userId}@moltbooky.local`,
-        displayName: userId,
+        email: authRecord[0]?.email ?? `${userId}@moltbooky.local`,
+        displayName: authRecord[0]?.name?.trim() || userId,
         betaStatus: "invited"
       })
       .onConflictDoNothing();
@@ -198,11 +221,17 @@ export async function getChallenge(env: Env, id: string): Promise<Challenge | nu
 export async function listMatches(env: Env, challengeId: string): Promise<ChallengeMatch[]> {
   const db = createDb(env.DATABASE_URL);
   const result = await db
-    .select()
+    .select({
+      match: challengeMatches,
+      displayName: users.displayName,
+      authName: authUser.name
+    })
     .from(challengeMatches)
+    .leftJoin(users, eq(challengeMatches.matcherId, users.id))
+    .leftJoin(authUser, eq(challengeMatches.matcherId, authUser.id))
     .where(eq(challengeMatches.challengeId, challengeId))
     .orderBy(challengeMatches.createdAt);
-  return result.map(toChallengeMatch);
+  return result.map((row) => toChallengeMatch(row.match, { displayName: row.displayName, authName: row.authName }));
 }
 
 export async function listResolutionRuns(env: Env, challengeId: string): Promise<ResolutionRun[]> {

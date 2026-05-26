@@ -45,6 +45,7 @@ export interface ChallengeMatch {
   id: string;
   challengeId: string;
   matcherId: string;
+  matcherName?: string | null;
   amountCents: number;
   side: Side;
   status: "active" | "settled" | "cancelled";

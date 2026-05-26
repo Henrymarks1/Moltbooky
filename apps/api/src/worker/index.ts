@@ -76,6 +76,7 @@ const challengeMatchSchema = z.object({
   id: z.string(),
   challengeId: z.string(),
   matcherId: z.string(),
+  matcherName: z.string().nullable().optional(),
   amountCents: betaStakeCentsSchema,
   side: sideSchema,
   status: z.enum(["active", "settled", "cancelled"]),
