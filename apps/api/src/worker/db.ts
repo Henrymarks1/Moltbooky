@@ -54,7 +54,7 @@ function toChallengeMatch(
 }
 
 function toResolutionRun(row: typeof resolutionRuns.$inferSelect): ResolutionRun {
-  let sourceUrls: string[] = [];
+  let sourceUrls: string[];
   try {
     const parsed = JSON.parse(row.sourceUrls) as unknown;
     sourceUrls = Array.isArray(parsed) ? parsed.filter((url): url is string => typeof url === "string") : [];

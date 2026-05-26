@@ -6,7 +6,6 @@ import type { Challenge, ChallengeMatch, Side } from "@moltbooky/core/domain/typ
 import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, ledgerEntries, walletAccounts } from "@moltbooky/db";
 import {
   actorFromRequest,
-  ensureBetaUser,
   getChallenge,
   getWallet,
   json,

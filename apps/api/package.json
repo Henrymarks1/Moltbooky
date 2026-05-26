@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "wrangler dev --port 8787 --inspector-port 0",
     "build": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
     "db-migrate-local": "drizzle-kit migrate"
   },
   "dependencies": {
