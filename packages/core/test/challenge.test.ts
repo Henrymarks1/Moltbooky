@@ -157,7 +157,7 @@ describe("challenge bets", () => {
     expect(transfers).toContainEqual({
       userId: "creator",
       type: "fee",
-      amountCents: 50,
+      amountCents: -50,
       description: "2% platform fee on creator profit"
     });
   });
@@ -194,10 +194,22 @@ describe("challenge bets", () => {
       description: "Matcher won matched challenge exposure"
     });
     expect(transfers).toContainEqual({
+      userId: "alice",
+      type: "fee",
+      amountCents: -20,
+      description: "2% platform fee on matcher profit"
+    });
+    expect(transfers).toContainEqual({
       userId: "bob",
       type: "settlement_win",
       amountCents: 3_960,
       description: "Matcher won matched challenge exposure"
+    });
+    expect(transfers).toContainEqual({
+      userId: "bob",
+      type: "fee",
+      amountCents: -40,
+      description: "2% platform fee on matcher profit"
     });
   });
 });

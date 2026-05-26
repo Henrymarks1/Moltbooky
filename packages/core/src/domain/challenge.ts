@@ -82,7 +82,7 @@ export function settleChallenge(params: {
       transfers.push({
         userId: challenge.creatorId,
         type: "fee",
-        amountCents: fee,
+        amountCents: -fee,
         description: "2% platform fee on creator profit"
       });
     }
@@ -116,7 +116,7 @@ export function settleChallenge(params: {
       transfers.push({
         userId: match.matcherId,
         type: "fee",
-        amountCents: fee,
+        amountCents: -fee,
         description: "2% platform fee on matcher profit"
       });
     }
