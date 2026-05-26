@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { availableToMatch, oppositeSide, settleChallenge, validateMatchAmount } from "../src/domain/challenge";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  availableToMatch,
+  oppositeSide,
+  provisionalDisputeDeadline,
+  settleChallenge,
+  validateChallengeInput,
+  validateMatchAmount
+} from "../src/domain/challenge";
 import type { Challenge, ChallengeMatch } from "../src/domain/types";
 
 const baseChallenge: Challenge = {
@@ -29,16 +36,88 @@ function match(amountCents: number, matcherId = `matcher_${amountCents}`): Chall
 }
 
 describe("challenge bets", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-25T00:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("tracks only matched creator exposure as at risk", () => {
     const challenge = { ...baseChallenge, matchedCents: 100 };
 
     expect(availableToMatch(challenge)).toBe(9_900);
+    expect(availableToMatch({ ...challenge, matchedCents: 10_001 })).toBe(0);
     expect(() => validateMatchAmount(challenge, 9_901)).toThrow("exceeds available unmatched stake");
   });
 
   it("uses the opposite side for matchers", () => {
     expect(oppositeSide("YES")).toBe("NO");
     expect(oppositeSide("NO")).toBe("YES");
+  });
+
+  it("validates challenge creation input", () => {
+    expect(() =>
+      validateChallengeInput({
+        claim: baseChallenge.claim,
+        resolutionCriteria: baseChallenge.resolutionCriteria,
+        stakeCents: 500,
+        expiresAt: baseChallenge.expiresAt
+      })
+    ).not.toThrow();
+
+    expect(() =>
+      validateChallengeInput({
+        claim: "Too short",
+        resolutionCriteria: baseChallenge.resolutionCriteria,
+        stakeCents: 500,
+        expiresAt: baseChallenge.expiresAt
+      })
+    ).toThrow("Claim must be at least 12 characters");
+
+    expect(() =>
+      validateChallengeInput({
+        claim: baseChallenge.claim,
+        resolutionCriteria: "Too short",
+        stakeCents: 500,
+        expiresAt: baseChallenge.expiresAt
+      })
+    ).toThrow("Resolution criteria");
+
+    expect(() =>
+      validateChallengeInput({
+        claim: baseChallenge.claim,
+        resolutionCriteria: baseChallenge.resolutionCriteria,
+        stakeCents: 499,
+        expiresAt: baseChallenge.expiresAt
+      })
+    ).toThrow("Minimum challenge stake");
+
+    expect(() =>
+      validateChallengeInput({
+        claim: baseChallenge.claim,
+        resolutionCriteria: baseChallenge.resolutionCriteria,
+        stakeCents: 500,
+        expiresAt: "2026-05-24T23:59:59.000Z"
+      })
+    ).toThrow("future date");
+  });
+
+  it("validates match eligibility and amount", () => {
+    expect(() => validateMatchAmount({ ...baseChallenge, matchedCents: 0 }, 500)).not.toThrow();
+    expect(() => validateMatchAmount({ ...baseChallenge, status: "final_resolved" }, 500)).toThrow(
+      "Only open challenges"
+    );
+    expect(() => validateMatchAmount(baseChallenge, 0)).toThrow("positive whole-cent");
+    expect(() => validateMatchAmount(baseChallenge, 1.5)).toThrow("positive whole-cent");
+  });
+
+  it("sets provisional dispute deadlines relative to the supplied time", () => {
+    expect(provisionalDisputeDeadline(new Date("2026-05-25T12:00:00.000Z"))).toBe(
+      "2026-05-26T12:00:00.000Z"
+    );
   });
 
   it("settles a $100 creator challenge with only $1 matched as a $1 live bet", () => {
@@ -81,6 +160,23 @@ describe("challenge bets", () => {
       amountCents: 50,
       description: "2% platform fee on creator profit"
     });
+  });
+
+  it("does not emit a fee transfer when rounded fee is zero", () => {
+    const challenge = { ...baseChallenge, stakeCents: 10, matchedCents: 10 };
+    const transfers = settleChallenge({ challenge, matches: [match(10, "alice")], outcome: "YES" });
+
+    expect(transfers).toContainEqual({
+      userId: "creator",
+      type: "settlement_win",
+      amountCents: 20,
+      description: "Creator won matched challenge exposure"
+    });
+    expect(transfers).not.toContainEqual(
+      expect.objectContaining({
+        type: "fee"
+      })
+    );
   });
 
   it("settles multiple matchers independently", () => {

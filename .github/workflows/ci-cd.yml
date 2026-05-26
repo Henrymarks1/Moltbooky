@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   validate:
-    name: Build and test
+    name: Lint, typecheck, test, and build
     runs-on: ubuntu-latest
 
     steps:
@@ -38,11 +38,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build workspace
-        run: pnpm --recursive --if-present run build
+      - name: Lint workspace
+        run: pnpm run lint
+
+      - name: Typecheck workspace
+        run: pnpm run typecheck
 
       - name: Run tests
-        run: pnpm --filter @moltbooky/core run test
+        run: pnpm run test
+
+      - name: Build workspace
+        run: pnpm --recursive --if-present run build
 
   deploy:
     name: Migrate and deploy to Cloudflare

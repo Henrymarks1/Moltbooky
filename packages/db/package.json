@@ -10,6 +10,8 @@
   },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
     "generate": "pnpm --dir ../.. exec drizzle-kit generate --config drizzle.config.ts",
     "migrate": "set -a; [ -f ../../apps/api/.dev.vars ] && . ../../apps/api/.dev.vars; set +a; pnpm --dir ../.. exec drizzle-kit migrate --config drizzle.config.ts"
   },
