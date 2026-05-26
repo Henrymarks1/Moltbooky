@@ -1,6 +1,6 @@
 import { provisionalDisputeDeadline } from "@moltbooky/core/domain/challenge";
 import type { ResolutionOutcome } from "@moltbooky/core/domain/types";
-import { and, challenges, createDb, eq, lte, or, resolutionRuns } from "@moltbooky/db";
+import { and, challengeMatches, challenges, createDb, eq, ledgerEntries, lte, or, resolutionRuns, walletAccounts } from "@moltbooky/db";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
@@ -62,6 +62,10 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
 
   const rows = await db
     .select({
+      creatorId: challenges.creatorId,
+      stakeCents: challenges.stakeCents,
+      status: challenges.status,
+      provisionalOutcome: challenges.provisionalOutcome,
       claim: challenges.claim,
       resolutionCriteria: challenges.resolutionCriteria
     })
@@ -72,6 +76,25 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
 
   if (!challenge) {
     throw new Error("Challenge not found.");
+  }
+
+  if (challenge.status === "voided" || challenge.status === "final_resolved") {
+    return {
+      outcome: (challenge.provisionalOutcome as ResolutionOutcome | null) ?? "UNRESOLVED",
+      confidence: 0,
+      sourceUrls: [],
+      shortRationale: "Challenge is already closed."
+    };
+  }
+
+  if (challenge.status === "provisional_resolved" && challenge.provisionalOutcome === "UNRESOLVED") {
+    await refundUnresolvedChallenge(env, challengeId);
+    return {
+      outcome: "UNRESOLVED",
+      confidence: 0,
+      sourceUrls: [],
+      shortRationale: "Challenge was already unresolved; refunded locked stakes."
+    };
   }
 
   const exaQuery = `${challenge.claim}\nResolution criteria: ${challenge.resolutionCriteria}`;
@@ -87,6 +110,11 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
     confidence: resolverResult.confidence
   });
 
+  if (resolverResult.outcome === "UNRESOLVED") {
+    await refundUnresolvedChallenge(env, challengeId);
+    return resolverResult;
+  }
+
   await db
     .update(challenges)
     .set({
@@ -98,6 +126,83 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
     .where(and(eq(challenges.id, challengeId), or(eq(challenges.status, "open"), eq(challenges.status, "resolving"))));
 
   return resolverResult;
+}
+
+async function applyWalletDelta(tx: any, userId: string, availableDeltaCents: number, lockedDeltaCents: number): Promise<void> {
+  const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
+  if (!wallet[0]) {
+    throw new Error("Credit account not found.");
+  }
+
+  await tx
+    .update(walletAccounts)
+    .set({
+      availableCents: wallet[0].availableCents + availableDeltaCents,
+      lockedCents: wallet[0].lockedCents + lockedDeltaCents,
+      updatedAt: new Date()
+    })
+    .where(eq(walletAccounts.userId, userId));
+}
+
+async function refundUnresolvedChallenge(env: Env, challengeId: string): Promise<void> {
+  const db = createDb(env.DATABASE_URL);
+  await db.transaction(async (tx) => {
+    const current = await tx.select().from(challenges).where(eq(challenges.id, challengeId)).for("update").limit(1);
+    const challenge = current[0];
+
+    if (!challenge) {
+      throw new Error("Challenge not found.");
+    }
+    if (challenge.status === "voided" || challenge.status === "final_resolved") {
+      return;
+    }
+
+    const matches = await tx.select().from(challengeMatches).where(eq(challengeMatches.challengeId, challengeId)).for("update");
+
+    if (challenge.stakeCents > 0) {
+      await applyWalletDelta(tx, challenge.creatorId, challenge.stakeCents, -challenge.stakeCents);
+      await tx
+        .insert(ledgerEntries)
+        .values({
+          id: newId("led"),
+          userId: challenge.creatorId,
+          type: "unlock",
+          amountCents: challenge.stakeCents,
+          challengeId,
+          idempotencyKey: `unresolved-refund:${challengeId}:creator`,
+          description: "Refund unresolved challenge stake"
+        })
+        .onConflictDoNothing();
+    }
+
+    for (const match of matches) {
+      await applyWalletDelta(tx, match.matcherId, match.amountCents, -match.amountCents);
+      await tx
+        .insert(ledgerEntries)
+        .values({
+          id: newId("led"),
+          userId: match.matcherId,
+          type: "unlock",
+          amountCents: match.amountCents,
+          challengeId,
+          matchId: match.id,
+          idempotencyKey: `unresolved-refund:${challengeId}:match:${match.id}`,
+          description: "Refund unresolved match stake"
+        })
+        .onConflictDoNothing();
+    }
+
+    await tx.update(challengeMatches).set({ status: "cancelled" }).where(eq(challengeMatches.challengeId, challengeId));
+    await tx
+      .update(challenges)
+      .set({
+        status: "voided",
+        provisionalOutcome: "UNRESOLVED",
+        disputeDeadlineAt: null,
+        updatedAt: new Date()
+      })
+      .where(eq(challenges.id, challengeId));
+  });
 }
 
 async function runAiResolver(env: Env, query: string): Promise<ResolverResult> {
