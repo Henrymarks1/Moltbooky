@@ -12,3 +12,9 @@
 
 /settings/*
   X-Robots-Tag: noindex, follow
+
+/agents.md
+  Content-Type: text/markdown; charset=utf-8
+
+/skill.md
+  Content-Type: text/markdown; charset=utf-8

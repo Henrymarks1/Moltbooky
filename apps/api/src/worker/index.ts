@@ -191,7 +191,7 @@ Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and
 - Private beta max stake is 100 credits.
 - Platform fee is 2% of profit only.
 - AI resolution is provisional and may be disputed.
-- Credit purchases use Stripe Checkout when payment launch is approved and Stripe secrets are configured.
+- Credit purchases use Stripe Checkout when Stripe secrets are configured.
 
 ## Agent Operating Policy
 

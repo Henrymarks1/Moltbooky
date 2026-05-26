@@ -83,7 +83,7 @@ app.doc("/api/openapi.json", {
   info: {
     title: "Moltbooky Payments API",
     version: "0.1.0",
-    description: "Stripe-backed platform credit purchase endpoints. Launch remains gated by PAYMENT_LAUNCH_APPROVED."
+    description: "Stripe-backed platform credit purchase endpoints."
   }
 });
 
@@ -105,10 +105,7 @@ const healthRoute = createRoute({
 app.openapi(healthRoute, (c) => c.json({ ok: true, name: "Moltbooky Payments" }));
 
 function creditPurchasesEnabled(env: Env): boolean {
-  return (
-    env.PAYMENT_LAUNCH_APPROVED === "true" &&
-    Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_SUCCESS_URL && env.STRIPE_CANCEL_URL && env.STRIPE_WEBHOOK_SECRET)
-  );
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_SUCCESS_URL && env.STRIPE_CANCEL_URL && env.STRIPE_WEBHOOK_SECRET);
 }
 
 const configRoute = createRoute({
@@ -149,7 +146,7 @@ const creditPurchaseResponses = {
 
 async function createCreditPurchase(c: any) {
   if (!creditPurchasesEnabled(c.env)) {
-    return jsonError(c, "Credit purchases are disabled until legal and Stripe approval are complete.", 403);
+    return jsonError(c, "Credit purchases are temporarily unavailable because Stripe is not fully configured.", 403);
   }
 
   const userId = await getSessionUserId(c.env, c.req.raw);

@@ -44,11 +44,11 @@ Required production secrets and variables:
 
 - `apps/api`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and optional Google OAuth variables.
 - `apps/resolver`: `DATABASE_URL`, plus `EXA_API_KEY` and `OPENAI_API_KEY` when automated resolution is enabled.
-- `apps/payments`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and Stripe variables when payment launch is approved.
+- `apps/payments`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and Stripe variables for credit purchases.
 - `apps/web` client: optional `VITE_POSTHOG_TOKEN` and `VITE_POSTHOG_HOST` for PostHog analytics.
 - `apps/web` Pages Functions: `API_ORIGIN` and `PAYMENTS_ORIGIN`, pointing at the deployed API and payments Workers.
 
-`PAYMENT_LAUNCH_APPROVED` defaults to `false` in checked-in examples. Keep it disabled until legal, compliance, and payment processor approvals are complete.
+Credit purchases are publicly available when the payments Worker has Stripe Checkout and webhook secrets configured.
 
 For local Google sign-in, create OAuth credentials in Google Cloud and add this authorized redirect URI:
 
@@ -74,11 +74,11 @@ The public API contract is served as OpenAPI 3.1 at `/api/openapi.json`. Payment
 
 - `moltbooky`: public API, Better Auth, API keys, credit ledger, challenges, admin routes, and `ChallengeObject` Durable Objects for serialized matching.
 - `moltbooky-resolver`: hourly cron and `moltbooky-resolution` queue consumer/producer for AI resolution with OpenAI through the AI SDK and an Exa search tool.
-- `moltbooky-payments`: Stripe Checkout credit purchase creation and Stripe webhook handling. Requires `PAYMENT_LAUNCH_APPROVED=true`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL`.
+- `moltbooky-payments`: Stripe Checkout credit purchase creation and Stripe webhook handling. Requires `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL`.
 
 ## Stripe Credit Purchases
 
-Stripe credit purchases are enabled when `PAYMENT_LAUNCH_APPROVED=true` is set for both the API and payments Workers. Add `STRIPE_SECRET_KEY`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL` to `apps/payments/.dev.vars`, run `moon run :dev`, then use the credits page to open Stripe Checkout.
+Stripe credit purchases are enabled when the payments Worker has `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL` configured. Add those values to `apps/payments/.dev.vars`, run `moon run :dev`, then use the credits page to open Stripe Checkout.
 
 The payments dev task starts `stripe listen --forward-to http://localhost:8789/api/payments/stripe/webhook`, captures the local `whsec_...` signing secret, and injects it into the payments Worker. Run `stripe login` first if the Stripe CLI has not been authenticated on your machine.
 

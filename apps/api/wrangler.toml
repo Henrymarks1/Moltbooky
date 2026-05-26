@@ -4,7 +4,7 @@ compatibility_date = "2024-12-05"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-PAYMENT_LAUNCH_APPROVED = "false"
+PAYMENT_LAUNCH_APPROVED = "true"
 BETTER_AUTH_URL = "https://moltbooky.com"
 
 [[durable_objects.bindings]]

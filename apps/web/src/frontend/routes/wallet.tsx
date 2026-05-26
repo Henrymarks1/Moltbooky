@@ -103,7 +103,7 @@ function WalletPage() {
       return;
     }
     if (!testingMode && !creditPurchasesEnabled) {
-      setError("Credit purchases are not enabled yet. Your beta credits are available above.");
+      setError("Credit purchases are temporarily unavailable while Stripe configuration is checked.");
       return;
     }
 
@@ -155,7 +155,7 @@ function WalletPage() {
         <CardContent>
           {!testingMode && !creditPurchasesEnabled && (
             <div className="notice">
-              Credit purchases are not enabled yet. Your beta credits are already available for creating and matching markets.
+              Credit purchases are temporarily unavailable while Stripe configuration is checked.
             </div>
           )}
           <form className="deposit-form" onSubmit={createCreditPurchase}>

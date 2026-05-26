@@ -1,9 +1,9 @@
 DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require"
 BETTER_AUTH_URL="http://localhost:5173"
 BETTER_AUTH_SECRET="local-dev-secret-change-me"
-PAYMENT_LAUNCH_APPROVED="false"
+PAYMENT_LAUNCH_APPROVED="true"
 
-# Required when PAYMENT_LAUNCH_APPROVED=true.
+# Required for credit purchases.
 STRIPE_SECRET_KEY=""
 # `pnpm run dev` captures this from `stripe listen` automatically for local dev.
 STRIPE_WEBHOOK_SECRET=""
