@@ -17,7 +17,7 @@ describe("payments worker", () => {
   it("reports credit purchases disabled until Stripe is configured", async () => {
     const response = await app.request("/api/payments/config", {}, baseEnv);
 
-    await expect(response.json()).resolves.toEqual({ creditPurchasesEnabled: false });
+    await expect(response.json()).resolves.toEqual({ creditPurchasesEnabled: false, cashoutsEnabled: false });
     expect(response.status).toBe(200);
   });
 

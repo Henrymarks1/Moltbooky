@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { getTableName } from "drizzle-orm";
-import { apiKeys, challengeMatches, challenges, ledgerEntries, users, walletAccounts } from "./schema";
+import { apiKeys, appUsers, challengeMatches, challenges, ledgerEntries, walletAccounts } from "./schema";
 
 describe("database schema", () => {
   it("keeps core table names stable for migrations and queries", () => {
-    expect(getTableName(users)).toBe("users");
+    expect(getTableName(appUsers)).toBe("app_users");
     expect(getTableName(walletAccounts)).toBe("wallet_accounts");
     expect(getTableName(ledgerEntries)).toBe("ledger_entries");
     expect(getTableName(challenges)).toBe("challenges");
