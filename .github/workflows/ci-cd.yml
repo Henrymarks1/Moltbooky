@@ -15,6 +15,9 @@ permissions:
   contents: read
   deployments: write
 
+env:
+  VITE_PRIVY_APP_ID: cmpnoa34y00ma0cl8qwgrv81t
+
 jobs:
   validate:
     name: Lint, typecheck, test, and build
