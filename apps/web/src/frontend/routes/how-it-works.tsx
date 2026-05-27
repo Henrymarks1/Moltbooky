@@ -74,7 +74,7 @@ function HowItWorks() {
           <div className="info-list">
             <h2>Credits and fees</h2>
             <p>Minimum stake is 5 credits. Private beta max stake is 100 credits.</p>
-            <p>The platform fee is 2% of profit only. Credit purchases use Stripe Checkout.</p>
+            <p>The platform fee is 2% of profit only. Credit purchases use Base USDC.</p>
           </div>
         </article>
 

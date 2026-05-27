@@ -19,7 +19,7 @@ Only matched credits are at risk. Unmatched creator credits remain locked but ca
 - `apps/web`: human UI
 - `apps/api`: public Cloudflare Worker API and Durable Object matching
 - `apps/resolver`: Cloudflare Worker cron/queue AI resolver
-- `apps/payments`: Cloudflare Worker Stripe payment endpoints and webhooks
+- `apps/payments`: Cloudflare Worker Base USDC deposit, onramp, and cashout endpoints
 - `packages/core`: shared betting math, credit/money constants, and types
 - `packages/db`: Drizzle schema used to generate Postgres migrations
 
@@ -44,11 +44,11 @@ Required production secrets and variables:
 
 - `apps/api`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and optional Google OAuth variables.
 - `apps/resolver`: `DATABASE_URL`, plus `EXA_API_KEY` and `OPENAI_API_KEY` when automated resolution is enabled.
-- `apps/payments`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and Stripe variables for credit purchases and Connect cashouts.
-- `apps/web` client: optional `VITE_POSTHOG_TOKEN` and `VITE_POSTHOG_HOST` for PostHog analytics.
+- `apps/payments`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET`, `COINBASE_ONRAMP_PROJECT_ID`, and `BASE_RPC_URL` for Base USDC payments.
+- `apps/web` client: `VITE_PRIVY_APP_ID` for embedded wallets, plus optional `VITE_POSTHOG_TOKEN` and `VITE_POSTHOG_HOST` for PostHog analytics.
 - `apps/web` Pages Functions: `API_ORIGIN` and `PAYMENTS_ORIGIN`, pointing at the deployed API and payments Workers.
 
-Credit purchases are publicly available when the payments Worker has Stripe Checkout and webhook secrets configured. Cashouts let users connect bank accounts through Stripe-hosted onboarding and require Connect onboarding URLs in addition to the Stripe secret.
+Credit purchases are publicly available when the payments Worker has Coinbase CDP, Coinbase Onramp, and Base RPC variables configured. Cashouts send Base USDC to the user's linked Privy wallet.
 
 For local Google sign-in, create OAuth credentials in Google Cloud and add this authorized redirect URI:
 
@@ -74,19 +74,17 @@ The public API contract is served as OpenAPI 3.1 at `/api/openapi.json`. Payment
 
 - `moltbooky`: public API, Better Auth, API keys, credit ledger, challenges, admin routes, and `ChallengeObject` Durable Objects for serialized matching.
 - `moltbooky-resolver`: hourly cron and `moltbooky-resolution` queue consumer/producer for AI resolution with OpenAI through the AI SDK and an Exa search tool.
-- `moltbooky-payments`: Stripe Checkout credit purchase creation, Stripe Connect cashouts, and Stripe webhook handling. Requires `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL`, `STRIPE_CONNECT_RETURN_URL`, and `STRIPE_CONNECT_REFRESH_URL`.
+- `moltbooky-payments`: Base USDC deposit wallet setup, Coinbase Onramp URL creation, direct deposit syncing, and automatic CDP cashouts. Requires `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET`, `COINBASE_ONRAMP_PROJECT_ID`, and `BASE_RPC_URL`.
 
-## Stripe Credit Purchases
+## Base USDC Credit Purchases
 
-Stripe credit purchases are enabled when the payments Worker has `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL` configured. Add those values to `apps/payments/.dev.vars`, run `moon run :dev`, then use the credits page to open Stripe Checkout.
+USDC credit purchases are enabled when the payments Worker has Coinbase CDP, Coinbase Onramp, and Base RPC variables configured. Add those values to `apps/payments/.dev.vars`, set `VITE_PRIVY_APP_ID` for the web app, run `moon run :dev`, then use the credits page to set up a wallet and open Coinbase Onramp.
 
-The payments dev task starts `stripe listen --forward-to http://localhost:8789/api/payments/stripe/webhook`, captures the local `whsec_...` signing secret, and injects it into the payments Worker. Run `stripe login` first if the Stripe CLI has not been authenticated on your machine.
+Users can also send Base USDC directly to their displayed deposit address and click refresh deposits after the transfer has enough confirmations.
 
-## Stripe Cashouts
+## Base USDC Cashouts
 
-Cashouts use Stripe Connect Express under the hood so users can connect bank accounts through Stripe-hosted onboarding. Users must complete bank account setup before requesting a cashout. A cashout transfers the equivalent USD amount to the user's connected account, creates a Stripe payout to their bank account, moves credits into pending cashout, and reconciles pending cashout on `payout.paid` or `payout.failed` webhooks.
-
-Set `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL` on the payments Worker. In production, configure Stripe webhooks to send Connect payout events to `/api/payments/stripe/webhook`.
+Cashouts use Coinbase CDP server wallets. Users link a Privy wallet, request a cashout, and the payments Worker sends the equivalent Base USDC amount to the linked wallet. Set `CDP_TREASURY_ACCOUNT_NAME` to use a central payout account; otherwise cashouts send from the user's CDP deposit account.
 
 ## Open Source
 

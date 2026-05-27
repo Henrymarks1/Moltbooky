@@ -5,13 +5,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/dev-with-stripe.mjs",
+    "dev": "wrangler dev --port 8789 --inspector-port 0",
     "dev:worker": "wrangler dev --port 8789 --inspector-port 0",
     "build": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {
+    "@coinbase/cdp-sdk": "^1.50.0",
     "@hono/zod-openapi": "^1.4.0",
     "@moltbooky/db": "file:../../packages/db",
     "better-auth": "^1.1.14",

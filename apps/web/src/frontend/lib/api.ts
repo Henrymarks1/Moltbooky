@@ -131,7 +131,7 @@ function createCreditPurchase(amountCents: number) {
     state.wallet.availableCents += amountCents;
     state.ledger.unshift(fakeLedger("credit_purchase", amountCents, "Add testing credits"));
     writeFakeState(state);
-    return Promise.resolve({ checkoutUrl: window.location.href, sessionId: newId("play_credit_purchase") });
+    return Promise.resolve({ onrampUrl: window.location.href, depositAddress: "testing-mode", chain: "base" as const, asset: "USDC" as const });
   }
 
   const requestInit = {
@@ -139,12 +139,7 @@ function createCreditPurchase(amountCents: number) {
     body: JSON.stringify({ amountCents })
   };
 
-  return request<{ checkoutUrl: string; sessionId: string }>("/api/payments/credit-purchases", requestInit).catch((error) => {
-    if (error instanceof Error && error.message.includes("/api/payments/credit-purchases")) {
-      return request<{ checkoutUrl: string; sessionId: string }>("/api/payments/deposits", requestInit);
-    }
-    throw error;
-  });
+  return request<{ onrampUrl: string; depositAddress: string; chain: "base"; asset: "USDC" }>("/api/payments/onramp-session", requestInit);
 }
 
 export const api = {
@@ -152,7 +147,7 @@ export const api = {
     if (isTestingModeEnabled()) {
       return Promise.resolve({ creditPurchasesEnabled: true, cashoutsEnabled: true });
     }
-    return request<{ creditPurchasesEnabled: boolean; cashoutsEnabled: boolean }>("/api/payments/config").catch(() => ({
+    return request<{ creditPurchasesEnabled: boolean; cashoutsEnabled: boolean; chain?: "base"; asset?: "USDC" }>("/api/payments/config").catch(() => ({
       creditPurchasesEnabled: false,
       cashoutsEnabled: false
     }));
@@ -331,13 +326,18 @@ export const api = {
   },
   createCreditPurchase,
   createDeposit: createCreditPurchase,
+  setupPaymentWallet: (body: { privyUserId?: string; withdrawalAddress?: string }) =>
+    request<{ chain: "base"; asset: "USDC"; depositAddress: string; withdrawalAddress: string | null; privyUserId: string | null }>("/api/payments/wallet/setup", {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
+  syncDeposits: () => request<{ creditedCents: number; deposits: number; scannedToBlock: number }>("/api/payments/deposits/sync", { method: "POST" }),
   payoutStatus: () => {
     if (isTestingModeEnabled()) {
-      return Promise.resolve({ cashoutsEnabled: true, connected: true, payoutsEnabled: true, onboardingRequired: false });
+      return Promise.resolve({ cashoutsEnabled: true, connected: true, payoutsEnabled: true, onboardingRequired: false, withdrawalAddress: null });
     }
-    return request<{ cashoutsEnabled: boolean; connected: boolean; payoutsEnabled: boolean; onboardingRequired: boolean }>("/api/payments/connect/status");
+    return request<{ cashoutsEnabled: boolean; connected: boolean; payoutsEnabled: boolean; onboardingRequired: boolean; withdrawalAddress: string | null }>("/api/payments/connect/status");
   },
-  createPayoutOnboardingLink: () => request<{ onboardingUrl: string; accountId: string }>("/api/payments/connect/account-link", { method: "POST" }),
   createWithdrawal: (amountCents: number) => {
     if (isTestingModeEnabled()) {
       if (amountCents <= 0) {
@@ -352,7 +352,7 @@ export const api = {
       return Promise.resolve({ wallet: state.wallet });
     }
 
-    return request<{ wallet: WalletAccount }>("/api/payments/withdrawals", { method: "POST", body: JSON.stringify({ amountCents }) });
+    return request<{ wallet: WalletAccount; transactionHash: string; withdrawalAddress: string }>("/api/payments/withdrawals", { method: "POST", body: JSON.stringify({ amountCents }) });
   },
   createApiKey: (name: string) => {
     if (isTestingModeEnabled()) {

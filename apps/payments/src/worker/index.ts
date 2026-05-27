@@ -1,16 +1,41 @@
+import { CdpClient } from "@coinbase/cdp-sdk";
+import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { and, appUsers, authAccount, authSession, authUser, authVerification, createDb, eq, gte, ledgerEntries, walletAccounts } from "@moltbooky/db";
+import {
+  and,
+  appUsers,
+  authAccount,
+  authSession,
+  authUser,
+  authVerification,
+  createDb,
+  cryptoTransactions,
+  eq,
+  gte,
+  ledgerEntries,
+  userPaymentProfiles,
+  walletAccounts
+} from "@moltbooky/db";
 
 const app = new OpenAPIHono<{ Bindings: Env }>();
 
+const chain = "base" as const;
+const asset = "USDC" as const;
+const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
 const errorResponseSchema = z.object({ error: z.string() });
-const creditPurchaseRequestSchema = z.object({
-  amountCents: z.number().int().min(500).max(10_000)
+const onrampSessionRequestSchema = z.object({
+  amountCents: z.number().int().min(500).max(10_000).optional()
+});
+const walletSetupRequestSchema = z.object({
+  privyUserId: z.string().trim().min(1).optional(),
+  withdrawalAddress: z.string().trim().min(1).optional()
 });
 const withdrawalRequestSchema = z.object({
-  amountCents: z.number().int().min(1)
+  amountCents: z.number().int().min(1),
+  withdrawalAddress: z.string().trim().min(1).optional()
 });
 
 const authSchema = {
@@ -18,6 +43,25 @@ const authSchema = {
   session: authSession,
   account: authAccount,
   verification: authVerification
+};
+
+type PaymentProfile = {
+  userId: string;
+  privyUserId: string | null;
+  withdrawalAddress: string | null;
+  depositWalletId: string | null;
+  depositAddress: string | null;
+  chain: string;
+  lastScannedBlock: number | null;
+};
+
+type RpcLog = {
+  address: string;
+  topics: string[];
+  data: string;
+  blockNumber: string;
+  transactionHash: string;
+  logIndex: string;
 };
 
 function isLocalAuthUrl(url: string | undefined): boolean {
@@ -90,52 +134,100 @@ function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
-function cashoutsEnabled(env: Env): boolean {
-  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_CONNECT_RETURN_URL && env.STRIPE_CONNECT_REFRESH_URL);
+function isHexAddress(value: string | null | undefined): value is `0x${string}` {
+  return Boolean(value && /^0x[a-fA-F0-9]{40}$/.test(value));
 }
 
-async function stripeRequest(
-  env: Env,
-  path: string,
-  options: { body?: URLSearchParams; idempotencyKey?: string; stripeAccount?: string } = {}
-): Promise<any> {
-  if (!env.STRIPE_SECRET_KEY) {
-    throw new Error("Stripe is not configured.");
+function normalizeAddress(value: string): `0x${string}` {
+  if (!isHexAddress(value)) {
+    throw new Error("Enter a valid EVM wallet address.");
   }
+  return value.toLowerCase() as `0x${string}`;
+}
 
-  const headers: Record<string, string> = {
-    authorization: `Bearer ${env.STRIPE_SECRET_KEY}`
-  };
-  if (options.body) {
-    headers["content-type"] = "application/x-www-form-urlencoded";
-  }
-  if (options.idempotencyKey) {
-    headers["idempotency-key"] = options.idempotencyKey;
-  }
-  if (options.stripeAccount) {
-    headers["stripe-account"] = options.stripeAccount;
-  }
+function addressTopic(address: string): string {
+  return `0x${"0".repeat(24)}${normalizeAddress(address).slice(2)}`;
+}
 
-  const response = await fetch(`https://api.stripe.com/v1${path}`, {
-    method: options.body ? "POST" : "GET",
-    headers,
-    body: options.body
+function centsToMicroUsdc(amountCents: number): bigint {
+  return BigInt(amountCents) * 10_000n;
+}
+
+function microUsdcToCents(amountMicroUsdc: bigint): number {
+  return Number(amountMicroUsdc / 10_000n);
+}
+
+function hexToNumber(hex: string): number {
+  return Number.parseInt(hex, 16);
+}
+
+function hexToBigInt(hex: string): bigint {
+  return BigInt(hex);
+}
+
+function baseUsdcAddress(env: Env): string {
+  return normalizeAddress(env.USDC_BASE_CONTRACT_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
+}
+
+function minConfirmations(env: Env): number {
+  const parsed = Number(env.PAYMENTS_MIN_CONFIRMATIONS ?? "3");
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 3;
+}
+
+function paymentsConfigured(env: Env): boolean {
+  return Boolean(env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET && env.CDP_WALLET_SECRET && env.COINBASE_ONRAMP_PROJECT_ID && env.BASE_RPC_URL);
+}
+
+function cashoutsConfigured(env: Env): boolean {
+  return Boolean(env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET && env.CDP_WALLET_SECRET);
+}
+
+function createCdp(env: Env): CdpClient {
+  if (!env.CDP_API_KEY_ID || !env.CDP_API_KEY_SECRET || !env.CDP_WALLET_SECRET) {
+    throw new Error("Coinbase CDP is not configured.");
+  }
+  return new CdpClient({
+    apiKeyId: env.CDP_API_KEY_ID,
+    apiKeySecret: env.CDP_API_KEY_SECRET,
+    walletSecret: env.CDP_WALLET_SECRET
   });
-  const data = (await response.json()) as { error?: { message?: string } };
+}
+
+async function cdpApiRequest<T>(env: Env, requestMethod: "GET" | "POST", requestPath: string, body?: unknown): Promise<T> {
+  if (!env.CDP_API_KEY_ID || !env.CDP_API_KEY_SECRET) {
+    throw new Error("Coinbase CDP is not configured.");
+  }
+
+  const requestHost = "api.cdp.coinbase.com";
+  const token = await generateJwt({
+    apiKeyId: env.CDP_API_KEY_ID,
+    apiKeySecret: env.CDP_API_KEY_SECRET,
+    requestMethod,
+    requestHost,
+    requestPath
+  });
+
+  const response = await fetch(`https://${requestHost}${requestPath}`, {
+    method: requestMethod,
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json"
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = (await response.json().catch(() => ({}))) as T & { error?: { message?: string }; message?: string };
   if (!response.ok) {
-    throw new Error(data.error?.message ?? "Stripe request failed.");
+    throw new Error(data.error?.message ?? data.message ?? "Coinbase CDP request failed.");
   }
   return data;
 }
 
-async function ensurePaymentsUser(env: Env, userId: string): Promise<{ email: string; name: string; stripeConnectAccountId: string | null; stripeConnectPayoutsEnabled: boolean }> {
+async function ensurePaymentsUser(env: Env, userId: string): Promise<{ email: string; name: string }> {
   const db = createDb(env.DATABASE_URL);
   const existing = await db
     .select({
       email: appUsers.email,
-      name: appUsers.displayName,
-      stripeConnectAccountId: appUsers.stripeConnectAccountId,
-      stripeConnectPayoutsEnabled: appUsers.stripeConnectPayoutsEnabled
+      name: appUsers.displayName
     })
     .from(appUsers)
     .where(eq(appUsers.id, userId))
@@ -168,28 +260,197 @@ async function ensurePaymentsUser(env: Env, userId: string): Promise<{ email: st
     await tx.insert(walletAccounts).values({ userId }).onConflictDoNothing();
   });
 
-  return { email, name, stripeConnectAccountId: null, stripeConnectPayoutsEnabled: false };
+  return { email, name };
 }
 
-async function syncConnectAccount(env: Env, userId: string, accountId: string): Promise<{ payoutsEnabled: boolean; detailsSubmitted: boolean }> {
-  const account = await stripeRequest(env, `/accounts/${accountId}`) as { payouts_enabled?: boolean; details_submitted?: boolean };
-  const payoutsEnabled = Boolean(account.payouts_enabled);
-  await createDb(env.DATABASE_URL)
-    .update(appUsers)
-    .set({
-      stripeConnectPayoutsEnabled: payoutsEnabled,
-      kycStatus: payoutsEnabled ? "verified" : "pending"
+async function getProfile(env: Env, userId: string): Promise<PaymentProfile | null> {
+  const rows = await createDb(env.DATABASE_URL).select().from(userPaymentProfiles).where(eq(userPaymentProfiles.userId, userId)).limit(1);
+  return rows[0] ?? null;
+}
+
+async function ensurePaymentProfile(env: Env, userId: string, input: { privyUserId?: string; withdrawalAddress?: string } = {}): Promise<PaymentProfile> {
+  await ensurePaymentsUser(env, userId);
+  const existing = await getProfile(env, userId);
+  let depositAddress = existing?.depositAddress ?? null;
+  let depositWalletId = existing?.depositWalletId ?? null;
+
+  if (!depositAddress) {
+    if (!cashoutsConfigured(env)) {
+      throw new Error("Coinbase CDP is not configured.");
+    }
+    const cdp = createCdp(env);
+    const account = await cdp.evm.getOrCreateAccount({ name: `moltbooky-deposit-${userId}` });
+    depositAddress = account.address;
+    depositWalletId = account.address;
+  }
+
+  const withdrawalAddress = input.withdrawalAddress ? normalizeAddress(input.withdrawalAddress) : existing?.withdrawalAddress ?? null;
+  const privyUserId = input.privyUserId ?? existing?.privyUserId ?? null;
+
+  const db = createDb(env.DATABASE_URL);
+  await db
+    .insert(userPaymentProfiles)
+    .values({
+      userId,
+      privyUserId,
+      withdrawalAddress,
+      depositWalletId,
+      depositAddress,
+      chain,
+      updatedAt: new Date()
     })
-    .where(eq(appUsers.id, userId));
-  return { payoutsEnabled, detailsSubmitted: Boolean(account.details_submitted) };
+    .onConflictDoUpdate({
+      target: userPaymentProfiles.userId,
+      set: {
+        privyUserId,
+        withdrawalAddress,
+        depositWalletId,
+        depositAddress,
+        chain,
+        updatedAt: new Date()
+      }
+    });
+
+  const profile = await getProfile(env, userId);
+  if (!profile) {
+    throw new Error("Payment profile could not be created.");
+  }
+  return profile;
+}
+
+async function rpc<T>(env: Env, method: string, params: unknown[]): Promise<T> {
+  if (!env.BASE_RPC_URL) {
+    throw new Error("Base RPC is not configured.");
+  }
+
+  const response = await fetch(env.BASE_RPC_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(), method, params })
+  });
+  const data = (await response.json()) as { result?: T; error?: { message?: string } };
+  if (!response.ok || data.error || data.result === undefined) {
+    throw new Error(data.error?.message ?? "Base RPC request failed.");
+  }
+  return data.result;
+}
+
+async function latestConfirmedBlock(env: Env): Promise<number> {
+  const latest = hexToNumber(await rpc<string>(env, "eth_blockNumber", []));
+  return Math.max(0, latest - minConfirmations(env));
+}
+
+async function scanDepositLogs(env: Env, profile: PaymentProfile): Promise<{ logs: RpcLog[]; scannedToBlock: number }> {
+  if (!profile.depositAddress) {
+    throw new Error("Set up a deposit wallet before syncing deposits.");
+  }
+
+  const scannedToBlock = await latestConfirmedBlock(env);
+  const defaultStart = Math.max(0, scannedToBlock - Number(env.PAYMENTS_INITIAL_SCAN_BLOCKS ?? "20000"));
+  const configuredStart = env.PAYMENTS_SCAN_START_BLOCK ? Number(env.PAYMENTS_SCAN_START_BLOCK) : defaultStart;
+  const fromBlock = Math.max(0, (profile.lastScannedBlock ?? configuredStart - 1) + 1);
+  if (fromBlock > scannedToBlock) {
+    return { logs: [], scannedToBlock };
+  }
+
+  const logs = await rpc<RpcLog[]>(env, "eth_getLogs", [
+    {
+      address: baseUsdcAddress(env),
+      fromBlock: `0x${fromBlock.toString(16)}`,
+      toBlock: `0x${scannedToBlock.toString(16)}`,
+      topics: [transferTopic, null, addressTopic(profile.depositAddress)]
+    }
+  ]);
+  return { logs, scannedToBlock };
+}
+
+async function creditDepositLogs(env: Env, profile: PaymentProfile, logs: RpcLog[], scannedToBlock: number): Promise<{ creditedCents: number; deposits: number }> {
+  const db = createDb(env.DATABASE_URL);
+  let creditedCents = 0;
+  let deposits = 0;
+
+  await db.transaction(async (tx) => {
+    for (const log of logs) {
+      const amountMicroUsdc = hexToBigInt(log.data);
+      const amountCents = microUsdcToCents(amountMicroUsdc);
+      const txHash = log.transactionHash.toLowerCase();
+      const logIndex = hexToNumber(log.logIndex);
+      const inserted = await tx
+        .insert(cryptoTransactions)
+        .values({
+          id: newId("ctx"),
+          direction: "deposit",
+          userId: profile.userId,
+          txHash,
+          logIndex,
+          amountMicroUsdc: amountMicroUsdc.toString(),
+          amountCents,
+          status: "confirmed",
+          providerRef: "base-usdc-transfer",
+          blockNumber: hexToNumber(log.blockNumber)
+        })
+        .onConflictDoNothing()
+        .returning({ id: cryptoTransactions.id });
+
+      if (!inserted[0]) {
+        continue;
+      }
+
+      deposits += 1;
+      if (amountCents <= 0) {
+        continue;
+      }
+
+      const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, profile.userId)).for("update").limit(1);
+      if (!wallet[0]) {
+        throw new Error("Credit account not found.");
+      }
+
+      await tx
+        .update(walletAccounts)
+        .set({
+          availableCents: wallet[0].availableCents + amountCents,
+          updatedAt: new Date()
+        })
+        .where(eq(walletAccounts.userId, profile.userId));
+
+      await tx.insert(ledgerEntries).values({
+        id: newId("led"),
+        userId: profile.userId,
+        type: "credit_purchase",
+        amountCents,
+        idempotencyKey: `base-usdc-deposit:${txHash}:${logIndex}`,
+        description: "Base USDC deposit"
+      });
+      creditedCents += amountCents;
+    }
+
+    await tx
+      .update(userPaymentProfiles)
+      .set({ lastScannedBlock: scannedToBlock, updatedAt: new Date() })
+      .where(eq(userPaymentProfiles.userId, profile.userId));
+  });
+
+  return { creditedCents, deposits };
+}
+
+async function getWithdrawalAccount(env: Env, profile: PaymentProfile) {
+  const cdp = createCdp(env);
+  if (env.CDP_TREASURY_ACCOUNT_NAME) {
+    return cdp.evm.getOrCreateAccount({ name: env.CDP_TREASURY_ACCOUNT_NAME });
+  }
+  if (!profile.depositAddress) {
+    throw new Error("Set up a deposit wallet before cashing out.");
+  }
+  return cdp.evm.getAccount({ address: profile.depositAddress as `0x${string}` });
 }
 
 app.doc("/api/openapi.json", {
   openapi: "3.1.0",
   info: {
     title: "Moltbooky Payments API",
-    version: "0.1.0",
-    description: "Stripe-backed platform credit purchase endpoints."
+    version: "0.2.0",
+    description: "Base USDC platform credit funding and cashout endpoints."
   }
 });
 
@@ -210,10 +471,6 @@ const healthRoute = createRoute({
 
 app.openapi(healthRoute, (c) => c.json({ ok: true, name: "Moltbooky Payments" }));
 
-function creditPurchasesEnabled(env: Env): boolean {
-  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_SUCCESS_URL && env.STRIPE_CANCEL_URL && env.STRIPE_WEBHOOK_SECRET);
-}
-
 const configRoute = createRoute({
   method: "get",
   path: "/api/payments/config",
@@ -224,7 +481,9 @@ const configRoute = createRoute({
         "application/json": {
           schema: z.object({
             creditPurchasesEnabled: z.boolean(),
-            cashoutsEnabled: z.boolean()
+            cashoutsEnabled: z.boolean(),
+            chain: z.literal(chain),
+            asset: z.literal(asset)
           })
         }
       }
@@ -232,229 +491,245 @@ const configRoute = createRoute({
   }
 });
 
-app.openapi(configRoute, (c) => c.json({ creditPurchasesEnabled: creditPurchasesEnabled(c.env), cashoutsEnabled: cashoutsEnabled(c.env) }));
+app.openapi(configRoute, (c) =>
+  c.json({
+    creditPurchasesEnabled: paymentsConfigured(c.env),
+    cashoutsEnabled: cashoutsConfigured(c.env),
+    chain,
+    asset
+  })
+);
 
-const creditPurchaseResponses = {
-  200: {
-    description: "Stripe Checkout session created",
-    content: {
-      "application/json": {
-        schema: z.object({
-          checkoutUrl: z.string().url(),
-          sessionId: z.string()
-        })
+const walletSetupRoute = createRoute({
+  method: "post",
+  path: "/api/payments/wallet/setup",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: walletSetupRequestSchema
+        }
       }
     }
   },
-  401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
-  403: { description: "Payments disabled", content: { "application/json": { schema: errorResponseSchema } } },
-  500: { description: "Stripe error", content: { "application/json": { schema: errorResponseSchema } } }
-} as const;
+  responses: {
+    200: {
+      description: "USDC payment profile",
+      content: {
+        "application/json": {
+          schema: z.object({
+            chain: z.literal(chain),
+            asset: z.literal(asset),
+            depositAddress: z.string(),
+            withdrawalAddress: z.string().nullable(),
+            privyUserId: z.string().nullable()
+          })
+        }
+      }
+    },
+    401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
+    403: { description: "Payments disabled", content: { "application/json": { schema: errorResponseSchema } } }
+  }
+});
 
-async function createCreditPurchase(c: any) {
-  if (!creditPurchasesEnabled(c.env)) {
-    return jsonError(c, "Credit purchases are temporarily unavailable because Stripe is not fully configured.", 403);
+app.openapi(walletSetupRoute, async (c) => {
+  if (!cashoutsConfigured(c.env)) {
+    return jsonError(c, "USDC payments are temporarily unavailable because Coinbase CDP is not fully configured.", 403);
   }
 
   const userId = await getSessionUserId(c.env, c.req.raw);
   if (!userId) {
-    return jsonError(c, "Sign in before buying credits.", 401);
+    return jsonError(c, "Sign in before setting up a USDC wallet.", 401);
+  }
+
+  const body = c.req.valid("json");
+  const profile = await ensurePaymentProfile(c.env, userId, body);
+  return c.json({
+    chain,
+    asset,
+    depositAddress: profile.depositAddress,
+    withdrawalAddress: profile.withdrawalAddress,
+    privyUserId: profile.privyUserId
+  });
+});
+
+async function createOnramp(c: any) {
+  if (!paymentsConfigured(c.env)) {
+    return jsonError(c, "USDC deposits are temporarily unavailable because Coinbase Onramp is not fully configured.", 403);
+  }
+
+  const userId = await getSessionUserId(c.env, c.req.raw);
+  if (!userId) {
+    return jsonError(c, "Sign in before adding USDC.", 401);
   }
 
   const { amountCents } = c.req.valid("json");
-  const form = new URLSearchParams({
-    mode: "payment",
-    success_url: c.env.STRIPE_SUCCESS_URL,
-    cancel_url: c.env.STRIPE_CANCEL_URL,
-    "line_items[0][quantity]": "1",
-    "line_items[0][price_data][currency]": "usd",
-    "line_items[0][price_data][unit_amount]": String(amountCents),
-    "line_items[0][price_data][product_data][name]": "Moltbooky platform credits",
-    "metadata[userId]": userId,
-    "metadata[amountCents]": String(amountCents)
-  });
-
-  const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${c.env.STRIPE_SECRET_KEY}`,
-      "content-type": "application/x-www-form-urlencoded"
-    },
-    body: form
-  });
-
-  const stripeSession = (await response.json()) as { id?: string; url?: string; error?: { message?: string } };
-  if (!response.ok || !stripeSession.id || !stripeSession.url) {
-    return jsonError(c, stripeSession.error?.message ?? "Failed to create Stripe Checkout session.", 500);
+  const profile = await ensurePaymentProfile(c.env, userId);
+  if (!profile.depositAddress) {
+    return jsonError(c, "Set up a deposit wallet before adding USDC.", 403);
   }
 
-  return c.json({ checkoutUrl: stripeSession.url, sessionId: stripeSession.id });
+  const session = await cdpApiRequest<{ session: { onrampUrl: string } }>(c.env, "POST", "/platform/v2/onramp/sessions", {
+    purchaseCurrency: asset,
+    destinationNetwork: chain,
+    destinationAddress: profile.depositAddress,
+    paymentCurrency: "USD",
+    paymentAmount: amountCents ? (amountCents / 100).toFixed(2) : undefined,
+    redirectUrl: c.env.COINBASE_ONRAMP_REDIRECT_URL ?? c.env.BETTER_AUTH_URL ?? "https://moltbooky.com/credits",
+    clientIp: c.req.header("cf-connecting-ip"),
+    partnerUserRef: userId
+  });
+
+  return c.json({
+    onrampUrl: session.session.onrampUrl,
+    depositAddress: profile.depositAddress,
+    chain,
+    asset
+  });
 }
 
-const createCreditPurchaseRoute = createRoute({
+const onrampSessionRoute = createRoute({
+  method: "post",
+  path: "/api/payments/onramp-session",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: onrampSessionRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    200: {
+      description: "Coinbase Onramp URL",
+      content: {
+        "application/json": {
+          schema: z.object({
+            onrampUrl: z.string().url(),
+            depositAddress: z.string(),
+            chain: z.literal(chain),
+            asset: z.literal(asset)
+          })
+        }
+      }
+    },
+    401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
+    403: { description: "Payments disabled", content: { "application/json": { schema: errorResponseSchema } } }
+  }
+});
+
+app.openapi(onrampSessionRoute, createOnramp);
+
+const creditPurchasesAliasRoute = createRoute({
   method: "post",
   path: "/api/payments/credit-purchases",
   request: {
     body: {
       content: {
         "application/json": {
-          schema: creditPurchaseRequestSchema
+          schema: onrampSessionRequestSchema
         }
       }
     }
   },
-  responses: creditPurchaseResponses
+  responses: onrampSessionRoute.responses
 });
 
-app.openapi(createCreditPurchaseRoute, createCreditPurchase);
+app.openapi(creditPurchasesAliasRoute, createOnramp);
 
-const createDepositRoute = createRoute({
+const depositsAliasRoute = createRoute({
   method: "post",
   path: "/api/payments/deposits",
   request: {
     body: {
       content: {
         "application/json": {
-          schema: creditPurchaseRequestSchema
+          schema: onrampSessionRequestSchema
         }
       }
     }
   },
-  responses: creditPurchaseResponses
+  responses: onrampSessionRoute.responses
 });
 
-app.openapi(createDepositRoute, createCreditPurchase);
+app.openapi(depositsAliasRoute, createOnramp);
+
+const depositSyncRoute = createRoute({
+  method: "post",
+  path: "/api/payments/deposits/sync",
+  responses: {
+    200: {
+      description: "Synced Base USDC deposits",
+      content: {
+        "application/json": {
+          schema: z.object({
+            creditedCents: z.number().int(),
+            deposits: z.number().int(),
+            scannedToBlock: z.number().int()
+          })
+        }
+      }
+    },
+    401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
+    403: { description: "Payments disabled", content: { "application/json": { schema: errorResponseSchema } } }
+  }
+});
+
+app.openapi(depositSyncRoute, async (c) => {
+  if (!paymentsConfigured(c.env)) {
+    return jsonError(c, "USDC deposits are temporarily unavailable because Base RPC is not fully configured.", 403);
+  }
+
+  const userId = await getSessionUserId(c.env, c.req.raw);
+  if (!userId) {
+    return jsonError(c, "Sign in before syncing deposits.", 401);
+  }
+
+  const profile = await ensurePaymentProfile(c.env, userId);
+  const { logs, scannedToBlock } = await scanDepositLogs(c.env, profile);
+  const result = await creditDepositLogs(c.env, profile, logs, scannedToBlock);
+  return c.json({ ...result, scannedToBlock });
+});
 
 const connectStatusRoute = createRoute({
   method: "get",
   path: "/api/payments/connect/status",
   responses: {
     200: {
-      description: "Stripe Connect payout onboarding status",
+      description: "USDC wallet status",
       content: {
         "application/json": {
           schema: z.object({
             cashoutsEnabled: z.boolean(),
             connected: z.boolean(),
             payoutsEnabled: z.boolean(),
-            onboardingRequired: z.boolean()
+            onboardingRequired: z.boolean(),
+            withdrawalAddress: z.string().nullable()
           })
         }
       }
     },
-    401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
-    500: { description: "Stripe error", content: { "application/json": { schema: errorResponseSchema } } }
+    401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } }
   }
 });
 
 app.openapi(connectStatusRoute, async (c) => {
-  const enabled = cashoutsEnabled(c.env);
   const userId = await getSessionUserId(c.env, c.req.raw);
   if (!userId) {
-    return jsonError(c, "Sign in before managing bank account setup.", 401);
+    return jsonError(c, "Sign in before checking wallet setup.", 401);
   }
 
-  const user = await ensurePaymentsUser(c.env, userId);
-  if (!enabled || !user.stripeConnectAccountId) {
-    return c.json({ cashoutsEnabled: enabled, connected: false, payoutsEnabled: false, onboardingRequired: true });
-  }
-
-  const status = await syncConnectAccount(c.env, userId, user.stripeConnectAccountId);
+  const profile = await getProfile(c.env, userId);
+  const connected = Boolean(profile?.withdrawalAddress);
   return c.json({
-    cashoutsEnabled: enabled,
-    connected: true,
-    payoutsEnabled: status.payoutsEnabled,
-    onboardingRequired: !status.payoutsEnabled
+    cashoutsEnabled: cashoutsConfigured(c.env),
+    connected,
+    payoutsEnabled: connected,
+    onboardingRequired: !connected,
+    withdrawalAddress: profile?.withdrawalAddress ?? null
   });
 });
-
-const connectAccountLinkRoute = createRoute({
-  method: "post",
-  path: "/api/payments/connect/account-link",
-  responses: {
-    200: {
-      description: "Stripe Connect onboarding link",
-      content: {
-        "application/json": {
-          schema: z.object({
-            onboardingUrl: z.string().url(),
-            accountId: z.string()
-          })
-        }
-      }
-    },
-    401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
-    403: { description: "Cashouts disabled", content: { "application/json": { schema: errorResponseSchema } } },
-    500: { description: "Stripe error", content: { "application/json": { schema: errorResponseSchema } } }
-  }
-});
-
-app.openapi(connectAccountLinkRoute, async (c) => {
-  if (!cashoutsEnabled(c.env)) {
-    return jsonError(c, "Cashouts are temporarily unavailable because Stripe Connect is not fully configured.", 403);
-  }
-
-  const userId = await getSessionUserId(c.env, c.req.raw);
-  if (!userId) {
-    return jsonError(c, "Sign in before setting up payouts.", 401);
-  }
-
-  const user = await ensurePaymentsUser(c.env, userId);
-  let accountId = user.stripeConnectAccountId;
-  if (!accountId) {
-    const form = new URLSearchParams({
-      type: "express",
-      country: "US",
-      email: user.email,
-      "capabilities[transfers][requested]": "true",
-      "business_profile[url]": c.env.BETTER_AUTH_URL ?? "https://moltbooky.com",
-      "metadata[userId]": userId
-    });
-    const account = await stripeRequest(c.env, "/accounts", { body: form, idempotencyKey: `connect-account:${userId}` }) as { id: string };
-    accountId = account.id;
-    await createDb(c.env.DATABASE_URL)
-      .update(appUsers)
-      .set({
-        stripeConnectAccountId: accountId,
-        stripeConnectPayoutsEnabled: false,
-        kycStatus: "pending"
-      })
-      .where(eq(appUsers.id, userId));
-  }
-
-  const linkForm = new URLSearchParams({
-    account: accountId,
-    refresh_url: c.env.STRIPE_CONNECT_REFRESH_URL!,
-    return_url: c.env.STRIPE_CONNECT_RETURN_URL!,
-    type: "account_onboarding"
-  });
-  const accountLink = await stripeRequest(c.env, "/account_links", { body: linkForm }) as { url: string };
-
-  return c.json({ onboardingUrl: accountLink.url, accountId });
-});
-
-const withdrawalResponses = {
-  201: {
-    description: "Stripe transfer and payout created",
-    content: {
-      "application/json": {
-        schema: z.object({
-          wallet: z.object({
-            userId: z.string(),
-            availableCents: z.number().int(),
-            lockedCents: z.number().int(),
-            pendingWithdrawalCents: z.number().int()
-          }),
-          transferId: z.string(),
-          payoutId: z.string()
-        })
-      }
-    }
-  },
-  401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
-  403: { description: "Cashouts disabled or onboarding incomplete", content: { "application/json": { schema: errorResponseSchema } } },
-  500: { description: "Stripe error", content: { "application/json": { schema: errorResponseSchema } } }
-} as const;
 
 const withdrawalRoute = createRoute({
   method: "post",
@@ -468,12 +743,32 @@ const withdrawalRoute = createRoute({
       }
     }
   },
-  responses: withdrawalResponses
+  responses: {
+    201: {
+      description: "USDC withdrawal sent",
+      content: {
+        "application/json": {
+          schema: z.object({
+            wallet: z.object({
+              userId: z.string(),
+              availableCents: z.number().int(),
+              lockedCents: z.number().int(),
+              pendingWithdrawalCents: z.number().int()
+            }),
+            transactionHash: z.string(),
+            withdrawalAddress: z.string()
+          })
+        }
+      }
+    },
+    401: { description: "Unauthorized", content: { "application/json": { schema: errorResponseSchema } } },
+    403: { description: "Cashouts disabled or wallet missing", content: { "application/json": { schema: errorResponseSchema } } }
+  }
 });
 
 app.openapi(withdrawalRoute, async (c) => {
-  if (!cashoutsEnabled(c.env)) {
-    return jsonError(c, "Cashouts are temporarily unavailable because Stripe Connect is not fully configured.", 403);
+  if (!cashoutsConfigured(c.env)) {
+    return jsonError(c, "USDC cashouts are temporarily unavailable because Coinbase CDP is not fully configured.", 403);
   }
 
   const userId = await getSessionUserId(c.env, c.req.raw);
@@ -481,18 +776,12 @@ app.openapi(withdrawalRoute, async (c) => {
     return jsonError(c, "Sign in before cashing out.", 401);
   }
 
-  const user = await ensurePaymentsUser(c.env, userId);
-  if (!user.stripeConnectAccountId) {
-    return jsonError(c, "Connect a bank account before cashing out.", 403);
-  }
-
-  const connectStatus = await syncConnectAccount(c.env, userId, user.stripeConnectAccountId);
-  if (!connectStatus.payoutsEnabled) {
-    return jsonError(c, "Complete bank account setup before cashing out.", 403);
-  }
-
-  const { amountCents } = c.req.valid("json");
+  const { amountCents, withdrawalAddress } = c.req.valid("json");
+  const profile = await ensurePaymentProfile(c.env, userId, { withdrawalAddress });
+  const destination = normalizeAddress(withdrawalAddress ?? profile.withdrawalAddress ?? "");
   const ledgerId = newId("led");
+  const cryptoTxId = newId("ctx");
+  const pendingTxHash = `pending:${ledgerId}`;
   const db = createDb(c.env.DATABASE_URL);
   let walletResponse: {
     userId: string;
@@ -534,8 +823,20 @@ app.openapi(withdrawalRoute, async (c) => {
       userId,
       type: "withdrawal",
       amountCents,
-      idempotencyKey: `stripe-connect-withdrawal:${ledgerId}`,
-      description: "Stripe cashout requested"
+      idempotencyKey: `base-usdc-withdrawal:${ledgerId}`,
+      description: "Base USDC cashout sent"
+    });
+
+    await tx.insert(cryptoTransactions).values({
+      id: cryptoTxId,
+      direction: "withdrawal",
+      userId,
+      txHash: pendingTxHash,
+      logIndex: 0,
+      amountMicroUsdc: centsToMicroUsdc(amountCents).toString(),
+      amountCents,
+      status: "pending",
+      providerRef: ledgerId
     });
   });
 
@@ -543,51 +844,49 @@ app.openapi(withdrawalRoute, async (c) => {
     throw new Error("Credit account could not be updated.");
   }
 
-  let transferId: string | null = null;
   try {
-    const transfer = await stripeRequest(c.env, "/transfers", {
-      idempotencyKey: `transfer:${ledgerId}`,
-      body: new URLSearchParams({
-        amount: String(amountCents),
-        currency: "usd",
-        destination: user.stripeConnectAccountId,
-        "metadata[userId]": userId,
-        "metadata[ledgerId]": ledgerId
-      })
-    }) as { id: string };
-    transferId = transfer.id;
+    const source = await getWithdrawalAccount(c.env, profile);
+    const transfer = await source.transfer({
+      to: destination,
+      amount: centsToMicroUsdc(amountCents),
+      token: "usdc",
+      network: chain
+    });
+    const transactionHash = transfer.transactionHash.toLowerCase();
 
-    const payout = await stripeRequest(c.env, "/payouts", {
-      stripeAccount: user.stripeConnectAccountId,
-      idempotencyKey: `payout:${ledgerId}`,
-      body: new URLSearchParams({
-        amount: String(amountCents),
-        currency: "usd",
-        "metadata[userId]": userId,
-        "metadata[ledgerId]": ledgerId,
-        "metadata[transferId]": transferId
-      })
-    }) as { id: string };
-
-    return c.json({ wallet: walletResponse, transferId, payoutId: payout.id }, 201);
-  } catch (error) {
-    let canRestoreCredits = !transferId;
-    if (transferId) {
-      await stripeRequest(c.env, `/transfers/${transferId}/reversals`, {
-        idempotencyKey: `transfer-reversal:${ledgerId}`,
-        body: new URLSearchParams({
-          amount: String(amountCents),
-          "metadata[userId]": userId,
-          "metadata[ledgerId]": ledgerId
+    await db.transaction(async (tx) => {
+      const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
+      if (!wallet[0]) {
+        throw new Error("Credit account not found.");
+      }
+      const updated = await tx
+        .update(walletAccounts)
+        .set({
+          pendingWithdrawalCents: Math.max(0, wallet[0].pendingWithdrawalCents - amountCents),
+          updatedAt: new Date()
         })
-      });
-      canRestoreCredits = true;
-    }
+        .where(eq(walletAccounts.userId, userId))
+        .returning({
+          userId: walletAccounts.userId,
+          availableCents: walletAccounts.availableCents,
+          lockedCents: walletAccounts.lockedCents,
+          pendingWithdrawalCents: walletAccounts.pendingWithdrawalCents
+        });
+      walletResponse = updated[0];
 
-    if (!canRestoreCredits) {
-      throw error;
-    }
+      await tx
+        .update(cryptoTransactions)
+        .set({
+          txHash: transactionHash,
+          status: "confirmed",
+          providerRef: source.address,
+          updatedAt: new Date()
+        })
+        .where(eq(cryptoTransactions.id, cryptoTxId));
+    });
 
+    return c.json({ wallet: walletResponse, transactionHash, withdrawalAddress: destination }, 201);
+  } catch (error) {
     await db.transaction(async (tx) => {
       const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
       if (wallet[0]) {
@@ -600,172 +899,18 @@ app.openapi(withdrawalRoute, async (c) => {
           })
           .where(eq(walletAccounts.userId, userId));
       }
+
+      await tx
+        .update(cryptoTransactions)
+        .set({
+          status: "failed",
+          providerRef: errorMessage(error, "CDP transfer failed."),
+          updatedAt: new Date()
+        })
+        .where(eq(cryptoTransactions.id, cryptoTxId));
     });
     throw error;
   }
 });
-
-const webhookRoute = createRoute({
-  method: "post",
-  path: "/api/payments/stripe/webhook",
-  responses: {
-    200: {
-      description: "Webhook handled",
-      content: {
-        "application/json": {
-          schema: z.object({ ok: z.boolean() })
-        }
-      }
-    },
-    400: { description: "Invalid webhook", content: { "application/json": { schema: errorResponseSchema } } },
-    500: { description: "Webhook processing failed", content: { "application/json": { schema: errorResponseSchema } } }
-  }
-});
-
-app.openapi(webhookRoute, async (c) => {
-  if (!c.env.STRIPE_WEBHOOK_SECRET) {
-    return jsonError(c, "Stripe webhook signing secret is not configured.", 500);
-  }
-
-  const signature = c.req.header("stripe-signature");
-  const payload = await c.req.text();
-  if (!signature || !(await verifyStripeSignature(payload, signature, c.env.STRIPE_WEBHOOK_SECRET))) {
-    return jsonError(c, "Invalid Stripe signature.", 400);
-  }
-
-  const event = JSON.parse(payload) as {
-    type?: string;
-    data?: { object?: { id?: string; metadata?: { userId?: string; amountCents?: string } } };
-  };
-
-  if (event.type === "payout.paid" || event.type === "payout.failed") {
-    const payout = event.data?.object as {
-      id?: string;
-      amount?: number;
-      metadata?: { userId?: string; ledgerId?: string };
-    } | undefined;
-    const userId = payout?.metadata?.userId;
-    const amountCents = Number(payout?.amount);
-    if (!payout?.id || !userId || !Number.isInteger(amountCents) || amountCents <= 0) {
-      return jsonError(c, "Invalid payout metadata.", 400);
-    }
-
-    const db = createDb(c.env.DATABASE_URL);
-    await db.transaction(async (tx) => {
-      const inserted = await tx
-        .insert(ledgerEntries)
-        .values({
-          id: newId("led"),
-          userId,
-          type: event.type === "payout.paid" ? "withdrawal" : "unlock",
-          amountCents,
-          idempotencyKey: `stripe:payout:${event.type}:${payout.id}`,
-          description: event.type === "payout.paid" ? "Stripe cashout paid" : "Stripe cashout failed"
-        })
-        .onConflictDoNothing()
-        .returning({ id: ledgerEntries.id });
-
-      if (!inserted[0]) {
-        return;
-      }
-
-      const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
-      if (!wallet[0]) {
-        throw new Error("Credit account not found.");
-      }
-
-      await tx
-        .update(walletAccounts)
-        .set({
-          availableCents: event.type === "payout.failed" ? wallet[0].availableCents + amountCents : wallet[0].availableCents,
-          pendingWithdrawalCents: Math.max(0, wallet[0].pendingWithdrawalCents - amountCents),
-          updatedAt: new Date()
-        })
-        .where(eq(walletAccounts.userId, userId));
-    });
-
-    return c.json({ ok: true });
-  }
-
-  if (event.type !== "checkout.session.completed") {
-    return c.json({ ok: true });
-  }
-
-  const session = event.data?.object;
-  const userId = session?.metadata?.userId;
-  const amountCents = Number(session?.metadata?.amountCents);
-  if (!session?.id || !userId || !Number.isInteger(amountCents) || amountCents <= 0) {
-    return jsonError(c, "Invalid checkout session metadata.", 400);
-  }
-
-  const db = createDb(c.env.DATABASE_URL);
-  await db.transaction(async (tx) => {
-    const inserted = await tx
-      .insert(ledgerEntries)
-      .values({
-        id: newId("led"),
-        userId,
-        type: "credit_purchase",
-        amountCents,
-        idempotencyKey: `stripe:checkout:${session.id}`,
-        description: "Stripe credit purchase"
-      })
-      .onConflictDoNothing()
-      .returning({ id: ledgerEntries.id });
-
-    if (!inserted[0]) {
-      return;
-    }
-
-    const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
-    if (!wallet[0]) {
-      throw new Error("Credit account not found.");
-    }
-
-    await tx
-      .update(walletAccounts)
-      .set({
-        availableCents: wallet[0].availableCents + amountCents,
-        updatedAt: new Date()
-      })
-      .where(eq(walletAccounts.userId, userId));
-  });
-
-  return c.json({ ok: true });
-});
-
-async function verifyStripeSignature(payload: string, header: string, secret: string): Promise<boolean> {
-  const timestamp = header
-    .split(",")
-    .map((part) => part.split("="))
-    .find(([key]) => key === "t")?.[1];
-  const signatures = header
-    .split(",")
-    .map((part) => part.split("="))
-    .filter(([key]) => key === "v1")
-    .map(([, value]) => value);
-
-  if (!timestamp || signatures.length === 0) {
-    return false;
-  }
-
-  const signedPayload = `${timestamp}.${payload}`;
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedPayload));
-  const expected = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  return signatures.some((signature) => timingSafeEqual(signature, expected));
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  let result = 0;
-  for (let index = 0; index < a.length; index += 1) {
-    result |= a.charCodeAt(index) ^ b.charCodeAt(index);
-  }
-  return result === 0;
-}
 
 export default app;

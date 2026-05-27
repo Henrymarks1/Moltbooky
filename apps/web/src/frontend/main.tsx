@@ -1,3 +1,4 @@
+import { PrivyProvider } from "@privy-io/react-auth";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { Route as rootRoute } from "./routes/root";
@@ -36,4 +37,24 @@ declare module "@tanstack/react-router" {
 
 initAnalytics();
 
-createRoot(document.getElementById("root")!).render(<RouterProvider router={router} />);
+const app = <RouterProvider router={router} />;
+const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
+
+createRoot(document.getElementById("root")!).render(
+  privyAppId ? (
+    <PrivyProvider
+      appId={privyAppId}
+      config={{
+        embeddedWallets: {
+          ethereum: {
+            createOnLogin: "off"
+          }
+        }
+      }}
+    >
+      {app}
+    </PrivyProvider>
+  ) : (
+    app
+  )
+);

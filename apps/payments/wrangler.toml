@@ -6,7 +6,9 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 PAYMENT_LAUNCH_APPROVED = "true"
 BETTER_AUTH_URL = "https://moltbooky.com"
-STRIPE_SUCCESS_URL = "https://moltbooky.com/credits"
-STRIPE_CANCEL_URL = "https://moltbooky.com/credits"
-STRIPE_CONNECT_RETURN_URL = "https://moltbooky.com/credits"
-STRIPE_CONNECT_REFRESH_URL = "https://moltbooky.com/credits"
+CDP_TREASURY_ACCOUNT_NAME = "moltbooky-treasury"
+COINBASE_ONRAMP_REDIRECT_URL = "https://moltbooky.com/credits"
+BASE_RPC_URL = "https://mainnet.base.org"
+USDC_BASE_CONTRACT_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+PAYMENTS_MIN_CONFIRMATIONS = "3"
+PAYMENTS_INITIAL_SCAN_BLOCKS = "20000"

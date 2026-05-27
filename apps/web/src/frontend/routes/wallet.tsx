@@ -1,7 +1,8 @@
+import { useCreateWallet, usePrivy, useWallets } from "@privy-io/react-auth";
 import { createRoute } from "@tanstack/react-router";
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
-import { ArrowDownToLine, Banknote, Coins, CreditCard } from "lucide-react";
+import { ArrowDownToLine, Banknote, Coins, Copy, CreditCard, RefreshCw, Wallet } from "lucide-react";
 import type { WalletAccount } from "@moltbooky/core/domain/types";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -36,7 +37,9 @@ function WalletPage() {
   const [creditPurchasesEnabled, setCreditPurchasesEnabled] = useState(testingMode);
   const [cashoutsEnabled, setCashoutsEnabled] = useState(testingMode);
   const [payoutsEnabled, setPayoutsEnabled] = useState(testingMode);
-  const [isSettingUpPayouts, setIsSettingUpPayouts] = useState(false);
+  const [paymentProfile, setPaymentProfile] = useState<{ depositAddress: string; withdrawalAddress: string | null } | null>(null);
+  const [isSyncingDeposits, setIsSyncingDeposits] = useState(false);
+  const [notice, setNotice] = useState("");
 
   async function refreshWallet() {
     setError("");
@@ -84,6 +87,7 @@ function WalletPage() {
         if (isMounted) {
           setCashoutsEnabled(status.cashoutsEnabled);
           setPayoutsEnabled(status.payoutsEnabled);
+          setPaymentProfile((profile) => (profile ? { ...profile, withdrawalAddress: status.withdrawalAddress } : profile));
         }
       } catch {
         if (isMounted) {
@@ -123,7 +127,7 @@ function WalletPage() {
       return;
     }
     if (!testingMode && !creditPurchasesEnabled) {
-      setError("Credit purchases are temporarily unavailable while Stripe configuration is checked.");
+      setError("USDC deposits are temporarily unavailable while Coinbase Onramp is checked.");
       return;
     }
 
@@ -135,9 +139,10 @@ function WalletPage() {
         setIsPurchasing(false);
         return;
       }
-      window.location.href = deposit.checkoutUrl;
+      setPaymentProfile((profile) => ({ depositAddress: deposit.depositAddress, withdrawalAddress: profile?.withdrawalAddress ?? null }));
+      window.location.href = deposit.onrampUrl;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to start Stripe Checkout.");
+      setError(err instanceof Error ? err.message : "Unable to start Coinbase Onramp.");
       setIsPurchasing(false);
     }
   }
@@ -157,11 +162,11 @@ function WalletPage() {
       return;
     }
     if (!testingMode && !cashoutsEnabled) {
-      setError("Cashouts are temporarily unavailable while bank account payouts are being checked.");
+      setError("USDC cashouts are temporarily unavailable while Coinbase CDP is checked.");
       return;
     }
     if (!testingMode && !payoutsEnabled) {
-      setError("Connect a bank account before cashing out.");
+      setError("Set up a USDC wallet before cashing out.");
       return;
     }
 
@@ -176,16 +181,27 @@ function WalletPage() {
     }
   }
 
-  async function setupPayouts() {
+  async function syncDeposits() {
     setError("");
-    setIsSettingUpPayouts(true);
+    setNotice("");
+    setIsSyncingDeposits(true);
     try {
-      const link = await api.createPayoutOnboardingLink();
-      window.location.href = link.onboardingUrl;
+      const result = await api.syncDeposits();
+      await refreshWallet();
+      setNotice(result.creditedCents > 0 ? `Credited ${credits(result.creditedCents)} from Base USDC deposits.` : "No new confirmed USDC deposits found.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to start bank account setup.");
-      setIsSettingUpPayouts(false);
+      setError(err instanceof Error ? err.message : "Unable to refresh USDC deposits.");
+    } finally {
+      setIsSyncingDeposits(false);
     }
+  }
+
+  async function copyDepositAddress() {
+    if (!paymentProfile?.depositAddress) {
+      return;
+    }
+    await navigator.clipboard.writeText(paymentProfile.depositAddress);
+    setNotice("Deposit address copied.");
   }
 
   return (
@@ -197,6 +213,7 @@ function WalletPage() {
         </div>
       </header>
       {error && <div className="notice error">{error}</div>}
+      {notice && <div className="notice">{notice}</div>}
       <section className="stats-grid wallet-stats">
         <div>
           <span>Available</span>
@@ -214,14 +231,41 @@ function WalletPage() {
       <Card>
         <CardHeader>
           <div className="section-title">
-            <CardTitle>Buy credits</CardTitle>
+            <CardTitle>Add USDC</CardTitle>
             <Coins size={20} />
           </div>
         </CardHeader>
         <CardContent>
           {!testingMode && !creditPurchasesEnabled && (
             <div className="notice">
-              Credit purchases are temporarily unavailable while Stripe configuration is checked.
+              USDC deposits are temporarily unavailable while Coinbase Onramp is checked.
+            </div>
+          )}
+          {!testingMode && import.meta.env.VITE_PRIVY_APP_ID && (
+            <PrivyWalletSetup
+              disabled={!cashoutsEnabled}
+              onReady={(profile) => {
+                setPaymentProfile(profile);
+                setPayoutsEnabled(Boolean(profile.withdrawalAddress));
+              }}
+              onError={setError}
+            />
+          )}
+          {!testingMode && !import.meta.env.VITE_PRIVY_APP_ID && (
+            <div className="notice">Privy is not configured. Set VITE_PRIVY_APP_ID before linking a withdrawal wallet.</div>
+          )}
+          {!testingMode && paymentProfile?.depositAddress && (
+            <div className="notice usdc-address-box">
+              <span>Base USDC deposit address</span>
+              <code>{paymentProfile.depositAddress}</code>
+              <div className="deposit-presets">
+                <Button type="button" variant="outline" onClick={copyDepositAddress}>
+                  <Copy size={18} /> Copy
+                </Button>
+                <Button type="button" variant="outline" onClick={syncDeposits} disabled={isSyncingDeposits}>
+                  <RefreshCw size={18} /> {isSyncingDeposits ? "Refreshing..." : "Refresh deposits"}
+                </Button>
+              </div>
             </div>
           )}
           <form className="deposit-form" onSubmit={createCreditPurchase}>
@@ -240,7 +284,7 @@ function WalletPage() {
                 />
               </div>
               <p className="field-help">
-                {testingMode ? "Add local testing credits from 5 to 100." : "Stripe Checkout sells credit bundles from 5 to 100 credits."}
+                {testingMode ? "Add local testing credits from 5 to 100." : "Buy Base USDC through Coinbase Onramp. 1 USDC equals 1 credit."}
               </p>
             </div>
             <div className="deposit-presets">
@@ -255,11 +299,11 @@ function WalletPage() {
               {isPurchasing
                 ? testingMode
                   ? "Adding..."
-                  : "Opening Checkout"
+                  : "Opening Onramp"
                 : testingMode
                   ? "Add credits"
                   : creditPurchasesEnabled
-                    ? "Buy with Stripe"
+                    ? "Buy USDC"
                     : "Credit purchases unavailable"}
             </Button>
           </form>
@@ -275,16 +319,12 @@ function WalletPage() {
         <CardContent>
           {!testingMode && !cashoutsEnabled && (
             <div className="notice">
-              Cashouts are temporarily unavailable while bank account payouts are being checked.
+              USDC cashouts are temporarily unavailable while Coinbase CDP is checked.
             </div>
           )}
           {!testingMode && cashoutsEnabled && !payoutsEnabled && (
             <div className="notice">
-              <p>Connect a bank account before requesting a cashout.</p>
-              <Button type="button" variant="outline" onClick={setupPayouts} disabled={isSettingUpPayouts}>
-                <Banknote size={18} />
-                {isSettingUpPayouts ? "Opening secure setup..." : "Connect bank account"}
-              </Button>
+              <p>Set up a USDC withdrawal wallet before requesting a cashout.</p>
             </div>
           )}
           <form className="deposit-form" onSubmit={createWithdrawal}>
@@ -303,7 +343,7 @@ function WalletPage() {
                 />
               </div>
               <p className="field-help">
-                Cashouts send the dollar equivalent to your connected bank account.
+                Cashouts send Base USDC to your linked Privy wallet.
               </p>
             </div>
             <div className="deposit-presets">
@@ -342,6 +382,53 @@ function WalletPage() {
           {ledger.length === 0 && <p className="fine-print">No ledger entries yet.</p>}
         </div>
       </section>
+    </div>
+  );
+}
+
+function PrivyWalletSetup({
+  disabled,
+  onReady,
+  onError
+}: {
+  disabled: boolean;
+  onReady: (profile: { depositAddress: string; withdrawalAddress: string | null }) => void;
+  onError: (message: string) => void;
+}) {
+  const { ready, authenticated, login, user } = usePrivy();
+  const { wallets } = useWallets();
+  const { createWallet } = useCreateWallet();
+  const [isLinking, setIsLinking] = useState(false);
+
+  async function setupWallet() {
+    onError("");
+    setIsLinking(true);
+    try {
+      if (!authenticated) {
+        login();
+        return;
+      }
+
+      const wallet = wallets[0] ?? (await createWallet());
+      const profile = await api.setupPaymentWallet({
+        privyUserId: user?.id,
+        withdrawalAddress: wallet.address
+      });
+      onReady({ depositAddress: profile.depositAddress, withdrawalAddress: profile.withdrawalAddress });
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Unable to set up USDC wallet.");
+    } finally {
+      setIsLinking(false);
+    }
+  }
+
+  return (
+    <div className="notice">
+      <p>{authenticated && wallets[0] ? `Withdrawal wallet: ${wallets[0].address}` : "Link a Privy wallet for USDC deposits and automatic cashouts."}</p>
+      <Button type="button" variant="outline" onClick={setupWallet} disabled={disabled || !ready || isLinking}>
+        <Wallet size={18} />
+        {isLinking ? "Setting up..." : authenticated ? "Set up USDC wallet" : "Connect wallet"}
+      </Button>
     </div>
   );
 }

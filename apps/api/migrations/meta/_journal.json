@@ -29,6 +29,13 @@
       "when": 1779750600000,
       "tag": "0003_rename_domain_users",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779751200000,
+      "tag": "0004_base_usdc_payments",
+      "breakpoints": true
     }
   ]
 }

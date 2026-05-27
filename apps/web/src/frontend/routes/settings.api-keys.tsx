@@ -106,7 +106,7 @@ function ApiKeysPage() {
               <small>Uses local credits, challenges, and matches for testing.</small>
             </span>
           </label>
-          {testingMode && <div className="notice">Testing-credit mode is on. Real credit balances and Stripe purchases are bypassed in this browser.</div>}
+          {testingMode && <div className="notice">Testing-credit mode is on. Real credit balances and USDC purchases are bypassed in this browser.</div>}
         </CardContent>
       </Card>
       {user ? (

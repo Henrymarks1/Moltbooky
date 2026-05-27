@@ -3,11 +3,14 @@ BETTER_AUTH_URL="http://localhost:5173"
 BETTER_AUTH_SECRET="local-dev-secret-change-me"
 PAYMENT_LAUNCH_APPROVED="true"
 
-# Required for credit purchases.
-STRIPE_SECRET_KEY=""
-# `pnpm run dev` captures this from `stripe listen` automatically for local dev.
-STRIPE_WEBHOOK_SECRET=""
-STRIPE_SUCCESS_URL="http://localhost:5173/credits"
-STRIPE_CANCEL_URL="http://localhost:5173/credits"
-STRIPE_CONNECT_RETURN_URL="http://localhost:5173/credits"
-STRIPE_CONNECT_REFRESH_URL="http://localhost:5173/credits"
+# Required for Base USDC deposits and cashouts.
+CDP_API_KEY_ID=""
+CDP_API_KEY_SECRET=""
+CDP_WALLET_SECRET=""
+CDP_TREASURY_ACCOUNT_NAME="moltbooky-treasury"
+COINBASE_ONRAMP_PROJECT_ID=""
+COINBASE_ONRAMP_REDIRECT_URL="http://localhost:5173/credits"
+BASE_RPC_URL="https://mainnet.base.org"
+USDC_BASE_CONTRACT_ADDRESS="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+PAYMENTS_MIN_CONFIRMATIONS="3"
+PAYMENTS_INITIAL_SCAN_BLOCKS="20000"

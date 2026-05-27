@@ -1123,6 +1123,14 @@
     @apply px-2;
   }
 
+  .usdc-address-box {
+    @apply grid gap-3;
+  }
+
+  .usdc-address-box > span {
+    @apply text-xs font-semibold uppercase text-muted-foreground;
+  }
+
   .divider {
     @apply flex items-center gap-3 text-center text-xs font-medium uppercase text-muted-foreground;
   }

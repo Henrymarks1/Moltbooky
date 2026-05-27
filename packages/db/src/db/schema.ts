@@ -55,8 +55,6 @@ export const appUsers = pgTable(
     displayName: text("display_name").notNull(),
     betaStatus: text("beta_status").notNull().default("invited"),
     kycStatus: text("kyc_status").notNull().default("not_started"),
-    stripeConnectAccountId: text("stripe_connect_account_id"),
-    stripeConnectPayoutsEnabled: boolean("stripe_connect_payouts_enabled").notNull().default(false),
     complianceNotes: text("compliance_notes"),
     createdAt: timestamp("created_at").notNull().defaultNow()
   },
@@ -81,6 +79,25 @@ export const walletAccounts = pgTable(
   })
 );
 
+export const userPaymentProfiles = pgTable(
+  "user_payment_profiles",
+  {
+    userId: text("user_id").primaryKey().references(() => appUsers.id),
+    privyUserId: text("privy_user_id"),
+    withdrawalAddress: text("withdrawal_address"),
+    depositWalletId: text("deposit_wallet_id"),
+    depositAddress: text("deposit_address"),
+    chain: text("chain").notNull().default("base"),
+    lastScannedBlock: integer("last_scanned_block"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    depositAddressIdx: uniqueIndex("user_payment_profiles_deposit_address_unique").on(table.depositAddress),
+    withdrawalAddressIdx: index("idx_user_payment_profiles_withdrawal").on(table.withdrawalAddress)
+  })
+);
+
 export const ledgerEntries = pgTable(
   "ledger_entries",
   {
@@ -97,6 +114,31 @@ export const ledgerEntries = pgTable(
   (table) => ({
     userIdx: index("idx_ledger_user").on(table.userId, table.createdAt),
     idemIdx: uniqueIndex("ledger_entries_idempotency_key_unique").on(table.idempotencyKey)
+  })
+);
+
+export const cryptoTransactions = pgTable(
+  "crypto_transactions",
+  {
+    id: text("id").primaryKey(),
+    direction: text("direction").notNull(),
+    userId: text("user_id").notNull().references(() => appUsers.id),
+    txHash: text("tx_hash").notNull(),
+    logIndex: integer("log_index").notNull().default(0),
+    amountMicroUsdc: text("amount_micro_usdc").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    status: text("status").notNull(),
+    providerRef: text("provider_ref"),
+    blockNumber: integer("block_number"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    txLogUnique: uniqueIndex("crypto_transactions_tx_log_unique").on(table.txHash, table.logIndex),
+    userIdx: index("idx_crypto_transactions_user").on(table.userId, table.createdAt),
+    directionCheck: check("crypto_transactions_direction_check", sql`${table.direction} IN ('deposit', 'withdrawal')`),
+    statusCheck: check("crypto_transactions_status_check", sql`${table.status} IN ('pending', 'confirmed', 'failed')`),
+    amountNonNegative: check("crypto_transactions_amount_non_negative", sql`${table.amountCents} >= 0`)
   })
 );
 

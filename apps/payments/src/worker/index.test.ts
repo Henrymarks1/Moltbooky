@@ -14,16 +14,16 @@ describe("payments worker", () => {
     expect(response.status).toBe(200);
   });
 
-  it("reports credit purchases disabled until Stripe is configured", async () => {
+  it("reports USDC payments disabled until Coinbase CDP and Base RPC are configured", async () => {
     const response = await app.request("/api/payments/config", {}, baseEnv);
 
-    await expect(response.json()).resolves.toEqual({ creditPurchasesEnabled: false, cashoutsEnabled: false });
+    await expect(response.json()).resolves.toEqual({ creditPurchasesEnabled: false, cashoutsEnabled: false, chain: "base", asset: "USDC" });
     expect(response.status).toBe(200);
   });
 
-  it("requires full Stripe configuration before creating checkout sessions", async () => {
+  it("requires full USDC configuration before creating onramp sessions", async () => {
     const response = await app.request(
-      "/api/payments/credit-purchases",
+      "/api/payments/onramp-session",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -33,7 +33,7 @@ describe("payments worker", () => {
     );
 
     await expect(response.json()).resolves.toEqual({
-      error: "Credit purchases are temporarily unavailable because Stripe is not fully configured."
+      error: "USDC deposits are temporarily unavailable because Coinbase Onramp is not fully configured."
     });
     expect(response.status).toBe(403);
   });
