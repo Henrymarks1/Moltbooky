@@ -7,7 +7,6 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import { api } from "../lib/api";
-import { draftClaimKey } from "../lib/drafts";
 import { credits, matchProgress, shortDate } from "../lib/format";
 import { rootRoute } from "./root";
 
@@ -84,10 +83,6 @@ function Home() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const draft = claim.trim();
-    if (draft && typeof window !== "undefined") {
-      window.sessionStorage.setItem(draftClaimKey, draft);
-    }
     await navigate({ to: "/new" });
   }
 

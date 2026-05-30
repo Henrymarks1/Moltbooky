@@ -2,7 +2,6 @@ import type { ChallengeStatus } from "@moltbooky/core/domain/types";
 import { Badge } from "./ui/badge";
 
 const labels: Record<ChallengeStatus, string> = {
-  draft: "Draft",
   open: "Open",
   resolving: "Resolving",
   provisional_resolved: "Provisional",
@@ -14,7 +13,6 @@ const labels: Record<ChallengeStatus, string> = {
 };
 
 const variants: Record<ChallengeStatus, string> = {
-  draft: "bg-muted text-muted-foreground",
   open: "bg-secondary text-secondary-foreground",
   resolving: "bg-secondary text-secondary-foreground",
   provisional_resolved: "bg-secondary text-secondary-foreground",

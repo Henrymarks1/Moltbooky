@@ -1,4 +1,4 @@
-import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, ne, resolutionRuns, creditAccounts } from "@moltbooky/db";
+import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionRuns, creditAccounts } from "@moltbooky/db";
 import type { Challenge, ChallengeMatch, ResolutionRun, ResolutionTool, Side, CreditAccount } from "@moltbooky/core/domain/types";
 import { getSessionUserId } from "./auth";
 
@@ -209,7 +209,7 @@ export async function listChallenges(env: Env): Promise<Challenge[]> {
   const result = await db
     .select()
     .from(challenges)
-    .where(and(eq(challenges.visibility, "public"), ne(challenges.status, "draft")))
+    .where(eq(challenges.visibility, "public"))
     .orderBy(desc(challenges.createdAt))
     .limit(100);
   return result.map(toChallenge);

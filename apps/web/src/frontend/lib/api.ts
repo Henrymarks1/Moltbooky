@@ -22,16 +22,6 @@ export type PipedreamConnection = {
   createdAt: string;
   updatedAt: string;
 };
-export type ChallengeDraft = {
-  claim?: string;
-  resolutionCriteria?: string;
-  creatorSide?: "YES" | "NO";
-  visibility?: "public" | "private";
-  stakeCredits?: string;
-  expiresAt?: string;
-  pipedreamConnectionIds?: string[];
-};
-
 type FakeState = {
   creditAccount: CreditAccount;
   challenges: Challenge[];
@@ -252,13 +242,6 @@ export const api = {
     }
     return request<{ challenge: Challenge; matches: ChallengeMatch[]; resolutionRuns: ResolutionRun[]; availableToMatchCents: number }>(`/api/challenges/${id}`);
   },
-  getChallengeDraft: () => request<{ challenge: { id: string; draft: ChallengeDraft } | null }>("/api/challenges/draft"),
-  createChallengeDraft: (draft: ChallengeDraft) => request<{ challenge: { id: string; draft: ChallengeDraft } }>("/api/challenges/drafts", { method: "POST", body: JSON.stringify({ draft }) }),
-  getChallengeDraftById: (id: string) => request<{ challenge: { id: string; draft: ChallengeDraft } }>(`/api/challenges/drafts/${id}`),
-  saveChallengeDraft: (draft: ChallengeDraft) => request<{ challenge: { id: string; draft: ChallengeDraft } }>("/api/challenges/draft", { method: "PUT", body: JSON.stringify({ draft }) }),
-  saveChallengeDraftById: (id: string, draft: ChallengeDraft) => request<{ challenge: { id: string; draft: ChallengeDraft } }>(`/api/challenges/drafts/${id}`, { method: "PUT", body: JSON.stringify({ draft }) }),
-  deleteChallengeDraft: () => request<{ deleted: boolean }>("/api/challenges/draft", { method: "DELETE" }),
-  deleteChallengeDraftById: (id: string) => request<{ deleted: boolean }>(`/api/challenges/drafts/${id}`, { method: "DELETE" }),
   createChallenge: (body: {
     claim: string;
     resolutionCriteria: string;
@@ -266,7 +249,6 @@ export const api = {
     creatorSide: "YES" | "NO";
     visibility: "public" | "private";
     stakeCredits: string;
-    draftId?: string;
     expiresAt: string;
   }) => {
     if (isTestingModeEnabled()) {

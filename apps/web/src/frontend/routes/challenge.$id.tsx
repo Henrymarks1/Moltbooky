@@ -13,7 +13,6 @@ import { api } from "../lib/api";
 import { matchProgress, credits, shortDate } from "../lib/format";
 import { setSeoMeta } from "../lib/seo";
 import { cn } from "../lib/utils";
-import { ChallengeDraftEditor } from "./challenge.new";
 import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
 export const Route = createRoute({
@@ -107,10 +106,6 @@ function ChallengeDetail() {
 
   if (!challenge) {
     return <ChallengeDetailSkeleton />;
-  }
-
-  if (challenge.status === "draft") {
-    return <ChallengeDraftEditor draftId={challenge.id} />;
   }
 
   const canDelete = user?.id === challenge.creatorId && challenge.matchedCents === 0 && matches.length === 0;

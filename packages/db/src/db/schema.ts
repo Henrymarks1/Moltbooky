@@ -138,6 +138,10 @@ export const challenges = pgTable(
     statusIdx: index("idx_challenges_status").on(table.status),
     visibilityIdx: index("idx_challenges_visibility").on(table.visibility, table.createdAt),
     creatorSideCheck: check("challenge_creator_side_check", sql`${table.creatorSide} IN ('YES', 'NO')`),
+    statusCheck: check(
+      "challenge_status_check",
+      sql`${table.status} IN ('open', 'resolving', 'provisional_resolved', 'final_resolved', 'cancelled', 'expired_unmatched', 'voided', 'disputed')`
+    ),
     visibilityCheck: check("challenge_visibility_check", sql`${table.visibility} IN ('public', 'private')`),
     stakeNonNegative: check("challenge_stake_non_negative", sql`${table.stakeCents} >= 0`),
     matchedNonNegative: check("challenge_matched_non_negative", sql`${table.matchedCents} >= 0`),

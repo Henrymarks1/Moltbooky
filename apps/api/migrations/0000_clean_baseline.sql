@@ -106,6 +106,7 @@ CREATE TABLE "challenges" (
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "challenge_creator_side_check" CHECK ("challenges"."creator_side" IN ('YES', 'NO')),
+	CONSTRAINT "challenge_status_check" CHECK ("challenges"."status" IN ('open', 'resolving', 'provisional_resolved', 'final_resolved', 'cancelled', 'expired_unmatched', 'voided', 'disputed')),
 	CONSTRAINT "challenge_visibility_check" CHECK ("challenges"."visibility" IN ('public', 'private')),
 	CONSTRAINT "challenge_stake_non_negative" CHECK ("challenges"."stake_cents" >= 0),
 	CONSTRAINT "challenge_matched_non_negative" CHECK ("challenges"."matched_cents" >= 0),

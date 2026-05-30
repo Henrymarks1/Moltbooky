@@ -1,5 +1,5 @@
 import { createRoute } from "@tanstack/react-router";
-import { ChallengeDraftEditor } from "./challenge.new";
+import { NewChallenge } from "./challenge.new";
 import { rootRoute } from "./root";
 
 export const Route = createRoute({
@@ -9,5 +9,5 @@ export const Route = createRoute({
 });
 
 function NewMarket() {
-  return <ChallengeDraftEditor />;
+  return <NewChallenge />;
 }

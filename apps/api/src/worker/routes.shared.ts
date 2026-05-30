@@ -45,7 +45,7 @@ export const challengeSchema = z.object({
   visibility: challengeVisibilitySchema,
   stakeCents: centsSchema,
   matchedCents: centsSchema,
-  status: z.enum(["draft", "open", "resolving", "provisional_resolved", "final_resolved", "cancelled", "expired_unmatched", "voided", "disputed"]),
+  status: z.enum(["open", "resolving", "provisional_resolved", "final_resolved", "cancelled", "expired_unmatched", "voided", "disputed"]),
   expiresAt: dateTimeSchema,
   disputeDeadlineAt: dateTimeSchema.nullable().optional(),
   provisionalOutcome: z.enum(["YES", "NO", "UNRESOLVED"]).nullable().optional(),

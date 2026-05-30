@@ -2,7 +2,6 @@ export type Side = "YES" | "NO";
 export type ChallengeVisibility = "public" | "private";
 
 export type ChallengeStatus =
-  | "draft"
   | "open"
   | "resolving"
   | "provisional_resolved"

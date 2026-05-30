@@ -73,18 +73,6 @@ function MyBetsPage() {
     () => (user ? bets.filter((challenge) => challenge.creatorId === user.id) : []),
     [bets, user]
   );
-  const draftBets = useMemo(
-    () => createdBets.filter((challenge) => challenge.status === "draft"),
-    [createdBets]
-  );
-  const publishedCreatedBets = useMemo(
-    () => createdBets.filter((challenge) => challenge.status !== "draft"),
-    [createdBets]
-  );
-  const publishedBets = useMemo(
-    () => bets.filter((challenge) => challenge.status !== "draft"),
-    [bets]
-  );
   const matchedBets = useMemo(
     () => bets.filter((challenge) => challenge.creatorId !== user?.id && matches.some((match) => match.challengeId === challenge.id)),
     [bets, matches, user]
@@ -99,9 +87,9 @@ function MyBetsPage() {
   );
   const lockedStakeCents = useMemo(
     () =>
-      publishedCreatedBets.reduce((total, challenge) => total + challenge.stakeCents, 0) +
+      createdBets.reduce((total, challenge) => total + challenge.stakeCents, 0) +
       matches.reduce((total, match) => total + match.amountCents, 0),
-    [matches, publishedCreatedBets]
+    [createdBets, matches]
   );
 
   if (authLoaded && !user) {
@@ -140,22 +128,18 @@ function MyBetsPage() {
 
       {error && <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">Your bets could not be loaded: {error}</div>}
 
-      <section className="grid grid-cols-5 gap-3 max-[1100px]:grid-cols-3 max-[720px]:grid-cols-2 max-[560px]:grid-cols-1 [&>div]:rounded-lg [&>div]:border [&>div]:bg-card [&>div]:p-4 [&>div]:text-card-foreground [&_span]:block [&_span]:text-sm [&_span]:leading-6 [&_span]:text-muted-foreground [&_strong]:mt-1 [&_strong]:block [&_strong]:text-2xl [&_strong]:font-semibold [&_strong]:tracking-tight [&_strong]:text-foreground">
+      <section className="grid grid-cols-4 gap-3 max-[920px]:grid-cols-2 max-[560px]:grid-cols-1 [&>div]:rounded-lg [&>div]:border [&>div]:bg-card [&>div]:p-4 [&>div]:text-card-foreground [&_span]:block [&_span]:text-sm [&_span]:leading-6 [&_span]:text-muted-foreground [&_strong]:mt-1 [&_strong]:block [&_strong]:text-2xl [&_strong]:font-semibold [&_strong]:tracking-tight [&_strong]:text-foreground">
         {loading && bets.length === 0 ? (
           <MyBetsStatsSkeleton />
         ) : (
           <>
             <div>
               <span>Markets</span>
-              <strong>{publishedBets.length}</strong>
+              <strong>{bets.length}</strong>
             </div>
             <div>
-              <span>Drafts</span>
-              <strong>{draftBets.length}</strong>
-            </div>
-            <div>
-              <span>Published</span>
-              <strong>{publishedCreatedBets.length}</strong>
+              <span>Created</span>
+              <strong>{createdBets.length}</strong>
             </div>
             <div>
               <span>Matched</span>
@@ -180,47 +164,7 @@ function MyBetsPage() {
             </Button>
           </div>
         )}
-        {!loading && draftBets.length > 0 && (
-          <div className="grid gap-3">
-            <div className="flex items-end justify-between gap-3 [&_h2]:text-xl [&_h2]:font-semibold [&_p]:text-sm [&_p]:text-muted-foreground">
-              <div>
-                <h2>Drafts</h2>
-                <p>Unpublished markets you can resume.</p>
-              </div>
-            </div>
-            {draftBets.map((challenge) => {
-              const title = challenge.claim.trim() || "Untitled draft";
-              const description = challenge.resolutionCriteria.trim() || "Add resolution criteria before publishing.";
-              return (
-                <Link className="grid grid-cols-[minmax(0,1fr)_170px] items-center gap-5 rounded-lg border bg-card p-4 text-card-foreground no-underline transition-colors hover:bg-muted/40 max-[900px]:grid-cols-1 [&_h3]:mt-3 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:leading-snug [&_h3]:tracking-tight [&_p]:mt-2 [&_p]:line-clamp-2 [&_p]:max-w-[760px] [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground" key={challenge.id} to="/challenge/$id" params={{ id: challenge.id }}>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <StatusPill status={challenge.status} />
-                      <Badge variant="outline">{challenge.visibility === "private" ? "Private" : "Public"}</Badge>
-                      <Badge variant="outline">Resume draft</Badge>
-                      <span>Draft expiry {shortDate(challenge.expiresAt)}</span>
-                    </div>
-                    <h3>{title}</h3>
-                    <p>{description}</p>
-                  </div>
-                  <div className="grid justify-items-end gap-2 max-[900px]:justify-items-start [&_strong]:text-2xl [&_strong]:font-semibold [&_strong]:leading-none [&_span]:text-xs [&_span]:font-semibold [&_span]:text-muted-foreground">
-                    <strong>{credits(challenge.stakeCents)}</strong>
-                    <span>planned stake</span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-        {!loading && publishedBets.length > 0 && (
-          <div className="grid gap-3">
-            <div className="flex items-end justify-between gap-3 [&_h2]:text-xl [&_h2]:font-semibold [&_p]:text-sm [&_p]:text-muted-foreground">
-              <div>
-                <h2>Published</h2>
-                <p>Markets you created or matched.</p>
-              </div>
-            </div>
-        {publishedBets.map((challenge) => {
+        {bets.map((challenge) => {
           const isCreator = challenge.creatorId === user?.id;
           const userMatchedCents = matchedAmountByChallenge[challenge.id] ?? 0;
           const userSide = isCreator ? challenge.creatorSide : oppositeSide(challenge.creatorSide);
@@ -250,8 +194,6 @@ function MyBetsPage() {
             </Link>
           );
         })}
-          </div>
-        )}
       </section>
     </div>
   );
@@ -260,7 +202,7 @@ function MyBetsPage() {
 function MyBetsStatsSkeleton() {
   return (
     <>
-      {Array.from({ length: 5 }).map((_, index) => (
+      {Array.from({ length: 4 }).map((_, index) => (
         <div key={index}>
           <Skeleton className="h-4 w-24" />
           <Skeleton className="mt-3 h-8 w-16" />

@@ -8,8 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
-import { api, type ChallengeDraft, type PipedreamApp, type PipedreamConnection } from "../lib/api";
-import { draftClaimKey } from "../lib/drafts";
+import { api, type PipedreamApp, type PipedreamConnection } from "../lib/api";
 import { cn } from "../lib/utils";
 import { authChangeEvent } from "./root";
 import { rootRoute } from "./root";
@@ -195,21 +194,9 @@ const expiryTimeOptions = Array.from({ length: 48 }, (_, index) => {
   };
 });
 
-function NewChallenge() {
-  return <ChallengeDraftEditor />;
-}
-
-export function ChallengeDraftEditor({ draftId }: { draftId?: string }) {
+export function NewChallenge() {
   const navigate = useNavigate();
-  const [draftClaim] = useState(() => {
-    if (draftId || typeof window === "undefined") {
-      return "";
-    }
-    const draft = window.sessionStorage.getItem(draftClaimKey) ?? "";
-    window.sessionStorage.removeItem(draftClaimKey);
-    return draft;
-  });
-  const [claim, setClaim] = useState(draftClaim);
+  const [claim, setClaim] = useState("");
   const [resolutionCriteria, setResolutionCriteria] = useState("");
   const [stakeCredits, setStakeCredits] = useState("");
   const [expiryDate, setExpiryDate] = useState(() => defaultExpiryParts().date);
@@ -226,8 +213,6 @@ export function ChallengeDraftEditor({ draftId }: { draftId?: string }) {
   const [pipedreamAppsError, setPipedreamAppsError] = useState("");
   const [appSearch, setAppSearch] = useState("");
   const [visibleToolLimit, setVisibleToolLimit] = useState(90);
-  const [activeDraftId, setActiveDraftId] = useState(draftId);
-  const [draftReady, setDraftReady] = useState(!draftId);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const resolverTools = useMemo(() => {
@@ -252,63 +237,9 @@ export function ChallengeDraftEditor({ draftId }: { draftId?: string }) {
   const selectedConnections = selectedConnectionIds.map((id) => connectionsById.get(id)).filter((connection): connection is PipedreamConnection => Boolean(connection));
   const expiresAt = useMemo(() => expiryPartsToIso(expiryDate, expiryTime), [expiryDate, expiryTime]);
 
-  const draft = useMemo<ChallengeDraft>(() => {
-    return { claim, resolutionCriteria, creatorSide, visibility, stakeCredits, expiresAt, pipedreamConnectionIds: selectedConnectionIds };
-  }, [claim, creatorSide, expiresAt, resolutionCriteria, selectedConnectionIds, stakeCredits, visibility]);
-
-  const hasDraftContent = useMemo(() => {
-    return Boolean(claim.trim() || resolutionCriteria.trim() || stakeCredits.trim() || selectedConnectionIds.length > 0);
-  }, [claim, resolutionCriteria, selectedConnectionIds.length, stakeCredits]);
-
-  function applyDraft(saved: ChallengeDraft) {
-    setClaim(saved.claim ?? "");
-    setResolutionCriteria(saved.resolutionCriteria ?? "");
-    setCreatorSide(saved.creatorSide ?? "YES");
-    setVisibility(saved.visibility ?? "public");
-    setStakeCredits(saved.stakeCredits ?? "");
-    const expiry = parseExpiry(saved.expiresAt);
-    setExpiryDate(expiry.date);
-    setExpiryTime(expiry.time);
-    setSelectedConnectionIds(saved.pipedreamConnectionIds ?? []);
-  }
-
   useEffect(() => {
     setVisibleToolLimit(90);
   }, [appSearch]);
-
-  useEffect(() => {
-    if (!draftId) {
-      setActiveDraftId(undefined);
-      setDraftReady(true);
-      return;
-    }
-
-    let cancelled = false;
-    setDraftReady(false);
-    setError("");
-    api
-      .getChallengeDraftById(draftId)
-      .then(({ challenge }) => {
-        if (cancelled) {
-          return;
-        }
-        setActiveDraftId(challenge.id);
-        applyDraft(challenge.draft);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError((err as Error).message);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setDraftReady(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [draftId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -352,26 +283,6 @@ export function ChallengeDraftEditor({ draftId }: { draftId?: string }) {
       cancelled = true;
     };
   }, [appSearch]);
-
-  useEffect(() => {
-    if (!draftReady || !hasDraftContent) {
-      return;
-    }
-    const handle = window.setTimeout(() => {
-      const save = activeDraftId ? api.saveChallengeDraftById(activeDraftId, draft) : api.createChallengeDraft(draft);
-      void save
-        .then(({ challenge }) => {
-          if (!activeDraftId) {
-            setActiveDraftId(challenge.id);
-            void navigate({ to: "/challenge/$id", params: { id: challenge.id }, replace: true });
-          }
-        })
-        .catch(() => {
-          // Autosave should never block composing a market.
-        });
-    }, 500);
-    return () => window.clearTimeout(handle);
-  }, [activeDraftId, draft, draftReady, hasDraftContent, navigate]);
 
   async function selectResolverTool(tool: ResolverToolPreset) {
     setConnectError("");
@@ -466,7 +377,6 @@ export function ChallengeDraftEditor({ draftId }: { draftId?: string }) {
         creatorSide,
         visibility,
         stakeCredits: String(form.get("stakeCredits") ?? ""),
-        draftId: activeDraftId,
         expiresAt
       });
       window.dispatchEvent(new Event(authChangeEvent));
