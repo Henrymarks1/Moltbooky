@@ -1,5 +1,5 @@
 import { provisionalDisputeDeadline } from "@moltbooky/core/domain/challenge";
-import type { ResolutionOutcome } from "@moltbooky/core/domain/types";
+import type { ResolutionOutcome, ResolutionTool } from "@moltbooky/core/domain/types";
 import { and, challengeMatches, challenges, createDb, eq, ledgerEntries, lte, or, resolutionRuns, walletAccounts } from "@moltbooky/db";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool } from "ai";
@@ -23,6 +23,7 @@ const resolverSystemPrompt = [
   "You are Moltbooky's provisional resolution agent for private-beta 1:1 challenge bets.",
   "Your job is to evaluate a binary claim against its resolution criteria using external evidence.",
   "Use the exaSearch tool when evidence could be current, factual, or externally verifiable.",
+  "If the challenge includes a Pipedream resolution action, use pipedreamAction only for evidence directly relevant to the stated criteria.",
   "Return YES only when the evidence clearly satisfies the claim and criteria.",
   "Return NO only when the evidence clearly contradicts the claim or criteria.",
   "Return UNRESOLVED when evidence is missing, ambiguous, inaccessible, conflicting, stale, or below the confidence threshold.",
@@ -30,6 +31,18 @@ const resolverSystemPrompt = [
   "Do not infer beyond the stated criteria. Do not settle based on popularity, vibes, or predictions.",
   "The response must be a single JSON object with outcome, confidence, sourceUrls, and shortRationale."
 ].join("\n");
+
+function parseResolutionTool(value: string | null): ResolutionTool | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value) as ResolutionTool;
+    return parsed?.type === "pipedream_action" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -67,7 +80,8 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
       status: challenges.status,
       provisionalOutcome: challenges.provisionalOutcome,
       claim: challenges.claim,
-      resolutionCriteria: challenges.resolutionCriteria
+      resolutionCriteria: challenges.resolutionCriteria,
+      resolutionTool: challenges.resolutionTool
     })
     .from(challenges)
     .where(eq(challenges.id, challengeId))
@@ -98,7 +112,7 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
   }
 
   const exaQuery = `${challenge.claim}\nResolution criteria: ${challenge.resolutionCriteria}`;
-  const resolverResult = await runAiResolver(env, exaQuery);
+  const resolverResult = await runAiResolver(env, exaQuery, parseResolutionTool(challenge.resolutionTool), challenge.creatorId);
 
   await db.insert(resolutionRuns).values({
     id: newId("res"),
@@ -205,7 +219,7 @@ async function refundUnresolvedChallenge(env: Env, challengeId: string): Promise
   });
 }
 
-async function runAiResolver(env: Env, query: string): Promise<ResolverResult> {
+async function runAiResolver(env: Env, query: string, resolutionTool: ResolutionTool | null = null, externalUserId = ""): Promise<ResolverResult> {
   if (!env.EXA_API_KEY || !env.OPENAI_API_KEY) {
     return {
       outcome: "UNRESOLVED",
@@ -217,57 +231,78 @@ async function runAiResolver(env: Env, query: string): Promise<ResolverResult> {
 
   const searchedUrls = new Set<string>();
   const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
+  const tools: Parameters<typeof generateText>[0]["tools"] = {
+    exaSearch: tool({
+      description: "Search the web with Exa for evidence relevant to resolving the challenge.",
+      inputSchema: z.object({
+        query: z.string().min(1),
+        numResults: z.number().int().min(1).max(10).default(5)
+      }),
+      execute: async ({ query: searchQuery, numResults }) => {
+        const searchResponse = await fetch("https://api.exa.ai/search", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": env.EXA_API_KEY!
+          },
+          body: JSON.stringify({ query: searchQuery, numResults, type: "auto" })
+        });
+
+        if (!searchResponse.ok) {
+          return {
+            error: `Exa search failed with status ${searchResponse.status}`,
+            results: []
+          };
+        }
+
+        const searchJson = (await searchResponse.json()) as {
+          results?: Array<{ url?: string; title?: string; text?: string; publishedDate?: string; author?: string }>;
+        };
+        const results = (searchJson.results ?? []).map((source) => {
+          if (source.url) {
+            searchedUrls.add(source.url);
+          }
+
+          return {
+            url: source.url ?? null,
+            title: source.title ?? null,
+            text: source.text ?? null,
+            publishedDate: source.publishedDate ?? null,
+            author: source.author ?? null
+          };
+        });
+
+        return { results };
+      }
+    })
+  };
+
+  if (resolutionTool?.type === "pipedream_action") {
+    tools.pipedreamAction = tool({
+      description: [
+        `Run the market's configured Pipedream action (${resolutionTool.actionKey}) for authenticated ${resolutionTool.appName ?? resolutionTool.appSlug} evidence.`,
+        resolutionTool.instructions ? `Creator instructions: ${resolutionTool.instructions}` : "",
+        "Only request props needed to evaluate the resolution criteria. Do not use this tool for unrelated exploration."
+      ].filter(Boolean).join(" "),
+      inputSchema: z.object({
+        props: z.record(z.string(), z.unknown()).default({})
+      }),
+      execute: async ({ props }) => runPipedreamAction(env, resolutionTool, props, externalUserId)
+    });
+  }
+
   const result = await generateText({
     model: openai("gpt-4o-mini"),
     temperature: 0,
     stopWhen: stepCountIs(4),
     system: resolverSystemPrompt,
-    prompt: ["Resolve this Moltbooky challenge.", "Use Exa for evidence, then return only the required JSON object.", "", query].join("\n"),
-    tools: {
-      exaSearch: tool({
-        description: "Search the web with Exa for evidence relevant to resolving the challenge.",
-        inputSchema: z.object({
-          query: z.string().min(1),
-          numResults: z.number().int().min(1).max(10).default(5)
-        }),
-        execute: async ({ query: searchQuery, numResults }) => {
-          const searchResponse = await fetch("https://api.exa.ai/search", {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-api-key": env.EXA_API_KEY!
-            },
-            body: JSON.stringify({ query: searchQuery, numResults, type: "auto" })
-          });
-
-          if (!searchResponse.ok) {
-            return {
-              error: `Exa search failed with status ${searchResponse.status}`,
-              results: []
-            };
-          }
-
-          const searchJson = (await searchResponse.json()) as {
-            results?: Array<{ url?: string; title?: string; text?: string; publishedDate?: string; author?: string }>;
-          };
-          const results = (searchJson.results ?? []).map((source) => {
-            if (source.url) {
-              searchedUrls.add(source.url);
-            }
-
-            return {
-              url: source.url ?? null,
-              title: source.title ?? null,
-              text: source.text ?? null,
-              publishedDate: source.publishedDate ?? null,
-              author: source.author ?? null
-            };
-          });
-
-          return { results };
-        }
-      })
-    }
+    prompt: [
+      "Resolve this Moltbooky challenge.",
+      resolutionTool ? "Use Exa and the configured Pipedream action when they can supply relevant evidence, then return only the required JSON object." : "Use Exa for evidence, then return only the required JSON object.",
+      "",
+      query
+    ].join("\n"),
+    tools
   });
 
   const parsed = parseResolverJson(result.text);
@@ -285,6 +320,59 @@ async function runAiResolver(env: Env, query: string): Promise<ResolverResult> {
     ...validated.data,
     sourceUrls: validated.data.sourceUrls.length > 0 ? validated.data.sourceUrls : Array.from(searchedUrls)
   };
+}
+
+async function runPipedreamAction(env: Env, resolutionTool: ResolutionTool, props: Record<string, unknown>, externalUserId: string): Promise<unknown> {
+  if (!env.PIPEDREAM_CLIENT_ID || !env.PIPEDREAM_CLIENT_SECRET || !env.PIPEDREAM_PROJECT_ID) {
+    return { error: "Pipedream is not configured for the resolver." };
+  }
+
+  const tokenResponse = await fetch("https://api.pipedream.com/v1/oauth/token", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "client_credentials",
+      client_id: env.PIPEDREAM_CLIENT_ID,
+      client_secret: env.PIPEDREAM_CLIENT_SECRET,
+      scope: "connect:actions:*"
+    })
+  });
+  const tokenJson = (await tokenResponse.json().catch(() => ({}))) as { access_token?: string; error?: string };
+  if (!tokenResponse.ok || !tokenJson.access_token) {
+    return { error: tokenJson.error ?? "Could not authenticate with Pipedream." };
+  }
+
+  const configuredProps = {
+    ...(resolutionTool.configuredProps ?? {}),
+    ...props,
+    ...(resolutionTool.accountId
+      ? {
+          [resolutionTool.authPropName]: {
+            authProvisionId: resolutionTool.accountId
+          }
+        }
+      : {})
+  };
+
+  const response = await fetch(`https://api.pipedream.com/v1/connect/${env.PIPEDREAM_PROJECT_ID}/actions/run`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${tokenJson.access_token}`,
+      "x-pd-environment": env.PIPEDREAM_PROJECT_ENVIRONMENT ?? "development"
+    },
+    body: JSON.stringify({
+      external_user_id: externalUserId,
+      id: resolutionTool.actionKey,
+      configured_props: configuredProps
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { error: `Pipedream action failed with status ${response.status}`, details: data };
+  }
+  return data;
 }
 
 function parseResolverJson(text: string): unknown {

@@ -4,3 +4,10 @@ BETTER_AUTH_SECRET="local-dev-secret-change-me"
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
 PAYMENT_LAUNCH_APPROVED="false"
+
+# Optional. Enables Pipedream Connect tokens for attaching resolver tools.
+PIPEDREAM_CLIENT_ID=""
+PIPEDREAM_CLIENT_SECRET=""
+PIPEDREAM_PROJECT_ID=""
+PIPEDREAM_PROJECT_ENVIRONMENT="development"
+PIPEDREAM_ALLOWED_ORIGINS="[\"http://localhost:5173\"]"

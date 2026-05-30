@@ -297,7 +297,10 @@ function ChallengeDetail() {
       <section className="panel agent-panel">
         <div className="section-title">
           <h2><BrainCircuit size={18} /> Resolution agent</h2>
-          <Badge variant="outline">{agentState.label}</Badge>
+          <div className="row-meta">
+            {challenge.resolutionTool?.type === "pipedream_action" && <Badge variant="outline">{challenge.resolutionTool.appName || challenge.resolutionTool.appSlug}</Badge>}
+            <Badge variant="outline">{agentState.label}</Badge>
+          </div>
         </div>
         <div className="agent-status-grid">
           <div className="agent-countdown">
@@ -312,7 +315,7 @@ function ChallengeDetail() {
             </div>
             <div className={agentState.phase === "running" ? "active" : ""}>
               <span>2</span>
-              <p>Search for evidence against the resolution criteria.</p>
+              <p>{challenge.resolutionTool ? "Search and call the attached Pipedream tool for evidence." : "Search for evidence against the resolution criteria."}</p>
             </div>
             <div className={agentState.phase === "finished" ? "active" : ""}>
               <span>3</span>

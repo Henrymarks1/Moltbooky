@@ -60,7 +60,11 @@ function readFakeState(): FakeState {
     return {
       ...parsed,
       wallet: { ...initialFakeState().wallet, ...parsed.wallet },
-      challenges: (parsed.challenges ?? []).map((challenge) => ({ ...challenge, visibility: challenge.visibility ?? "public" })),
+      challenges: (parsed.challenges ?? []).map((challenge) => ({
+        ...challenge,
+        visibility: challenge.visibility ?? "public",
+        resolutionTool: challenge.resolutionTool ?? null
+      })),
       matches: parsed.matches ?? [],
       resolutionRuns: parsed.resolutionRuns ?? [],
       ledger: parsed.ledger ?? []
@@ -218,6 +222,7 @@ export const api = {
   createChallenge: (body: {
     claim: string;
     resolutionCriteria: string;
+    resolutionTool?: Challenge["resolutionTool"] | null;
     creatorSide: "YES" | "NO";
     visibility: "public" | "private";
     stakeCredits: string;
@@ -234,6 +239,7 @@ export const api = {
         creatorId: testingUser.id,
         claim: body.claim.trim(),
         resolutionCriteria: body.resolutionCriteria.trim(),
+        resolutionTool: body.resolutionTool ?? null,
         creatorSide: body.creatorSide,
         visibility: body.visibility,
         stakeCents,
@@ -332,6 +338,8 @@ export const api = {
       body: JSON.stringify(body)
     }),
   syncDeposits: () => request<{ creditedCents: number; deposits: number; scannedToBlock: number }>("/api/payments/deposits/sync", { method: "POST" }),
+  createPipedreamConnectToken: () =>
+    request<{ token: string; expiresAt?: string; connectLinkUrl?: string; externalUserId: string }>("/api/integrations/pipedream/connect-token", { method: "POST" }),
   payoutStatus: () => {
     if (isTestingModeEnabled()) {
       return Promise.resolve({ cashoutsEnabled: true, connected: true, payoutsEnabled: true, onboardingRequired: false, withdrawalAddress: null });

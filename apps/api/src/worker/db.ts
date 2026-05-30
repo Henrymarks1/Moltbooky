@@ -1,5 +1,5 @@
 import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionRuns, walletAccounts } from "@moltbooky/db";
-import type { Challenge, ChallengeMatch, ResolutionRun, Side, WalletAccount } from "@moltbooky/core/domain/types";
+import type { Challenge, ChallengeMatch, ResolutionRun, ResolutionTool, Side, WalletAccount } from "@moltbooky/core/domain/types";
 import { getSessionUserId } from "./auth";
 
 function serializeTimestamp(value: Date | string | null): string | null {
@@ -10,11 +10,22 @@ function serializeTimestamp(value: Date | string | null): string | null {
 }
 
 function toChallenge(row: typeof challenges.$inferSelect): Challenge {
+  let resolutionTool: ResolutionTool | null = null;
+  if (row.resolutionTool) {
+    try {
+      const parsed = JSON.parse(row.resolutionTool) as ResolutionTool;
+      resolutionTool = parsed?.type === "pipedream_action" ? parsed : null;
+    } catch {
+      resolutionTool = null;
+    }
+  }
+
   return {
     id: row.id,
     creatorId: row.creatorId,
     claim: row.claim,
     resolutionCriteria: row.resolutionCriteria,
+    resolutionTool,
     creatorSide: row.creatorSide as Challenge["creatorSide"],
     visibility: row.visibility as Challenge["visibility"],
     stakeCents: row.stakeCents,

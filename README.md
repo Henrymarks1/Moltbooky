@@ -42,8 +42,8 @@ Copy the checked-in `.dev.vars.example` files before running Workers locally. Re
 
 Required production secrets and variables:
 
-- `apps/api`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and optional Google OAuth variables.
-- `apps/resolver`: `DATABASE_URL`, plus `EXA_API_KEY` and `OPENAI_API_KEY` when automated resolution is enabled.
+- `apps/api`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, optional Google OAuth variables, and optional `PIPEDREAM_CLIENT_ID`, `PIPEDREAM_CLIENT_SECRET`, `PIPEDREAM_PROJECT_ID`, `PIPEDREAM_PROJECT_ENVIRONMENT`, `PIPEDREAM_ALLOWED_ORIGINS` for Pipedream Connect.
+- `apps/resolver`: `DATABASE_URL`, plus `EXA_API_KEY` and `OPENAI_API_KEY` when automated resolution is enabled. Add the Pipedream variables above when markets can attach Pipedream resolver actions.
 - `apps/payments`: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET`, `COINBASE_ONRAMP_PROJECT_ID`, and `BASE_RPC_URL` for Base USDC payments.
 - `apps/web` client: `VITE_PRIVY_APP_ID` for embedded wallets, plus optional `VITE_POSTHOG_TOKEN` and `VITE_POSTHOG_HOST` for PostHog analytics.
 - `apps/web` Pages Functions: `API_ORIGIN` and `PAYMENTS_ORIGIN`, pointing at the deployed API and payments Workers.

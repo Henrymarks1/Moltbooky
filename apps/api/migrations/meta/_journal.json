@@ -36,6 +36,13 @@
       "when": 1779751200000,
       "tag": "0004_base_usdc_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779751800000,
+      "tag": "0005_pipedream_resolution_tools",
+      "breakpoints": true
     }
   ]
 }

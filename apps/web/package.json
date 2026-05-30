@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@moltbooky/core": "file:../../packages/core",
+    "@pipedream/sdk": "^3.0.7",
     "@privy-io/react-auth": "^3.27.1",
     "@radix-ui/react-slot": "^1.1.1",
     "@tanstack/react-router": "^1.114.3",

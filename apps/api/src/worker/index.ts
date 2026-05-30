@@ -6,6 +6,7 @@ import type { Challenge, ChallengeMatch, Side } from "@moltbooky/core/domain/typ
 import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, ledgerEntries, walletAccounts } from "@moltbooky/db";
 import {
   actorFromRequest,
+  ensureBetaUser,
   getChallenge,
   getWallet,
   json,
@@ -32,6 +33,17 @@ const errorResponseSchema = z.object({
 const sideSchema = z.enum(["YES", "NO"]);
 const challengeVisibilitySchema = z.enum(["public", "private"]);
 const dateTimeSchema = z.string().datetime();
+const jsonRecordSchema = z.record(z.string(), z.unknown());
+const resolutionToolSchema = z.object({
+  type: z.literal("pipedream_action"),
+  appSlug: z.string().trim().min(1).max(80),
+  appName: z.string().trim().max(120).optional(),
+  authPropName: z.string().trim().min(1).max(80),
+  accountId: z.string().trim().max(120).optional(),
+  actionKey: z.string().trim().min(1).max(180),
+  configuredProps: jsonRecordSchema.optional(),
+  instructions: z.string().trim().max(2000).optional()
+});
 const requestDateTimeSchema = z.string().trim().transform((value, ctx) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -51,6 +63,7 @@ const challengeSchema = z.object({
   creatorId: z.string(),
   claim: z.string(),
   resolutionCriteria: z.string(),
+  resolutionTool: resolutionToolSchema.nullable().optional(),
   creatorSide: sideSchema,
   visibility: challengeVisibilitySchema,
   stakeCents: centsSchema,
@@ -123,6 +136,7 @@ const createChallengeRequestSchema = z
   .object({
     claim: z.string().min(1),
     resolutionCriteria: z.string().min(1),
+    resolutionTool: resolutionToolSchema.nullable().optional(),
     creatorSide: sideSchema,
     visibility: challengeVisibilitySchema.default("public"),
     stakeCredits: creditValueSchema.optional(),
@@ -146,6 +160,13 @@ const createMatchRequestSchema = z
 
 const createApiKeyRequestSchema = z.object({
   name: z.string().optional()
+});
+
+const pipedreamTokenResponseSchema = z.object({
+  token: z.string(),
+  expiresAt: z.string().optional(),
+  connectLinkUrl: z.string().optional(),
+  externalUserId: z.string()
 });
 
 const finalizeChallengeRequestSchema = z.object({
@@ -192,6 +213,7 @@ Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and
 - Private beta max stake is 100 credits.
 - Platform fee is 2% of profit only.
 - AI resolution is provisional and may be disputed.
+- Markets may attach one Pipedream action as a resolution tool for authenticated evidence such as Strava or LinkedIn data.
 - Credit purchases use Base USDC when Coinbase CDP, Coinbase Onramp, and Base RPC are configured.
 
 ## Agent Operating Policy
@@ -236,6 +258,16 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
 {
   "claim": "Will the stated event happen by the expiry?",
   "resolutionCriteria": "Resolve YES only if ...",
+  "resolutionTool": {
+    "type": "pipedream_action",
+    "appSlug": "strava",
+    "appName": "Strava",
+    "authPropName": "strava",
+    "accountId": "apn_...",
+    "actionKey": "strava-list-activities",
+    "configuredProps": {},
+    "instructions": "Use this action only to verify the user's relevant activity."
+  },
   "creatorSide": "YES",
   "visibility": "public",
   "stakeCredits": "25.00",
@@ -261,6 +293,38 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
 
 function errorJson(c: any, message: string, status: 400 | 401 | 403 | 404) {
   return c.json({ error: message }, status) as any;
+}
+
+function pipedreamEnabled(env: Env): boolean {
+  return Boolean(env.PIPEDREAM_CLIENT_ID && env.PIPEDREAM_CLIENT_SECRET && env.PIPEDREAM_PROJECT_ID);
+}
+
+function isLocalRequest(request: Request): boolean {
+  const hostname = new URL(request.url).hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+async function pipedreamAccessToken(env: Env, scope: string): Promise<string> {
+  if (!pipedreamEnabled(env)) {
+    throw new Error("Pipedream Connect is not configured.");
+  }
+
+  const response = await fetch("https://api.pipedream.com/v1/oauth/token", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "client_credentials",
+      client_id: env.PIPEDREAM_CLIENT_ID,
+      client_secret: env.PIPEDREAM_CLIENT_SECRET,
+      scope
+    })
+  });
+
+  const data = (await response.json().catch(() => ({}))) as { access_token?: string; error?: string };
+  if (!response.ok || !data.access_token) {
+    throw new Error(data.error ?? "Could not authenticate with Pipedream.");
+  }
+  return data.access_token;
 }
 
 async function applyWalletDelta(tx: any, userId: string, availableDeltaCents: number, lockedDeltaCents: number): Promise<void> {
@@ -312,6 +376,84 @@ const healthRoute = createRoute({
 app.openapi(healthRoute, (c) => c.json({ ok: true, name: "Moltbooky" }));
 
 app.all("/api/auth/*", (c) => createAuth(c.env).handler(c.req.raw));
+
+const pipedreamConfigRoute = createRoute({
+  method: "get",
+  path: "/api/integrations/pipedream/config",
+  responses: {
+    200: {
+      description: "Pipedream Connect configuration state",
+      content: {
+        "application/json": {
+          schema: z.object({
+            enabled: z.boolean(),
+            environment: z.string()
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(pipedreamConfigRoute, (c) =>
+  c.json({
+    enabled: pipedreamEnabled(c.env),
+    environment: c.env.PIPEDREAM_PROJECT_ENVIRONMENT ?? "development"
+  })
+);
+
+const createPipedreamTokenRoute = createRoute({
+  method: "post",
+  path: "/api/integrations/pipedream/connect-token",
+  responses: {
+    201: {
+      description: "Short-lived Pipedream Connect token for the current user",
+      content: {
+        "application/json": {
+          schema: pipedreamTokenResponseSchema
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(createPipedreamTokenRoute, async (c) => {
+  let actor: { userId: string; scopes: string[] };
+  try {
+    actor = await actorFromRequest(c.env, c.req.raw);
+  } catch (error) {
+    if (!isLocalRequest(c.req.raw) || !(error as Error).message.includes("BETTER_AUTH_SECRET")) {
+      throw error;
+    }
+
+    const userId = c.req.raw.headers.get("x-user-id") ?? "local-dev-user";
+    await ensureBetaUser(c.env, userId);
+    actor = { userId, scopes: ["*"] };
+  }
+
+  const accessToken = await pipedreamAccessToken(c.env, "connect:tokens:create");
+  const allowedOrigins = c.env.PIPEDREAM_ALLOWED_ORIGINS ? JSON.parse(c.env.PIPEDREAM_ALLOWED_ORIGINS) : undefined;
+  const response = await fetch(`https://api.pipedream.com/v1/connect/${c.env.PIPEDREAM_PROJECT_ID}/tokens`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+      "x-pd-environment": c.env.PIPEDREAM_PROJECT_ENVIRONMENT ?? "development"
+    },
+    body: JSON.stringify({
+      external_user_id: actor.userId,
+      allowed_origins: allowedOrigins,
+      scope: "connect:*"
+    })
+  });
+  const data = (await response.json().catch(() => ({}))) as { token?: string; expires_at?: string; connect_link_url?: string; error?: string };
+  if (!response.ok || !data.token) {
+    throw new Error(data.error ?? "Could not create a Pipedream Connect token.");
+  }
+  return c.json({ token: data.token, expiresAt: data.expires_at, connectLinkUrl: data.connect_link_url, externalUserId: actor.userId }, 201);
+});
 
 const listChallengesRoute = createRoute({
   method: "get",
@@ -422,6 +564,7 @@ app.openapi(createChallengeRoute, async (c) => {
     creatorId: actor.userId,
     claim: body.claim!.trim(),
     resolutionCriteria: body.resolutionCriteria!.trim(),
+    resolutionTool: body.resolutionTool ? JSON.stringify(body.resolutionTool) : null,
     creatorSide,
     visibility: body.visibility,
     stakeCents,

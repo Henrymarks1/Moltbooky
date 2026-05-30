@@ -25,11 +25,25 @@ export type LedgerEntryType =
 
 export type ResolutionOutcome = Side | "UNRESOLVED";
 
+export interface PipedreamResolutionTool {
+  type: "pipedream_action";
+  appSlug: string;
+  appName?: string;
+  authPropName: string;
+  accountId?: string;
+  actionKey: string;
+  configuredProps?: Record<string, unknown>;
+  instructions?: string;
+}
+
+export type ResolutionTool = PipedreamResolutionTool;
+
 export interface Challenge {
   id: string;
   creatorId: string;
   claim: string;
   resolutionCriteria: string;
+  resolutionTool?: ResolutionTool | null;
   creatorSide: Side;
   visibility: ChallengeVisibility;
   stakeCents: number;

@@ -38,6 +38,7 @@
 
   button,
   input,
+  select,
   textarea {
     font: inherit;
   }
@@ -1032,6 +1033,86 @@
   .toggle-row small {
     @apply text-sm leading-6 text-muted-foreground;
   }
+
+  .toggle-row strong {
+    @apply inline-flex items-center gap-2 text-sm font-semibold;
+  }
+
+  .tool-picker {
+    @apply grid gap-4 rounded-lg border bg-muted/30 p-4;
+  }
+
+  .tool-picker-header {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .tool-picker-header span {
+    @apply text-xs font-semibold uppercase text-muted-foreground;
+    letter-spacing: 0.06em;
+  }
+
+  .tool-picker-header strong {
+    @apply text-base font-semibold;
+  }
+
+  .tool-card-grid {
+    @apply grid grid-cols-3 gap-3 max-[980px]:grid-cols-2 max-[560px]:grid-cols-1;
+  }
+
+  .tool-card {
+    @apply grid min-h-[92px] grid-cols-[44px_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card p-3 text-left text-card-foreground transition-colors hover:border-primary/40 hover:bg-background disabled:cursor-wait disabled:opacity-70;
+  }
+
+  .tool-card.selected {
+    @apply border-primary bg-background ring-2 ring-primary/10;
+  }
+
+  .tool-card-icon {
+    @apply relative grid h-11 w-11 place-items-center rounded-lg border bg-background;
+    border-color: color-mix(in srgb, var(--tool-color) 35%, hsl(var(--border)));
+  }
+
+  .tool-card-icon img {
+    @apply relative z-10 h-6 w-6 object-contain;
+  }
+
+  .tool-card-icon em {
+    @apply absolute text-xs font-black not-italic;
+    color: var(--tool-color);
+  }
+
+  .tool-card span:last-child {
+    @apply grid min-w-0 gap-1;
+  }
+
+  .tool-card strong {
+    @apply truncate text-sm font-semibold;
+  }
+
+  .tool-card small {
+    @apply truncate text-xs font-medium text-muted-foreground;
+  }
+
+  .tool-status {
+    @apply inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium text-muted-foreground;
+  }
+
+  .tool-error {
+    @apply rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm leading-6 text-destructive;
+  }
+
+  .tool-advanced {
+    @apply rounded-lg border bg-card p-3;
+  }
+
+  .tool-advanced summary {
+    @apply cursor-pointer text-sm font-semibold text-muted-foreground;
+  }
+
+  .tool-advanced > div {
+    @apply mt-3;
+  }
+
 
   .share-panel h2,
   .panel h2 {

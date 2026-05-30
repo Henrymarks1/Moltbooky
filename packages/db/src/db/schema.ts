@@ -149,6 +149,7 @@ export const challenges = pgTable(
     creatorId: text("creator_id").notNull().references(() => appUsers.id),
     claim: text("claim").notNull(),
     resolutionCriteria: text("resolution_criteria").notNull(),
+    resolutionTool: text("resolution_tool"),
     creatorSide: text("creator_side").notNull(),
     visibility: text("visibility").notNull().default("public"),
     stakeCents: integer("stake_cents").notNull(),
