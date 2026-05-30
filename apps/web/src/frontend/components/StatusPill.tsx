@@ -13,6 +13,18 @@ const labels: Record<ChallengeStatus, string> = {
   disputed: "Disputed"
 };
 
+const variants: Record<ChallengeStatus, string> = {
+  draft: "bg-muted text-muted-foreground",
+  open: "bg-secondary text-secondary-foreground",
+  resolving: "bg-secondary text-secondary-foreground",
+  provisional_resolved: "bg-secondary text-secondary-foreground",
+  final_resolved: "bg-secondary text-secondary-foreground",
+  cancelled: "bg-destructive text-destructive-foreground",
+  expired_unmatched: "bg-muted text-muted-foreground",
+  voided: "bg-destructive text-destructive-foreground",
+  disputed: "bg-destructive text-destructive-foreground"
+};
+
 export function StatusPill({ status }: { status: ChallengeStatus }) {
-  return <Badge className={`status-${status}`}>{labels[status]}</Badge>;
+  return <Badge className={variants[status]}>{labels[status]}</Badge>;
 }

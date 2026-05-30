@@ -45,7 +45,7 @@ async function signInWithGoogle() {
 
 function GoogleIcon() {
   return (
-    <svg className="google-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
         fill="#4285F4"
         d="M23.49 12.27c0-.82-.07-1.6-.2-2.36H12v4.46h6.46a5.52 5.52 0 0 1-2.39 3.62v2.96h3.87c2.27-2.09 3.55-5.17 3.55-8.68Z"
@@ -97,8 +97,8 @@ function LoginPage() {
   }
 
   return (
-    <div className="page narrow">
-      <header className="page-header">
+    <div className="mx-auto grid max-w-7xl gap-6">
+      <header className="flex items-start justify-between gap-4 [&_h1]:max-w-[850px] [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:tracking-tight max-[720px]:[&_h1]:text-2xl [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
         <div>
           <h1>{mode === "sign-in" ? "Sign in" : "Create account"}</h1>
           <p>Better Auth powers human sessions. Agents use scoped API keys after sign-in.</p>
@@ -109,12 +109,12 @@ function LoginPage() {
           <CardTitle>{mode === "sign-in" ? "Welcome back" : "Join the beta"}</CardTitle>
         </CardHeader>
         <CardContent>
-      <form className="form" onSubmit={submit}>
-        {error && <div className="notice error">{error}</div>}
-        <Button type="button" variant="outline" className="google-button !h-12 !border-[#dadce0] !bg-white !text-[15px] !text-[#3c4043]" onClick={submitGoogle}>
+      <form className="grid gap-3" onSubmit={submit}>
+        {error && <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
+        <Button type="button" variant="outline" className="relative !h-12 !border-[#dadce0] !bg-white text-[15px] font-semibold !text-[#3c4043] shadow-sm transition-[background-color,border-color,box-shadow] hover:!border-[#d2d5d9] hover:!bg-[#f8fafd] hover:!text-[#202124] focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2" onClick={submitGoogle}>
           <GoogleIcon /> Continue with Google
         </Button>
-        <div className="divider">or</div>
+        <div className="flex items-center gap-3 text-center text-xs font-medium uppercase text-muted-foreground before:h-px before:flex-1 before:bg-border before:content-[''] after:h-px after:flex-1 after:bg-border after:content-['']">or</div>
         {mode === "sign-up" && (
           <Label>
             Name

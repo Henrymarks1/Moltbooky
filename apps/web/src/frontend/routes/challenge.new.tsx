@@ -10,6 +10,7 @@ import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { api, type ChallengeDraft, type PipedreamApp, type PipedreamConnection } from "../lib/api";
 import { draftClaimKey } from "../lib/drafts";
+import { cn } from "../lib/utils";
 import { authChangeEvent } from "./root";
 import { rootRoute } from "./root";
 
@@ -106,6 +107,13 @@ const resolverToolPresets: ResolverToolPreset[] = [
 
 const resolverToolPresetsBySlug = new Map(resolverToolPresets.map((tool) => [tool.appSlug, tool]));
 const defaultResolverToolSlugs = resolverToolPresets.map((tool) => tool.appSlug);
+const noticeErrorClass = "rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive";
+const toolCardClass =
+  "grid min-h-[92px] grid-cols-[44px_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card p-3 text-left text-card-foreground transition-colors hover:border-primary/40 hover:bg-background disabled:cursor-wait disabled:opacity-70";
+const toolIconClass =
+  "relative grid h-11 w-11 place-items-center overflow-hidden rounded-lg border bg-background text-xs font-black text-muted-foreground [&_img]:relative [&_img]:z-10 [&_img]:h-6 [&_img]:w-6 [&_img]:object-contain [&_em]:absolute [&_em]:text-xs [&_em]:font-black [&_em]:not-italic";
+const segmentedClass =
+  "grid grid-cols-2 rounded-lg bg-muted p-1 [&_button]:inline-flex [&_button]:h-10 [&_button]:items-center [&_button]:justify-center [&_button]:gap-2 [&_button]:rounded-md [&_button]:border-0 [&_button]:bg-transparent [&_button]:text-sm [&_button]:font-medium [&_button]:text-muted-foreground [&_button]:transition-colors";
 
 function appFallback(name: string): string {
   const words = name.replace(/\([^)]*\)/g, "").trim().split(/\s+/).filter(Boolean);
@@ -388,10 +396,10 @@ function NewChallenge() {
   }
 
   return (
-    <div className="page create-page">
-      <header className="page-header">
+    <div className="mx-auto grid max-w-7xl gap-6">
+      <header className="flex items-start justify-between gap-4 [&_h1]:max-w-[850px] [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:tracking-tight max-[720px]:[&_h1]:text-2xl [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
         <div>
-          <div className="row-meta">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
             <Badge variant="outline">New market</Badge>
             <Badge variant="outline">Even odds</Badge>
           </div>
@@ -400,13 +408,13 @@ function NewChallenge() {
         </div>
       </header>
 
-      <form className="create-layout" onSubmit={submit}>
-        <Card className="form">
+      <form className="grid grid-cols-[minmax(0,1fr)_340px] items-start gap-4 max-[920px]:grid-cols-1" onSubmit={submit}>
+        <Card className="grid gap-3">
           <CardHeader>
             <CardTitle>Market details</CardTitle>
           </CardHeader>
-          <CardContent className="form">
-        {error && <div className="notice error">{error}</div>}
+          <CardContent className="grid gap-3">
+        {error && <div className={noticeErrorClass}>{error}</div>}
         <Label>
           Claim
           <Textarea
@@ -427,25 +435,25 @@ function NewChallenge() {
             required
           />
         </Label>
-        <div className="tool-picker">
-            <div className="tool-picker-header">
+        <div className="grid gap-4 rounded-lg border bg-muted/30 p-4">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <span>Give the resolver evidence access</span>
-                <small>{appSearch.trim() ? `${pipedreamApps.length.toLocaleString()} matching apps` : "Popular Pipedream apps"}</small>
+                <span className="text-xs font-semibold uppercase text-muted-foreground">Give the resolver evidence access</span>
+                <small className="mt-1 block text-sm text-muted-foreground">{appSearch.trim() ? `${pipedreamApps.length.toLocaleString()} matching apps` : "Popular Pipedream apps"}</small>
               </div>
-              <strong>Click to add to agent</strong>
+              <strong className="text-base font-semibold">Click to add to agent</strong>
             </div>
-            <div className="agent-tool-strip">
-              <span className="agent-tool-label">Agent tools</span>
-              <div className="agent-tool-pill always-on">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">Agent tools</span>
+              <div className="inline-flex h-8 items-center gap-2 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground">
                 <Sparkles size={14} />
                 <span>Exa web search</span>
               </div>
               {selectedConnections.map((connection) => {
                 const preset = resolverToolPresetsBySlug.get(connection.appSlug);
                 return (
-                  <div className="agent-tool-pill" key={connection.id}>
-                    <span className="agent-tool-logo">
+                  <div className="inline-flex h-8 items-center gap-2 rounded-full border bg-muted px-3 text-xs font-semibold text-foreground" key={connection.id}>
+                    <span className="grid h-5 w-5 place-items-center rounded-full bg-background text-[10px] font-black text-muted-foreground">
                       <em>{preset?.iconFallback ?? appFallback(connection.appName)}</em>
                     </span>
                     <span>{connection.appName}</span>
@@ -453,12 +461,12 @@ function NewChallenge() {
                 );
               })}
               {selectedConnectionIds.length > selectedConnections.length && (
-                <div className="agent-tool-pill">
+                <div className="inline-flex h-8 items-center gap-2 rounded-full border bg-muted px-3 text-xs font-semibold text-foreground">
                   <span>{selectedConnectionIds.length - selectedConnections.length} saved connection{selectedConnectionIds.length - selectedConnections.length === 1 ? "" : "s"}</span>
                 </div>
               )}
             </div>
-            <label className="tool-search">
+            <label className="relative block [&_svg]:pointer-events-none [&_svg]:absolute [&_svg]:left-3 [&_svg]:top-1/2 [&_svg]:z-10 [&_svg]:-translate-y-1/2 [&_svg]:text-muted-foreground [&_input]:pl-9">
               <Search size={16} />
               <Input
                 value={appSearch}
@@ -468,7 +476,7 @@ function NewChallenge() {
               />
             </label>
             <div
-              className="tool-card-grid"
+              className="grid max-h-[420px] grid-cols-3 gap-3 overflow-auto pr-1 max-[980px]:grid-cols-2 max-[560px]:grid-cols-1"
               onScroll={(event) => {
                 const target = event.currentTarget;
                 if (target.scrollTop + target.clientHeight >= target.scrollHeight - 120) {
@@ -484,90 +492,90 @@ function NewChallenge() {
                   <button
                     type="button"
                     key={tool.id}
-                    className={isAdded ? "tool-card selected" : "tool-card"}
+                    className={cn(toolCardClass, isAdded && "border-primary bg-background ring-2 ring-primary/10")}
                     onClick={() => selectResolverTool(tool)}
                     disabled={connectingPipedream}
                     aria-pressed={isAdded}
                   >
-                    <span className="tool-card-icon">
+                    <span className={toolIconClass}>
                       {tool.iconSrc ? (
                         <img src={tool.iconSrc} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />
                       ) : (
                         <em>{tool.iconFallback}</em>
                       )}
                     </span>
-                    <span className="tool-card-body">
-                      <span className="tool-card-title">
-                        <strong>{tool.appName}</strong>
-                        {savedConnection && <span className="tool-chip">Connected</span>}
+                    <span className="grid min-w-0 gap-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <strong className="truncate text-sm font-semibold">{tool.appName}</strong>
+                        {savedConnection && <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-secondary-foreground">Connected</span>}
                       </span>
-                      <small>{tool.summary}</small>
+                      <small className="truncate text-xs font-medium text-muted-foreground">{tool.summary}</small>
                     </span>
                   </button>
                   );
                 })()
               ))}
               {!resolverTools.length && (
-                <div className="tool-empty">
+                <div className="col-span-full grid gap-1 rounded-lg border border-dashed bg-card p-4 text-center text-sm text-muted-foreground [&_strong]:text-foreground">
                   <strong>No matching apps</strong>
                   <span>Try a different search.</span>
                 </div>
               )}
             </div>
             {resolverTools.length > visibleResolverTools.length && (
-              <p className="tool-count">Showing {visibleResolverTools.length.toLocaleString()} of {resolverTools.length.toLocaleString()} apps. Scroll for more.</p>
+              <p className="text-xs font-medium text-muted-foreground">Showing {visibleResolverTools.length.toLocaleString()} of {resolverTools.length.toLocaleString()} apps. Scroll for more.</p>
             )}
-            {pipedreamAppsLoading && <p className="tool-status">Loading Pipedream app directory...</p>}
-            {pipedreamAppsError && <p className="tool-error">{pipedreamAppsError}</p>}
-            {pipedreamStatus && <p className="tool-status"><Link2 size={15} /> {pipedreamStatus}</p>}
-            {connectError && <p className="tool-error">{connectError}</p>}
+            {pipedreamAppsLoading && <p className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium text-muted-foreground">Loading Pipedream app directory...</p>}
+            {pipedreamAppsError && <p className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm leading-6 text-destructive">{pipedreamAppsError}</p>}
+            {pipedreamStatus && <p className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium text-muted-foreground"><Link2 size={15} /> {pipedreamStatus}</p>}
+            {connectError && <p className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm leading-6 text-destructive">{connectError}</p>}
         </div>
-        <div className="two-col">
+        <div className="grid grid-cols-2 gap-3 max-[720px]:grid-cols-1">
           <Label>
-            <span><CircleDollarSign size={15} /> Stake</span>
+            <span className="inline-flex items-center gap-1.5"><CircleDollarSign size={15} /> Stake</span>
             <Input name="stakeCredits" inputMode="decimal" placeholder="25.00" value={stakeCredits} onChange={(event) => setStakeCredits(event.target.value)} required />
           </Label>
           <Label>
-            <span><TimerReset size={15} /> Expiry</span>
+            <span className="inline-flex items-center gap-1.5"><TimerReset size={15} /> Expiry</span>
             <Input name="expiresAt" type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} required />
-            <small className="field-help">Uses your local timezone and saves as UTC.</small>
+            <small className="text-xs font-medium text-muted-foreground">Uses your local timezone and saves as UTC.</small>
           </Label>
         </div>
           </CardContent>
         </Card>
 
-        <Card className="form">
+        <Card className="grid gap-3">
           <CardHeader>
             <CardTitle>Position and access</CardTitle>
           </CardHeader>
-          <CardContent className="form">
-        <div className="composer-ticket">
-          <span>Creator position</span>
-          <strong>{creatorSide}</strong>
-          <p>The counterparty receives the opposite side at the same stake.</p>
+          <CardContent className="grid gap-3">
+        <div className="grid gap-2 rounded-lg border bg-muted p-4 text-foreground">
+          <span className="text-sm text-muted-foreground">Creator position</span>
+          <strong className="text-3xl font-semibold leading-none tracking-tight">{creatorSide}</strong>
+          <p className="text-sm leading-6 text-muted-foreground">The counterparty receives the opposite side at the same stake.</p>
         </div>
-        <div className="segmented side-segmented" role="group" aria-label="Creator side">
-          <button type="button" className={creatorSide === "YES" ? "selected yes" : ""} onClick={() => setCreatorSide("YES")}>
+        <div className={segmentedClass} role="group" aria-label="Creator side">
+          <button type="button" className={creatorSide === "YES" ? "bg-background text-foreground shadow-sm" : ""} onClick={() => setCreatorSide("YES")}>
             YES
           </button>
-          <button type="button" className={creatorSide === "NO" ? "selected no" : ""} onClick={() => setCreatorSide("NO")}>
+          <button type="button" className={creatorSide === "NO" ? "bg-background text-foreground shadow-sm" : ""} onClick={() => setCreatorSide("NO")}>
             NO
           </button>
         </div>
-        <div className="composer-ticket">
-          <span>{visibility === "public" ? "Public bet" : "Private bet"}</span>
-          <strong>{visibility === "public" ? "Listed" : "Share link"}</strong>
-          <p>
+        <div className="grid gap-2 rounded-lg border bg-muted p-4 text-foreground">
+          <span className="text-sm text-muted-foreground">{visibility === "public" ? "Public bet" : "Private bet"}</span>
+          <strong className="text-3xl font-semibold leading-none tracking-tight">{visibility === "public" ? "Listed" : "Share link"}</strong>
+          <p className="text-sm leading-6 text-muted-foreground">
             {visibility === "public"
               ? "Visible in the public market feed and accessible by link."
               : "Hidden from the public feed. Anyone with the share link can open it."}
           </p>
         </div>
-        <div className="segmented visibility-segmented" role="group" aria-label="Bet visibility">
-          <button type="button" className={visibility === "public" ? "selected" : ""} onClick={() => setVisibility("public")}>
+        <div className={segmentedClass} role="group" aria-label="Bet visibility">
+          <button type="button" className={visibility === "public" ? "bg-background text-foreground shadow-sm" : ""} onClick={() => setVisibility("public")}>
             <Globe2 size={16} /> Public
           </button>
-          <button type="button" className={visibility === "private" ? "selected" : ""} onClick={() => setVisibility("private")}>
+          <button type="button" className={visibility === "private" ? "bg-background text-foreground shadow-sm" : ""} onClick={() => setVisibility("private")}>
             <Link2 size={16} /> Private
           </button>
         </div>

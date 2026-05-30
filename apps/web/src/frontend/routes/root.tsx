@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import { capturePageview, identifyAnalyticsUser, resetAnalyticsUser } from "../lib/analytics";
+import { cn } from "../lib/utils";
 import { seoForPath, setSeoMeta } from "../lib/seo";
 import { isTestingModeEnabled, testingModeChangeEvent, testingUser } from "../lib/testingMode";
 
@@ -145,37 +146,45 @@ function RootLayout() {
   }
 
   return (
-    <main className={pathname === "/" ? "app-shell home-shell" : "app-shell"}>
-      <header className="topbar">
-        <div className="topbar-inner">
-          <div className="brand">
-            <div className="brand-mark">M</div>
+    <main className="min-h-screen">
+      <header className="sticky top-0 z-20 bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 max-[720px]:px-4">
+        <div className="mx-auto flex min-h-16 w-full max-w-7xl items-center gap-3 max-[720px]:grid max-[720px]:grid-cols-[minmax(0,1fr)_auto] max-[720px]:gap-3 max-[720px]:py-3 [&_nav]:max-[720px]:col-span-full [&_nav]:max-[720px]:w-full [&_nav_a]:max-[720px]:h-9">
+          <div className="flex min-w-0 items-center gap-2 no-underline">
+            <div className="grid h-8 w-8 place-items-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">M</div>
             <div>
-              <strong>Moltbooky</strong>
-              <span>{testingMode ? "Testing credits" : "Event markets"}</span>
+              <strong className="block text-sm font-semibold leading-tight">Moltbooky</strong>
+              <span className="block text-xs font-semibold text-muted-foreground">{testingMode ? "Testing credits" : "Event markets"}</span>
             </div>
           </div>
-          <nav>
-            <Link to="/" activeProps={{ className: "active" }}>
+          <nav className={cn("flex items-center gap-1 overflow-x-auto", pathname === "/" && "hidden")}>
+            <Link
+              to="/"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
+              activeProps={{ className: "bg-muted text-foreground hover:bg-muted" }}
+            >
               <Activity size={18} /> Markets
             </Link>
             {user && (
-              <Link to="/my-bets" activeProps={{ className: "active" }}>
+              <Link
+                to="/my-bets"
+                className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
+                activeProps={{ className: "bg-muted text-foreground hover:bg-muted" }}
+              >
                 <ListChecks size={18} /> My bets
               </Link>
             )}
           </nav>
           {!authLoaded ? (
-            <div className="auth-actions auth-actions-pending" aria-label="Checking session">
+            <div className="ml-auto flex min-w-[178px] items-center justify-end gap-2 max-[720px]:col-span-full max-[720px]:grid max-[720px]:grid-cols-1" aria-label="Checking session">
               <Skeleton className="h-9 w-20" />
               <Skeleton className="h-9 w-24" />
             </div>
           ) : user ? (
-            <div className="profile-actions">
+            <div className="relative ml-auto flex min-w-0 items-center gap-2 max-[720px]:col-span-full max-[720px]:w-full max-[720px]:justify-stretch">
               <Button
                 type="button"
                 variant="ghost"
-                className="profile-button"
+                className="max-w-[240px] px-2 max-[720px]:min-w-0 max-[720px]:flex-1 max-[720px]:justify-start [&_img]:h-6 [&_img]:w-6 [&_img]:rounded-full [&_img]:object-cover [&_span]:truncate"
                 onClick={() => setProfileOpen((open) => !open)}
                 title={user.email}
                 aria-expanded={profileOpen}
@@ -186,7 +195,7 @@ function RootLayout() {
                 <ChevronDown size={16} />
               </Button>
               {profileOpen && (
-                <div className="profile-menu" role="menu">
+                <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 overflow-hidden rounded-lg border bg-card p-1 text-card-foreground shadow-lg [&_a]:flex [&_a]:h-10 [&_a]:w-full [&_a]:items-center [&_a]:gap-2 [&_a]:rounded-md [&_a]:px-3 [&_a]:text-sm [&_a]:font-medium [&_a]:text-foreground [&_a]:no-underline hover:[&_a]:bg-muted [&_button]:flex [&_button]:h-10 [&_button]:w-full [&_button]:items-center [&_button]:gap-2 [&_button]:rounded-md [&_button]:border-0 [&_button]:bg-transparent [&_button]:px-3 [&_button]:text-left [&_button]:text-sm [&_button]:font-medium [&_button]:text-foreground hover:[&_button]:bg-muted disabled:[&_button]:pointer-events-none disabled:[&_button]:opacity-50" role="menu">
                   <Link to="/my-bets" role="menuitem" onClick={() => setProfileOpen(false)}>
                     <ListChecks size={16} /> My bets
                   </Link>
@@ -203,7 +212,7 @@ function RootLayout() {
               )}
             </div>
           ) : (
-            <div className="auth-actions">
+            <div className="ml-auto flex items-center gap-2 max-[720px]:col-span-full max-[720px]:grid max-[720px]:grid-cols-1">
               <Button asChild>
                 <Link to="/login">Sign in</Link>
               </Button>
@@ -211,7 +220,7 @@ function RootLayout() {
           )}
         </div>
       </header>
-      <section className="content">
+      <section className={cn("px-6 py-5 max-[720px]:px-4", pathname === "/" && "py-0")}>
         <Outlet />
       </section>
     </main>

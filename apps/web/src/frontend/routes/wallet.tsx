@@ -205,16 +205,16 @@ function WalletPage() {
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
+    <div className="mx-auto grid max-w-7xl gap-6">
+      <header className="flex items-start justify-between gap-4 [&_h1]:max-w-[850px] [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:tracking-tight max-[720px]:[&_h1]:text-2xl [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
         <div>
           <h1>Credits</h1>
           <p>{testingMode ? "Local testing credits." : "Buy platform credits before creating or matching a bet."}</p>
         </div>
       </header>
-      {error && <div className="notice error">{error}</div>}
-      {notice && <div className="notice">{notice}</div>}
-      <section className="stats-grid wallet-stats">
+      {error && <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
+      {notice && <div className="rounded-lg border bg-card p-4 text-sm text-card-foreground">{notice}</div>}
+      <section className="grid grid-cols-3 gap-3 max-[720px]:grid-cols-1 [&>div]:rounded-lg [&>div]:border [&>div]:bg-card [&>div]:p-4 [&>div]:text-card-foreground [&_span]:block [&_span]:text-sm [&_span]:leading-6 [&_span]:text-muted-foreground [&_strong]:mt-1 [&_strong]:block [&_strong]:text-2xl [&_strong]:font-semibold [&_strong]:tracking-tight [&_strong]:text-foreground">
         <div>
           <span>Available</span>
           <strong>{credits(wallet?.availableCents ?? 0)}</strong>
@@ -230,14 +230,14 @@ function WalletPage() {
       </section>
       <Card>
         <CardHeader>
-          <div className="section-title">
+          <div className="flex items-start justify-between gap-4">
             <CardTitle>Add USDC</CardTitle>
             <Coins size={20} />
           </div>
         </CardHeader>
         <CardContent>
           {!testingMode && !creditPurchasesEnabled && (
-            <div className="notice">
+            <div className="rounded-lg border bg-card p-4 text-sm text-card-foreground">
               USDC deposits are temporarily unavailable while Coinbase Onramp is checked.
             </div>
           )}
@@ -252,13 +252,13 @@ function WalletPage() {
             />
           )}
           {!testingMode && !import.meta.env.VITE_PRIVY_APP_ID && (
-            <div className="notice">Privy is not configured. Set VITE_PRIVY_APP_ID before linking a withdrawal wallet.</div>
+            <div className="rounded-lg border bg-card p-4 text-sm text-card-foreground">Privy is not configured. Set VITE_PRIVY_APP_ID before linking a withdrawal wallet.</div>
           )}
           {!testingMode && paymentProfile?.depositAddress && (
-            <div className="notice usdc-address-box">
+            <div className="grid gap-3 rounded-lg border bg-card p-4 text-sm text-card-foreground [&>span]:text-xs [&>span]:font-semibold [&>span]:uppercase [&>span]:text-muted-foreground [&_code]:mt-2 [&_code]:block [&_code]:overflow-auto [&_code]:break-all [&_code]:rounded-md [&_code]:bg-muted [&_code]:p-3 [&_code]:text-sm [&_code]:text-foreground">
               <span>Base USDC deposit address</span>
               <code>{paymentProfile.depositAddress}</code>
-              <div className="deposit-presets">
+              <div className="grid grid-cols-4 gap-2 max-[560px]:grid-cols-2 [&_button]:px-2">
                 <Button type="button" variant="outline" onClick={copyDepositAddress}>
                   <Copy size={18} /> Copy
                 </Button>
@@ -268,10 +268,10 @@ function WalletPage() {
               </div>
             </div>
           )}
-          <form className="deposit-form" onSubmit={createCreditPurchase}>
+          <form className="grid gap-4 [&_label]:mb-2 [&_label]:block [&_label]:text-sm [&_label]:font-semibold" onSubmit={createCreditPurchase}>
             <div>
               <label htmlFor="credit-purchase-amount">Credits</label>
-              <div className="deposit-input">
+              <div className="relative [&_span]:pointer-events-none [&_span]:absolute [&_span]:left-3 [&_span]:top-1/2 [&_span]:-translate-y-1/2 [&_span]:text-sm [&_span]:font-semibold [&_span]:text-muted-foreground [&_input]:pl-7">
                 <Input
                   id="credit-purchase-amount"
                   inputMode="decimal"
@@ -283,11 +283,11 @@ function WalletPage() {
                   onChange={(event) => setPurchaseCredits(event.target.value)}
                 />
               </div>
-              <p className="field-help">
+              <p className="text-xs font-medium text-muted-foreground">
                 {testingMode ? "Add local testing credits from 5 to 100." : "Buy Base USDC through Coinbase Onramp. 1 USDC equals 1 credit."}
               </p>
             </div>
-            <div className="deposit-presets">
+            <div className="grid grid-cols-4 gap-2 max-[560px]:grid-cols-2 [&_button]:px-2">
               {[10, 25, 50, 100].map((amount) => (
                 <Button key={amount} type="button" variant="outline" onClick={() => setPurchaseCredits(String(amount))}>
                   {credits(amount * 100)}
@@ -311,26 +311,26 @@ function WalletPage() {
       </Card>
       <Card>
         <CardHeader>
-          <div className="section-title">
+          <div className="flex items-start justify-between gap-4">
             <CardTitle>Cash out</CardTitle>
             <Banknote size={20} />
           </div>
         </CardHeader>
         <CardContent>
           {!testingMode && !cashoutsEnabled && (
-            <div className="notice">
+            <div className="rounded-lg border bg-card p-4 text-sm text-card-foreground">
               USDC cashouts are temporarily unavailable while Coinbase CDP is checked.
             </div>
           )}
           {!testingMode && cashoutsEnabled && !payoutsEnabled && (
-            <div className="notice">
+            <div className="rounded-lg border bg-card p-4 text-sm text-card-foreground">
               <p>Set up a USDC withdrawal wallet before requesting a cashout.</p>
             </div>
           )}
-          <form className="deposit-form" onSubmit={createWithdrawal}>
+          <form className="grid gap-4 [&_label]:mb-2 [&_label]:block [&_label]:text-sm [&_label]:font-semibold" onSubmit={createWithdrawal}>
             <div>
               <label htmlFor="cashout-amount">Credits</label>
-              <div className="deposit-input">
+              <div className="relative [&_span]:pointer-events-none [&_span]:absolute [&_span]:left-3 [&_span]:top-1/2 [&_span]:-translate-y-1/2 [&_span]:text-sm [&_span]:font-semibold [&_span]:text-muted-foreground [&_input]:pl-7">
                 <Input
                   id="cashout-amount"
                   inputMode="decimal"
@@ -342,11 +342,11 @@ function WalletPage() {
                   onChange={(event) => setCashoutCredits(event.target.value)}
                 />
               </div>
-              <p className="field-help">
+              <p className="text-xs font-medium text-muted-foreground">
                 Cashouts send Base USDC to your linked Privy wallet.
               </p>
             </div>
-            <div className="deposit-presets">
+            <div className="grid grid-cols-4 gap-2 max-[560px]:grid-cols-2 [&_button]:px-2">
               {[10, 25, 50, 100].map((amount) => (
                 <Button
                   key={amount}
@@ -366,20 +366,20 @@ function WalletPage() {
           </form>
         </CardContent>
       </Card>
-      <section className="panel">
-        <div className="section-title">
+      <section className="rounded-lg border bg-card p-5 text-card-foreground [&_h2]:inline-flex [&_h2]:items-center [&_h2]:gap-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:tracking-tight">
+        <div className="flex items-start justify-between gap-4">
           <h2>Ledger</h2>
           <ArrowDownToLine size={20} />
         </div>
-        <div className="ledger-list">
-          {ledgerError && <p className="fine-print">Ledger could not be loaded. Your credit balance is still shown above.</p>}
+        <div className="grid gap-3 [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-4 [&>div]:border-b [&>div]:border-border [&>div]:py-3 last:[&>div]:border-b-0 max-[560px]:[&>div]:grid [&_span]:text-sm [&_span]:font-medium [&_span]:text-muted-foreground [&_strong]:text-sm [&_strong]:font-medium">
+          {ledgerError && <p className="mt-4 inline-flex items-center gap-2 text-sm leading-6 text-muted-foreground">Ledger could not be loaded. Your credit balance is still shown above.</p>}
           {ledger.map((entry) => (
             <div key={entry.id}>
               <span>{entry.description}</span>
               <strong>{entry.type} · {credits(entry.amountCents)}</strong>
             </div>
           ))}
-          {ledger.length === 0 && <p className="fine-print">No ledger entries yet.</p>}
+          {ledger.length === 0 && <p className="mt-4 inline-flex items-center gap-2 text-sm leading-6 text-muted-foreground">No ledger entries yet.</p>}
         </div>
       </section>
     </div>
@@ -423,7 +423,7 @@ function PrivyWalletSetup({
   }
 
   return (
-    <div className="notice">
+    <div className="rounded-lg border bg-card p-4 text-sm text-card-foreground">
       <p>{authenticated && wallets[0] ? `Withdrawal wallet: ${wallets[0].address}` : "Link a Privy wallet for USDC deposits and automatic cashouts."}</p>
       <Button type="button" variant="outline" onClick={setupWallet} disabled={disabled || !ready || isLinking}>
         <Wallet size={18} />
