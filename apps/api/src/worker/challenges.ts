@@ -48,6 +48,7 @@ const createChallengeRequestSchema = z
     stakeCredits: creditValueSchema.optional(),
     stakeDollars: creditValueSchema.optional(),
     stakeCents: betaStakeCentsSchema.optional(),
+    draftId: z.string().optional(),
     expiresAt: requestDateTimeSchema
   })
   .refine((value) => value.stakeCredits !== undefined || value.stakeDollars !== undefined || value.stakeCents !== undefined, {
@@ -76,6 +77,39 @@ const createMatchRequestSchema = z
     message: "amountCredits or amountCents is required."
   });
 
+function rowToChallengeDraft(row: typeof challenges.$inferSelect): z.infer<typeof challengeDraftDataSchema> {
+  return {
+    claim: row.claim,
+    resolutionCriteria: row.resolutionCriteria,
+    creatorSide: row.creatorSide as z.infer<typeof sideSchema>,
+    visibility: row.visibility as z.infer<typeof challengeVisibilitySchema>,
+    stakeCredits: row.stakeCents > 0 ? (row.stakeCents / 100).toFixed(2) : "",
+    expiresAt: row.expiresAt instanceof Date ? row.expiresAt.toISOString() : String(row.expiresAt),
+    pipedreamConnectionIds: row.pipedreamConnectionIds ?? []
+  };
+}
+
+async function draftValues(env: Env, userId: string, draft: z.infer<typeof challengeDraftDataSchema>) {
+  const pipedreamConnectionIds = await validateUserPipedreamConnectionIds(env, userId, draft.pipedreamConnectionIds);
+  const expiresAt = draft.expiresAt && !Number.isNaN(new Date(draft.expiresAt).getTime()) ? new Date(draft.expiresAt) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const stakeCents = draft.stakeCredits && /^\\d+(\\.\\d{1,2})?$/.test(draft.stakeCredits) ? creditsToCents(draft.stakeCredits) : 0;
+  return {
+    draft: { ...draft, pipedreamConnectionIds },
+    values: {
+      claim: draft.claim ?? "",
+      resolutionCriteria: draft.resolutionCriteria ?? "",
+      resolutionTool: null,
+      pipedreamConnectionIds,
+      creatorSide: draft.creatorSide ?? "YES",
+      visibility: draft.visibility ?? "public",
+      stakeCents,
+      status: "draft",
+      expiresAt,
+      updatedAt: new Date()
+    }
+  };
+}
+
 export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): void {
   const getChallengeDraftRoute = createRoute({
     method: "get",
@@ -102,16 +136,111 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
       return c.json({ challenge: null });
     }
 
-    const draft: z.infer<typeof challengeDraftDataSchema> = {
-      claim: rows[0].claim,
-      resolutionCriteria: rows[0].resolutionCriteria,
-      creatorSide: rows[0].creatorSide as z.infer<typeof sideSchema>,
-      visibility: rows[0].visibility as z.infer<typeof challengeVisibilitySchema>,
-      stakeCredits: rows[0].stakeCents > 0 ? (rows[0].stakeCents / 100).toFixed(2) : "",
-      expiresAt: rows[0].expiresAt instanceof Date ? rows[0].expiresAt.toISOString() : String(rows[0].expiresAt),
-      pipedreamConnectionIds: rows[0].pipedreamConnectionIds ?? []
-    };
+    const draft = rowToChallengeDraft(rows[0]);
     return c.json({ challenge: { id: rows[0].id, draft } });
+  });
+
+  const createChallengeDraftRoute = createRoute({
+    method: "post",
+    path: "/api/challenges/drafts",
+    request: { body: { content: { "application/json": { schema: saveChallengeDraftRequestSchema } } } },
+    responses: {
+      201: {
+        description: "Created challenge draft",
+        content: { "application/json": { schema: z.object({ challenge: challengeDraftResponseSchema }) } }
+      },
+      ...errorResponses
+    }
+  });
+
+  app.openapi(createChallengeDraftRoute, async (c) => {
+    const actor = await currentActor(c.env, c.req.raw);
+    const body = c.req.valid("json");
+    const db = createDb(c.env.DATABASE_URL);
+    const challengeId = newId("ch");
+    const { draft, values } = await draftValues(c.env, actor.userId, body.draft);
+
+    await db.insert(challenges).values({
+      id: challengeId,
+      creatorId: actor.userId,
+      ...values
+    });
+
+    return c.json({ challenge: { id: challengeId, draft } }, 201);
+  });
+
+  const getChallengeDraftByIdRoute = createRoute({
+    method: "get",
+    path: "/api/challenges/drafts/{id}",
+    request: { params: idParamSchema },
+    responses: {
+      200: {
+        description: "Challenge draft by id",
+        content: { "application/json": { schema: z.object({ challenge: challengeDraftResponseSchema }) } }
+      },
+      ...errorResponses
+    }
+  });
+
+  app.openapi(getChallengeDraftByIdRoute, async (c) => {
+    const actor = await currentActor(c.env, c.req.raw);
+    const { id } = c.req.valid("param");
+    const db = createDb(c.env.DATABASE_URL);
+    const rows = await db.select().from(challenges).where(and(eq(challenges.id, id), eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft"))).limit(1);
+    if (!rows[0]) {
+      return errorJson(c, "Draft not found.", 404);
+    }
+
+    return c.json({ challenge: { id: rows[0].id, draft: rowToChallengeDraft(rows[0]) } });
+  });
+
+  const saveChallengeDraftByIdRoute = createRoute({
+    method: "put",
+    path: "/api/challenges/drafts/{id}",
+    request: { params: idParamSchema, body: { content: { "application/json": { schema: saveChallengeDraftRequestSchema } } } },
+    responses: {
+      200: {
+        description: "Saved challenge draft by id",
+        content: { "application/json": { schema: z.object({ challenge: challengeDraftResponseSchema }) } }
+      },
+      ...errorResponses
+    }
+  });
+
+  app.openapi(saveChallengeDraftByIdRoute, async (c) => {
+    const actor = await currentActor(c.env, c.req.raw);
+    const { id } = c.req.valid("param");
+    const body = c.req.valid("json");
+    const db = createDb(c.env.DATABASE_URL);
+    const existing = await db.select({ id: challenges.id }).from(challenges).where(and(eq(challenges.id, id), eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft"))).limit(1);
+    if (!existing[0]) {
+      return errorJson(c, "Draft not found.", 404);
+    }
+
+    const { draft, values } = await draftValues(c.env, actor.userId, body.draft);
+    await db.update(challenges).set(values).where(eq(challenges.id, id));
+    return c.json({ challenge: { id, draft } });
+  });
+
+  const deleteChallengeDraftByIdRoute = createRoute({
+    method: "delete",
+    path: "/api/challenges/drafts/{id}",
+    request: { params: idParamSchema },
+    responses: {
+      200: {
+        description: "Deleted challenge draft by id",
+        content: { "application/json": { schema: z.object({ deleted: z.boolean() }) } }
+      },
+      ...errorResponses
+    }
+  });
+
+  app.openapi(deleteChallengeDraftByIdRoute, async (c) => {
+    const actor = await currentActor(c.env, c.req.raw);
+    const { id } = c.req.valid("param");
+    const db = createDb(c.env.DATABASE_URL);
+    await db.delete(challenges).where(and(eq(challenges.id, id), eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft")));
+    return c.json({ deleted: true });
   });
 
   const saveChallengeDraftRoute = createRoute({
@@ -131,49 +260,23 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     const actor = await currentActor(c.env, c.req.raw);
     const body = c.req.valid("json");
     const db = createDb(c.env.DATABASE_URL);
-    const now = new Date();
-    const pipedreamConnectionIds = await validateUserPipedreamConnectionIds(c.env, actor.userId, body.draft.pipedreamConnectionIds);
+    const { draft, values } = await draftValues(c.env, actor.userId, body.draft);
     const existing = await db
       .select({ id: challenges.id })
       .from(challenges)
       .where(and(eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft")))
       .orderBy(desc(challenges.updatedAt))
       .limit(1);
-    const expiresAt = body.draft.expiresAt && !Number.isNaN(new Date(body.draft.expiresAt).getTime()) ? new Date(body.draft.expiresAt) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    const stakeCents = body.draft.stakeCredits && /^\\d+(\\.\\d{1,2})?$/.test(body.draft.stakeCredits) ? creditsToCents(body.draft.stakeCredits) : 0;
-    const draft = { ...body.draft, pipedreamConnectionIds };
 
     let challengeId = existing[0]?.id;
     if (challengeId) {
-      await db
-        .update(challenges)
-        .set({
-          claim: body.draft.claim ?? "",
-          resolutionCriteria: body.draft.resolutionCriteria ?? "",
-          resolutionTool: null,
-          pipedreamConnectionIds,
-          creatorSide: body.draft.creatorSide ?? "YES",
-          visibility: body.draft.visibility ?? "public",
-          stakeCents,
-          expiresAt,
-          updatedAt: now
-        })
-        .where(eq(challenges.id, challengeId));
+      await db.update(challenges).set(values).where(eq(challenges.id, challengeId));
     } else {
       challengeId = newId("ch");
       await db.insert(challenges).values({
         id: challengeId,
         creatorId: actor.userId,
-        claim: body.draft.claim ?? "",
-        resolutionCriteria: body.draft.resolutionCriteria ?? "",
-        resolutionTool: null,
-        pipedreamConnectionIds,
-        creatorSide: body.draft.creatorSide ?? "YES",
-        visibility: body.draft.visibility ?? "public",
-        stakeCents,
-        status: "draft",
-        expiresAt,
-        updatedAt: now
+        ...values
       });
     }
 
@@ -250,13 +353,18 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     const creatorSide = parseSide(body.creatorSide);
     const pipedreamConnectionIds = await validateUserPipedreamConnectionIds(c.env, actor.userId, body.pipedreamConnectionIds);
     const db = createDb(c.env.DATABASE_URL);
-    const existingDraft = await db
-      .select({ id: challenges.id })
-      .from(challenges)
-      .where(and(eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft")))
-      .orderBy(desc(challenges.updatedAt))
-      .limit(1);
-    const challengeId = existingDraft[0]?.id ?? newId("ch");
+    let challengeId = body.draftId ?? newId("ch");
+    if (body.draftId) {
+      const existingDraft = await db
+        .select({ id: challenges.id })
+        .from(challenges)
+        .where(and(eq(challenges.id, body.draftId), eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft")))
+        .limit(1);
+      if (!existingDraft[0]) {
+        return errorJson(c, "Draft not found.", 404);
+      }
+      challengeId = existingDraft[0].id;
+    }
 
     validateChallengeInput({
       claim: body.claim ?? "",
@@ -288,7 +396,7 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
       updatedAt: new Date()
     };
 
-    if (existingDraft[0]) {
+    if (body.draftId) {
       await db.update(challenges).set(challengeValues).where(eq(challenges.id, challengeId));
     } else {
       await db.insert(challenges).values({ id: challengeId, creatorId: actor.userId, ...challengeValues });
@@ -315,6 +423,12 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     const challenge = await getChallenge(c.env, id);
     if (!challenge) {
       return errorJson(c, "Challenge not found.", 404);
+    }
+    if (challenge.status === "draft") {
+      const actor = await actorFromRequest(c.env, c.req.raw);
+      if (actor.userId !== challenge.creatorId) {
+        return errorJson(c, "Challenge not found.", 404);
+      }
     }
     return c.json({
       challenge,

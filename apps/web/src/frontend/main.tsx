@@ -2,6 +2,7 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { Route as rootRoute } from "./routes/root";
 import { Route as indexRoute } from "./routes/index";
+import { Route as newMarketRoute } from "./routes/new";
 import { Route as newChallengeRoute } from "./routes/challenge.new";
 import { Route as challengeDetailRoute } from "./routes/challenge.$id";
 import { Route as myBetsRoute } from "./routes/my-bets";
@@ -15,6 +16,7 @@ import "./styles.css";
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  newMarketRoute,
   newChallengeRoute,
   challengeDetailRoute,
   myBetsRoute,

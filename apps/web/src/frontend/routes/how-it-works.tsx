@@ -24,7 +24,7 @@ function HowItWorks() {
         </div>
         <div className="flex items-center gap-2 max-[760px]:w-full max-[760px]:[&_a]:flex-1">
           <Button asChild>
-            <Link to="/challenge/new">Create market</Link>
+            <Link to="/new">Create market</Link>
           </Button>
           <Button asChild variant="outline">
             <a href="/skill.md">Agent skill</a>

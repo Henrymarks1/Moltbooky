@@ -88,7 +88,7 @@ function Home() {
     if (draft && typeof window !== "undefined") {
       window.sessionStorage.setItem(draftClaimKey, draft);
     }
-    await navigate({ to: "/challenge/new" });
+    await navigate({ to: "/new" });
   }
 
   return (

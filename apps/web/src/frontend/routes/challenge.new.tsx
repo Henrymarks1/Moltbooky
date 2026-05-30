@@ -196,9 +196,13 @@ const expiryTimeOptions = Array.from({ length: 48 }, (_, index) => {
 });
 
 function NewChallenge() {
+  return <ChallengeDraftEditor />;
+}
+
+export function ChallengeDraftEditor({ draftId }: { draftId?: string }) {
   const navigate = useNavigate();
   const [draftClaim] = useState(() => {
-    if (typeof window === "undefined") {
+    if (draftId || typeof window === "undefined") {
       return "";
     }
     const draft = window.sessionStorage.getItem(draftClaimKey) ?? "";
@@ -222,7 +226,8 @@ function NewChallenge() {
   const [pipedreamAppsError, setPipedreamAppsError] = useState("");
   const [appSearch, setAppSearch] = useState("");
   const [visibleToolLimit, setVisibleToolLimit] = useState(90);
-  const [draftReady, setDraftReady] = useState(false);
+  const [activeDraftId, setActiveDraftId] = useState(draftId);
+  const [draftReady, setDraftReady] = useState(!draftId);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const resolverTools = useMemo(() => {
@@ -251,31 +256,49 @@ function NewChallenge() {
     return { claim, resolutionCriteria, creatorSide, visibility, stakeCredits, expiresAt, pipedreamConnectionIds: selectedConnectionIds };
   }, [claim, creatorSide, expiresAt, resolutionCriteria, selectedConnectionIds, stakeCredits, visibility]);
 
+  const hasDraftContent = useMemo(() => {
+    return Boolean(claim.trim() || resolutionCriteria.trim() || stakeCredits.trim() || selectedConnectionIds.length > 0);
+  }, [claim, resolutionCriteria, selectedConnectionIds.length, stakeCredits]);
+
+  function applyDraft(saved: ChallengeDraft) {
+    setClaim(saved.claim ?? "");
+    setResolutionCriteria(saved.resolutionCriteria ?? "");
+    setCreatorSide(saved.creatorSide ?? "YES");
+    setVisibility(saved.visibility ?? "public");
+    setStakeCredits(saved.stakeCredits ?? "");
+    const expiry = parseExpiry(saved.expiresAt);
+    setExpiryDate(expiry.date);
+    setExpiryTime(expiry.time);
+    setSelectedConnectionIds(saved.pipedreamConnectionIds ?? []);
+  }
+
   useEffect(() => {
     setVisibleToolLimit(90);
   }, [appSearch]);
 
   useEffect(() => {
+    if (!draftId) {
+      setActiveDraftId(undefined);
+      setDraftReady(true);
+      return;
+    }
+
     let cancelled = false;
+    setDraftReady(false);
+    setError("");
     api
-      .getChallengeDraft()
+      .getChallengeDraftById(draftId)
       .then(({ challenge }) => {
-        if (cancelled || !challenge) {
+        if (cancelled) {
           return;
         }
-        const saved = challenge.draft;
-        setClaim(saved.claim ?? "");
-        setResolutionCriteria(saved.resolutionCriteria ?? "");
-        setCreatorSide(saved.creatorSide ?? "YES");
-        setVisibility(saved.visibility ?? "public");
-        setStakeCredits(saved.stakeCredits ?? "");
-        const expiry = parseExpiry(saved.expiresAt);
-        setExpiryDate(expiry.date);
-        setExpiryTime(expiry.time);
-        setSelectedConnectionIds(saved.pipedreamConnectionIds ?? []);
+        setActiveDraftId(challenge.id);
+        applyDraft(challenge.draft);
       })
-      .catch(() => {
-        // Drafts require auth; an anonymous user can still compose until publish redirects.
+      .catch((err) => {
+        if (!cancelled) {
+          setError((err as Error).message);
+        }
       })
       .finally(() => {
         if (!cancelled) {
@@ -285,7 +308,7 @@ function NewChallenge() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [draftId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -331,16 +354,24 @@ function NewChallenge() {
   }, [appSearch]);
 
   useEffect(() => {
-    if (!draftReady) {
+    if (!draftReady || !hasDraftContent) {
       return;
     }
     const handle = window.setTimeout(() => {
-      void api.saveChallengeDraft(draft).catch(() => {
-        // Autosave should never block composing a market.
-      });
+      const save = activeDraftId ? api.saveChallengeDraftById(activeDraftId, draft) : api.createChallengeDraft(draft);
+      void save
+        .then(({ challenge }) => {
+          if (!activeDraftId) {
+            setActiveDraftId(challenge.id);
+            void navigate({ to: "/challenge/$id", params: { id: challenge.id }, replace: true });
+          }
+        })
+        .catch(() => {
+          // Autosave should never block composing a market.
+        });
     }, 500);
     return () => window.clearTimeout(handle);
-  }, [draft, draftReady]);
+  }, [activeDraftId, draft, draftReady, hasDraftContent, navigate]);
 
   async function selectResolverTool(tool: ResolverToolPreset) {
     setConnectError("");
@@ -435,6 +466,7 @@ function NewChallenge() {
         creatorSide,
         visibility,
         stakeCredits: String(form.get("stakeCredits") ?? ""),
+        draftId: activeDraftId,
         expiresAt
       });
       window.dispatchEvent(new Event(authChangeEvent));

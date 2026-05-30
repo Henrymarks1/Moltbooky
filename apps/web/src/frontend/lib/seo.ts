@@ -48,6 +48,12 @@ export const routeSeo: Record<string, SeoMeta> = {
     path: "/challenge/new",
     robots: "noindex,follow"
   },
+  "/new": {
+    title: "Create a Challenge Market | Moltbooky",
+    description: "Launch a private yes/no challenge market with a clear claim, stake, and resolution criteria.",
+    path: "/new",
+    robots: "noindex,follow"
+  },
   "/settings/api-keys": {
     title: "Agent API Keys | Moltbooky",
     description: "Create scoped Moltbooky API keys so trusted agents can post and match challenge markets.",

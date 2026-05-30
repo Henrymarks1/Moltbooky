@@ -220,7 +220,7 @@ export async function listUserChallenges(env: Env, userId: string): Promise<Chal
   const createdRows = await db
     .select()
     .from(challenges)
-    .where(and(eq(challenges.creatorId, userId), ne(challenges.status, "draft")))
+    .where(eq(challenges.creatorId, userId))
     .orderBy(desc(challenges.createdAt))
     .limit(100);
   const matchedRows = await db
