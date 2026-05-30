@@ -3,12 +3,12 @@ import { availableToMatch, oppositeSide, settleChallenge, validateChallengeInput
 import { DEFAULT_AGENT_POLICY, createApiKeySecret, hashApiKey } from "@moltbooky/core/domain/apiKeys";
 import { creditsToCents } from "@moltbooky/core/domain/money";
 import type { Challenge, ChallengeMatch, Side } from "@moltbooky/core/domain/types";
-import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, ledgerEntries, pipedreamConnections, walletAccounts } from "@moltbooky/db";
+import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, ledgerEntries, pipedreamConnections, creditAccounts } from "@moltbooky/db";
 import {
   actorFromRequest,
   ensureBetaUser,
   getChallenge,
-  getWallet,
+  getCreditAccount,
   json,
   listChallenges,
   listUserChallenges,
@@ -116,11 +116,10 @@ const resolutionRunSchema = z.object({
   createdAt: dateTimeSchema
 });
 
-const walletSchema = z.object({
+const creditAccountSchema = z.object({
   userId: z.string(),
   availableCents: centsSchema,
-  lockedCents: centsSchema,
-  pendingWithdrawalCents: centsSchema
+  lockedCents: centsSchema
 });
 
 const ledgerEntrySchema = z.object({
@@ -180,6 +179,9 @@ const createMatchRequestSchema = z
 
 const createApiKeyRequestSchema = z.object({
   name: z.string().optional()
+});
+const createCreditPurchaseRequestSchema = z.object({
+  amountCents: z.number().int().min(500).max(10_000)
 });
 
 const pipedreamTokenResponseSchema = z.object({
@@ -250,7 +252,7 @@ Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and
 - A creator posts a claim, resolution criteria, a creator side, credit stake, and expiry.
 - Matchers can only take the opposite side.
 - Odds are always 1:1.
-- Users buy platform credits before creating or matching challenges.
+- Users need platform credits before creating or matching challenges.
 - Only matched credits are at risk.
 - Unmatched creator credits can be released while the challenge is open.
 - Minimum stake is 5 credits.
@@ -258,7 +260,6 @@ Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and
 - Platform fee is 2% of profit only.
 - AI resolution is provisional and may be disputed.
 - Markets may attach one Pipedream action as a resolution tool for authenticated evidence such as Strava or LinkedIn data.
-- Credit purchases use Base USDC when Coinbase CDP, Coinbase Onramp, and Base RPC are configured.
 
 ## Agent Operating Policy
 
@@ -290,8 +291,9 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
 - \`POST /api/challenges/:id/matches\` - match the opposite side.
 - \`POST /api/challenges/:id/cancel-unmatched\` - release unmatched creator stake.
 - \`DELETE /api/challenges/:id\` - delete your own challenge if it has no matches.
-- \`GET /api/wallet\` - read platform credit balances.
+- \`GET /api/credits\` - read platform credit balances.
 - \`GET /api/ledger\` - read ledger entries.
+- \`POST /api/payments/credit-purchases\` - create a Stripe Checkout session for buying credits.
 - \`POST /api/api-keys\` - create an API key from a human session.
 - \`DELETE /api/api-keys/:id\` - revoke an API key.
 - \`GET /api/openapi.json\` - OpenAPI 3.1 API contract.
@@ -330,13 +332,76 @@ Human browser sessions use Better Auth at \`/api/auth/*\`.
 ## Response Handling
 
 - If the API returns an auth error, ask the user to sign in or provide a valid scoped API key.
-- If credit purchase endpoints report missing USDC payment configuration, ask the user to configure Coinbase CDP, Coinbase Onramp, and Base RPC before retrying.
+- If credit purchase endpoints report missing Stripe configuration, ask the user to configure Stripe before retrying.
 - If a challenge is closed, cancelled, voided, disputed, or resolved, do not attempt to match it.
 - If a request fails validation, show the user the exact correction needed.
 `;
 
-function errorJson(c: any, message: string, status: 400 | 401 | 403 | 404) {
+function errorJson(c: any, message: string, status: 400 | 401 | 403 | 404 | 500) {
   return c.json({ error: message }, status) as any;
+}
+
+function stripeCreditPurchasesEnabled(env: Env): boolean {
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET && env.STRIPE_SUCCESS_URL && env.STRIPE_CANCEL_URL);
+}
+
+async function stripeCheckoutSession(env: Env, params: { userId: string; amountCents: number }): Promise<{ id: string; url: string }> {
+  if (!stripeCreditPurchasesEnabled(env)) {
+    throw new Error("Stripe credit purchases are not configured.");
+  }
+
+  const form = new URLSearchParams({
+    mode: "payment",
+    success_url: env.STRIPE_SUCCESS_URL!,
+    cancel_url: env.STRIPE_CANCEL_URL!,
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][unit_amount]": String(params.amountCents),
+    "line_items[0][price_data][product_data][name]": "Moltbooky platform credits",
+    "metadata[userId]": params.userId,
+    "metadata[amountCents]": String(params.amountCents)
+  });
+
+  const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    body: form
+  });
+  const data = (await response.json().catch(() => ({}))) as { id?: string; url?: string; error?: { message?: string } };
+  if (!response.ok || !data.id || !data.url) {
+    throw new Error(data.error?.message ?? "Failed to create Stripe Checkout session.");
+  }
+  return { id: data.id, url: data.url };
+}
+
+async function verifyStripeSignature(payload: string, header: string, secret: string): Promise<boolean> {
+  const parts = header.split(",").map((part) => part.split("="));
+  const timestamp = parts.find(([key]) => key === "t")?.[1];
+  const signatures = parts.filter(([key]) => key === "v1").map(([, value]) => value);
+  if (!timestamp || signatures.length === 0) {
+    return false;
+  }
+
+  const signedPayload = `${timestamp}.${payload}`;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedPayload));
+  const expected = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return signatures.some((signature) => timingSafeEqual(signature, expected));
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  let result = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    result |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+  return result === 0;
 }
 
 function pipedreamEnabled(env: Env): boolean {
@@ -408,20 +473,20 @@ async function validateUserPipedreamConnectionIds(env: Env, userId: string, ids:
   return connectionIds;
 }
 
-async function applyWalletDelta(tx: any, userId: string, availableDeltaCents: number, lockedDeltaCents: number): Promise<void> {
-  const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
-  if (!wallet[0]) {
+async function applyCreditDelta(tx: any, userId: string, availableDeltaCents: number, lockedDeltaCents: number): Promise<void> {
+  const creditAccount = await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).for("update").limit(1);
+  if (!creditAccount[0]) {
     throw new Error("Credit account not found.");
   }
 
   await tx
-    .update(walletAccounts)
+    .update(creditAccounts)
     .set({
-      availableCents: wallet[0].availableCents + availableDeltaCents,
-      lockedCents: wallet[0].lockedCents + lockedDeltaCents,
+      availableCents: creditAccount[0].availableCents + availableDeltaCents,
+      lockedCents: creditAccount[0].lockedCents + lockedDeltaCents,
       updatedAt: new Date()
     })
-    .where(eq(walletAccounts.userId, userId));
+    .where(eq(creditAccounts.userId, userId));
 }
 
 app.doc("/api/openapi.json", {
@@ -457,6 +522,142 @@ const healthRoute = createRoute({
 app.openapi(healthRoute, (c) => c.json({ ok: true, name: "Moltbooky" }));
 
 app.all("/api/auth/*", (c) => createAuth(c.env).handler(c.req.raw));
+
+const paymentsConfigRoute = createRoute({
+  method: "get",
+  path: "/api/payments/config",
+  responses: {
+    200: {
+      description: "Stripe credit purchase configuration",
+      content: {
+        "application/json": {
+          schema: z.object({
+            creditPurchasesEnabled: z.boolean()
+          })
+        }
+      }
+    }
+  }
+});
+
+app.openapi(paymentsConfigRoute, (c) =>
+  c.json({
+    creditPurchasesEnabled: stripeCreditPurchasesEnabled(c.env)
+  })
+);
+
+const createCreditPurchaseRoute = createRoute({
+  method: "post",
+  path: "/api/payments/credit-purchases",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: createCreditPurchaseRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    200: {
+      description: "Stripe Checkout session created",
+      content: {
+        "application/json": {
+          schema: z.object({
+            checkoutUrl: z.string().url(),
+            sessionId: z.string()
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(createCreditPurchaseRoute, async (c) => {
+  if (!stripeCreditPurchasesEnabled(c.env)) {
+    return errorJson(c, "Credit purchases are temporarily unavailable because Stripe is not fully configured.", 403);
+  }
+
+  let actor: { userId: string; scopes: string[] };
+  try {
+    actor = await actorFromRequest(c.env, c.req.raw);
+  } catch {
+    return errorJson(c, "Sign in before buying credits.", 401);
+  }
+
+  const { amountCents } = c.req.valid("json");
+  const session = await stripeCheckoutSession(c.env, { userId: actor.userId, amountCents });
+  return c.json({ checkoutUrl: session.url, sessionId: session.id });
+});
+
+const stripeWebhookRoute = createRoute({
+  method: "post",
+  path: "/api/payments/stripe/webhook",
+  responses: {
+    200: {
+      description: "Stripe webhook handled",
+      content: {
+        "application/json": {
+          schema: z.object({ ok: z.boolean() })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(stripeWebhookRoute, async (c) => {
+  if (!c.env.STRIPE_WEBHOOK_SECRET) {
+    return errorJson(c, "Stripe webhook signing secret is not configured.", 500);
+  }
+
+  const signature = c.req.header("stripe-signature");
+  const payload = await c.req.text();
+  if (!signature || !(await verifyStripeSignature(payload, signature, c.env.STRIPE_WEBHOOK_SECRET))) {
+    return errorJson(c, "Invalid Stripe signature.", 400);
+  }
+
+  const event = JSON.parse(payload) as {
+    type?: string;
+    data?: { object?: { id?: string; metadata?: { userId?: string; amountCents?: string } } };
+  };
+  if (event.type !== "checkout.session.completed") {
+    return c.json({ ok: true });
+  }
+
+  const session = event.data?.object;
+  const userId = session?.metadata?.userId;
+  const amountCents = Number(session?.metadata?.amountCents);
+  if (!session?.id || !userId || !Number.isInteger(amountCents) || amountCents <= 0) {
+    return errorJson(c, "Invalid checkout session metadata.", 400);
+  }
+
+  await ensureBetaUser(c.env, userId);
+  const db = createDb(c.env.DATABASE_URL);
+  await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(ledgerEntries)
+      .values({
+        id: newId("led"),
+        userId,
+        type: "credit_purchase",
+        amountCents,
+        idempotencyKey: `stripe:checkout:${session.id}`,
+        description: "Stripe credit purchase"
+      })
+      .onConflictDoNothing()
+      .returning({ id: ledgerEntries.id });
+
+    if (!inserted[0]) {
+      return;
+    }
+
+    await applyCreditDelta(tx, userId, amountCents, 0);
+  });
+
+  return c.json({ ok: true });
+});
 
 const pipedreamConfigRoute = createRoute({
   method: "get",
@@ -1124,7 +1325,7 @@ app.openapi(cancelUnmatchedRoute, async (c) => {
 
   const db = createDb(c.env.DATABASE_URL);
   await db.transaction(async (tx) => {
-    await applyWalletDelta(tx, actor.userId, unmatched, -unmatched);
+    await applyCreditDelta(tx, actor.userId, unmatched, -unmatched);
     await tx.insert(ledgerEntries).values({
       id: newId("led"),
       userId: actor.userId,
@@ -1197,7 +1398,7 @@ app.openapi(deleteChallengeRoute, async (c) => {
 
     unlockedCents = challenge.stakeCents;
     if (unlockedCents > 0) {
-      await applyWalletDelta(tx, actor.userId, unlockedCents, -unlockedCents);
+      await applyCreditDelta(tx, actor.userId, unlockedCents, -unlockedCents);
       await tx.insert(ledgerEntries).values({
         id: newId("led"),
         userId: actor.userId,
@@ -1215,16 +1416,16 @@ app.openapi(deleteChallengeRoute, async (c) => {
   return c.json({ deleted: true, unlockedCents });
 });
 
-const getWalletRoute = createRoute({
+const getCreditAccountRoute = createRoute({
   method: "get",
-  path: "/api/wallet",
+  path: "/api/credits",
   responses: {
     200: {
       description: "Current platform credit account",
       content: {
         "application/json": {
           schema: z.object({
-            wallet: walletSchema
+            creditAccount: creditAccountSchema
           })
         }
       }
@@ -1233,10 +1434,10 @@ const getWalletRoute = createRoute({
   }
 });
 
-app.openapi(getWalletRoute, async (c) => {
+app.openapi(getCreditAccountRoute, async (c) => {
   const actor = await actorFromRequest(c.env, c.req.raw);
-  requireScope(actor, "wallet:read");
-  return c.json({ wallet: await getWallet(c.env, actor.userId) });
+  requireScope(actor, "credits:read");
+  return c.json({ creditAccount: await getCreditAccount(c.env, actor.userId) });
 });
 
 const getLedgerRoute = createRoute({
@@ -1259,7 +1460,7 @@ const getLedgerRoute = createRoute({
 
 app.openapi(getLedgerRoute, async (c) => {
   const actor = await actorFromRequest(c.env, c.req.raw);
-  requireScope(actor, "wallet:read");
+  requireScope(actor, "credits:read");
   const db = createDb(c.env.DATABASE_URL);
   const ledgerRows = await db
     .select({
@@ -1454,9 +1655,9 @@ app.openapi(voidChallengeRoute, async (c) => {
   const matches = await listMatches(c.env, challenge.id);
   const db = createDb(c.env.DATABASE_URL);
   await db.transaction(async (tx) => {
-    await applyWalletDelta(tx, challenge.creatorId, challenge.stakeCents, -challenge.stakeCents);
+    await applyCreditDelta(tx, challenge.creatorId, challenge.stakeCents, -challenge.stakeCents);
     for (const match of matches) {
-      await applyWalletDelta(tx, match.matcherId, match.amountCents, -match.amountCents);
+      await applyCreditDelta(tx, match.matcherId, match.amountCents, -match.amountCents);
     }
     await tx.update(challenges).set({ status: "voided", updatedAt: new Date() }).where(eq(challenges.id, challenge.id));
   });
@@ -1480,12 +1681,12 @@ async function applySettlement(env: Env, challenge: Challenge, matches: Challeng
   await db.transaction(async (tx) => {
     for (const transfer of settleChallenge({ challenge, matches, outcome })) {
       if (transfer.type === "unlock") {
-        await applyWalletDelta(tx, transfer.userId, transfer.amountCents, -transfer.amountCents);
+        await applyCreditDelta(tx, transfer.userId, transfer.amountCents, -transfer.amountCents);
       } else if (transfer.type === "settlement_win") {
         const lockedStake = lockedExposure.get(transfer.userId) ?? 0;
-        await applyWalletDelta(tx, transfer.userId, transfer.amountCents, -lockedStake);
+        await applyCreditDelta(tx, transfer.userId, transfer.amountCents, -lockedStake);
       } else if (transfer.type === "settlement_loss") {
-        await applyWalletDelta(tx, transfer.userId, 0, -transfer.amountCents);
+        await applyCreditDelta(tx, transfer.userId, 0, -transfer.amountCents);
       }
 
       await tx.insert(ledgerEntries).values({

@@ -1,6 +1,6 @@
 import { provisionalDisputeDeadline } from "@moltbooky/core/domain/challenge";
 import type { ResolutionOutcome, ResolutionTool } from "@moltbooky/core/domain/types";
-import { and, challengeMatches, challenges, createDb, eq, ledgerEntries, lte, or, pipedreamConnections, resolutionRuns, walletAccounts } from "@moltbooky/db";
+import { and, challengeMatches, challenges, createDb, eq, ledgerEntries, lte, or, pipedreamConnections, resolutionRuns, creditAccounts } from "@moltbooky/db";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
@@ -157,20 +157,20 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
   return resolverResult;
 }
 
-async function applyWalletDelta(tx: any, userId: string, availableDeltaCents: number, lockedDeltaCents: number): Promise<void> {
-  const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
-  if (!wallet[0]) {
+async function applyCreditDelta(tx: any, userId: string, availableDeltaCents: number, lockedDeltaCents: number): Promise<void> {
+  const creditAccount = await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).for("update").limit(1);
+  if (!creditAccount[0]) {
     throw new Error("Credit account not found.");
   }
 
   await tx
-    .update(walletAccounts)
+    .update(creditAccounts)
     .set({
-      availableCents: wallet[0].availableCents + availableDeltaCents,
-      lockedCents: wallet[0].lockedCents + lockedDeltaCents,
+      availableCents: creditAccount[0].availableCents + availableDeltaCents,
+      lockedCents: creditAccount[0].lockedCents + lockedDeltaCents,
       updatedAt: new Date()
     })
-    .where(eq(walletAccounts.userId, userId));
+    .where(eq(creditAccounts.userId, userId));
 }
 
 async function refundUnresolvedChallenge(env: Env, challengeId: string): Promise<void> {
@@ -189,7 +189,7 @@ async function refundUnresolvedChallenge(env: Env, challengeId: string): Promise
     const matches = await tx.select().from(challengeMatches).where(eq(challengeMatches.challengeId, challengeId)).for("update");
 
     if (challenge.stakeCents > 0) {
-      await applyWalletDelta(tx, challenge.creatorId, challenge.stakeCents, -challenge.stakeCents);
+      await applyCreditDelta(tx, challenge.creatorId, challenge.stakeCents, -challenge.stakeCents);
       await tx
         .insert(ledgerEntries)
         .values({
@@ -205,7 +205,7 @@ async function refundUnresolvedChallenge(env: Env, challengeId: string): Promise
     }
 
     for (const match of matches) {
-      await applyWalletDelta(tx, match.matcherId, match.amountCents, -match.amountCents);
+      await applyCreditDelta(tx, match.matcherId, match.amountCents, -match.amountCents);
       await tx
         .insert(ledgerEntries)
         .values({

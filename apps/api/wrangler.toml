@@ -4,8 +4,9 @@ compatibility_date = "2024-12-05"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-PAYMENT_LAUNCH_APPROVED = "true"
 BETTER_AUTH_URL = "https://moltbooky.com"
+STRIPE_SUCCESS_URL = "https://moltbooky.com/credits"
+STRIPE_CANCEL_URL = "https://moltbooky.com/credits"
 PIPEDREAM_CLIENT_ID = "uym23nvsV3XiOobTGZOCcRovHMNcBLvkR4gVkUbfYt4"
 PIPEDREAM_PROJECT_ID = "proj_YRsMxDE"
 PIPEDREAM_PROJECT_ENVIRONMENT = "production"

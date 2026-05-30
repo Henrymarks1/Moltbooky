@@ -1,4 +1,4 @@
-export type ApiScope = "challenges:read" | "challenges:create" | "matches:create" | "wallet:read";
+export type ApiScope = "challenges:read" | "challenges:create" | "matches:create" | "credits:read";
 
 export interface ApiKeyPolicy {
   scopes: ApiScope[];
@@ -9,7 +9,7 @@ export interface ApiKeyPolicy {
 }
 
 export const DEFAULT_AGENT_POLICY: ApiKeyPolicy = {
-  scopes: ["challenges:read", "challenges:create", "matches:create", "wallet:read"],
+  scopes: ["challenges:read", "challenges:create", "matches:create", "credits:read"],
   maxStakeCents: 2_500,
   dailyStakeLimitCents: 10_000,
   allowCategories: [],

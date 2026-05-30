@@ -3,6 +3,5 @@
 /how-it-works / 200
 /login / 200
 /my-bets / 200
-/wallet /credits 302
 /challenge/* / 200
 /settings/* / 200

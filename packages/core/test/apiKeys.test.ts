@@ -7,7 +7,7 @@ describe("agent api keys", () => {
       "challenges:read",
       "challenges:create",
       "matches:create",
-      "wallet:read"
+      "credits:read"
     ]);
     expect(DEFAULT_AGENT_POLICY.maxStakeCents).toBe(2_500);
     expect(DEFAULT_AGENT_POLICY.dailyStakeLimitCents).toBe(10_000);

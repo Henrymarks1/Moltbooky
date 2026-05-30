@@ -63,38 +63,17 @@ export const appUsers = pgTable(
   })
 );
 
-export const walletAccounts = pgTable(
-  "wallet_accounts",
+export const creditAccounts = pgTable(
+  "credit_accounts",
   {
     userId: text("user_id").primaryKey().references(() => appUsers.id),
     availableCents: integer("available_cents").notNull().default(0),
     lockedCents: integer("locked_cents").notNull().default(0),
-    pendingWithdrawalCents: integer("pending_withdrawal_cents").notNull().default(0),
     updatedAt: timestamp("updated_at").notNull().defaultNow()
   },
   (table) => ({
-    availableNonNegative: check("wallet_available_non_negative", sql`${table.availableCents} >= 0`),
-    lockedNonNegative: check("wallet_locked_non_negative", sql`${table.lockedCents} >= 0`),
-    pendingNonNegative: check("wallet_pending_non_negative", sql`${table.pendingWithdrawalCents} >= 0`)
-  })
-);
-
-export const userPaymentProfiles = pgTable(
-  "user_payment_profiles",
-  {
-    userId: text("user_id").primaryKey().references(() => appUsers.id),
-    privyUserId: text("privy_user_id"),
-    withdrawalAddress: text("withdrawal_address"),
-    depositWalletId: text("deposit_wallet_id"),
-    depositAddress: text("deposit_address"),
-    chain: text("chain").notNull().default("base"),
-    lastScannedBlock: integer("last_scanned_block"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow()
-  },
-  (table) => ({
-    depositAddressIdx: uniqueIndex("user_payment_profiles_deposit_address_unique").on(table.depositAddress),
-    withdrawalAddressIdx: index("idx_user_payment_profiles_withdrawal").on(table.withdrawalAddress)
+    availableNonNegative: check("credit_account_available_non_negative", sql`${table.availableCents} >= 0`),
+    lockedNonNegative: check("credit_account_locked_non_negative", sql`${table.lockedCents} >= 0`)
   })
 );
 
@@ -132,31 +111,6 @@ export const ledgerEntries = pgTable(
   (table) => ({
     userIdx: index("idx_ledger_user").on(table.userId, table.createdAt),
     idemIdx: uniqueIndex("ledger_entries_idempotency_key_unique").on(table.idempotencyKey)
-  })
-);
-
-export const cryptoTransactions = pgTable(
-  "crypto_transactions",
-  {
-    id: text("id").primaryKey(),
-    direction: text("direction").notNull(),
-    userId: text("user_id").notNull().references(() => appUsers.id),
-    txHash: text("tx_hash").notNull(),
-    logIndex: integer("log_index").notNull().default(0),
-    amountMicroUsdc: text("amount_micro_usdc").notNull(),
-    amountCents: integer("amount_cents").notNull(),
-    status: text("status").notNull(),
-    providerRef: text("provider_ref"),
-    blockNumber: integer("block_number"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow()
-  },
-  (table) => ({
-    txLogUnique: uniqueIndex("crypto_transactions_tx_log_unique").on(table.txHash, table.logIndex),
-    userIdx: index("idx_crypto_transactions_user").on(table.userId, table.createdAt),
-    directionCheck: check("crypto_transactions_direction_check", sql`${table.direction} IN ('deposit', 'withdrawal')`),
-    statusCheck: check("crypto_transactions_status_check", sql`${table.status} IN ('pending', 'confirmed', 'failed')`),
-    amountNonNegative: check("crypto_transactions_amount_non_negative", sql`${table.amountCents} >= 0`)
   })
 );
 

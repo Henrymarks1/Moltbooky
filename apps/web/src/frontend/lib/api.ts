@@ -1,6 +1,6 @@
 import { availableToMatch, oppositeSide, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
 import { creditsToCents } from "@moltbooky/core/domain/money";
-import type { Challenge, ChallengeMatch, LedgerEntryType, ResolutionRun, WalletAccount } from "@moltbooky/core/domain/types";
+import type { Challenge, ChallengeMatch, LedgerEntryType, ResolutionRun, CreditAccount } from "@moltbooky/core/domain/types";
 import { isTestingModeEnabled, testingUser } from "./testingMode";
 
 type LedgerEntry = { id: string; type: LedgerEntryType; amountCents: number; description: string; createdAt: string };
@@ -33,7 +33,7 @@ export type ChallengeDraft = {
 };
 
 type FakeState = {
-  wallet: WalletAccount;
+  creditAccount: CreditAccount;
   challenges: Challenge[];
   matches: ChallengeMatch[];
   resolutionRuns: ResolutionRun[];
@@ -53,11 +53,10 @@ function newId(prefix: string): string {
 
 function initialFakeState(): FakeState {
   return {
-    wallet: {
+    creditAccount: {
       userId: testingUser.id,
       availableCents: startingBalanceCents,
-      lockedCents: 0,
-      pendingWithdrawalCents: 0
+      lockedCents: 0
     },
     challenges: [],
     matches: [],
@@ -86,7 +85,7 @@ function readFakeState(): FakeState {
     const parsed = JSON.parse(raw) as FakeState;
     return {
       ...parsed,
-      wallet: { ...initialFakeState().wallet, ...parsed.wallet },
+      creditAccount: { ...initialFakeState().creditAccount, ...parsed.creditAccount },
       challenges: (parsed.challenges ?? []).map((challenge) => ({
         ...challenge,
         visibility: challenge.visibility ?? "public",
@@ -119,7 +118,7 @@ function fakeLedger(type: LedgerEntryType, amountCents: number, description: str
 }
 
 function requireFakeFunds(state: FakeState, amountCents: number): void {
-  if (state.wallet.availableCents < amountCents) {
+  if (state.creditAccount.availableCents < amountCents) {
     throw new Error("Not enough available credits.");
   }
 }
@@ -157,31 +156,37 @@ function canUseLocalDevFallback(): boolean {
   return import.meta.env.DEV && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
 }
 
-function createCreditPurchase(amountCents: number) {
+function createTestingCreditPurchase(amountCents: number) {
   if (isTestingModeEnabled()) {
     const state = readFakeState();
-    state.wallet.availableCents += amountCents;
+    state.creditAccount.availableCents += amountCents;
     state.ledger.unshift(fakeLedger("credit_purchase", amountCents, "Add testing credits"));
     writeFakeState(state);
-    return Promise.resolve({ onrampUrl: window.location.href, depositAddress: "testing-mode", chain: "base" as const, asset: "USDC" as const });
+    return Promise.resolve({ creditAccount: state.creditAccount });
   }
 
-  const requestInit = {
+  throw new Error("Testing credits can only be added in testing mode.");
+}
+
+function createCreditPurchase(amountCents: number) {
+  if (isTestingModeEnabled()) {
+    void createTestingCreditPurchase(amountCents);
+    return Promise.resolve({ checkoutUrl: window.location.href, sessionId: newId("play_credit_purchase") });
+  }
+
+  return request<{ checkoutUrl: string; sessionId: string }>("/api/payments/credit-purchases", {
     method: "POST",
     body: JSON.stringify({ amountCents })
-  };
-
-  return request<{ onrampUrl: string; depositAddress: string; chain: "base"; asset: "USDC" }>("/api/payments/onramp-session", requestInit);
+  });
 }
 
 export const api = {
   paymentsConfig: () => {
     if (isTestingModeEnabled()) {
-      return Promise.resolve({ creditPurchasesEnabled: true, cashoutsEnabled: true });
+      return Promise.resolve({ creditPurchasesEnabled: true });
     }
-    return request<{ creditPurchasesEnabled: boolean; cashoutsEnabled: boolean; chain?: "base"; asset?: "USDC" }>("/api/payments/config").catch(() => ({
-      creditPurchasesEnabled: false,
-      cashoutsEnabled: false
+    return request<{ creditPurchasesEnabled: boolean }>("/api/payments/config").catch(() => ({
+      creditPurchasesEnabled: false
     }));
   },
   listChallenges: async () => {
@@ -281,8 +286,8 @@ export const api = {
         createdAt: nowIso()
       };
 
-      state.wallet.availableCents -= stakeCents;
-      state.wallet.lockedCents += stakeCents;
+      state.creditAccount.availableCents -= stakeCents;
+      state.creditAccount.lockedCents += stakeCents;
       state.challenges.push(challenge);
       state.ledger.unshift(fakeLedger("lock", stakeCents, "Lock creator credit stake"));
       writeFakeState(state);
@@ -314,8 +319,8 @@ export const api = {
       };
 
       challenge.matchedCents += amountCents;
-      state.wallet.availableCents -= amountCents;
-      state.wallet.lockedCents += amountCents;
+      state.creditAccount.availableCents -= amountCents;
+      state.creditAccount.lockedCents += amountCents;
       state.matches.push(match);
       state.ledger.unshift(fakeLedger("match_lock", amountCents, "Lock matcher credit stake"));
       writeFakeState(state);
@@ -341,8 +346,8 @@ export const api = {
       }
 
       state.challenges = state.challenges.filter((item) => item.id !== id);
-      state.wallet.availableCents += challenge.stakeCents;
-      state.wallet.lockedCents -= challenge.stakeCents;
+      state.creditAccount.availableCents += challenge.stakeCents;
+      state.creditAccount.lockedCents -= challenge.stakeCents;
       state.ledger.unshift(fakeLedger("unlock", challenge.stakeCents, "Release deleted credit stake"));
       writeFakeState(state);
       return Promise.resolve({ deleted: true, unlockedCents: challenge.stakeCents });
@@ -350,11 +355,11 @@ export const api = {
 
     return request<{ deleted: boolean; unlockedCents: number }>(`/api/challenges/${id}`, { method: "DELETE" });
   },
-  wallet: () => {
+  credits: () => {
     if (isTestingModeEnabled()) {
-      return Promise.resolve({ wallet: readFakeState().wallet });
+      return Promise.resolve({ creditAccount: readFakeState().creditAccount });
     }
-    return request<{ wallet: WalletAccount }>("/api/wallet");
+    return request<{ creditAccount: CreditAccount }>("/api/credits");
   },
   ledger: () => {
     if (isTestingModeEnabled()) {
@@ -362,14 +367,8 @@ export const api = {
     }
     return request<{ ledger: LedgerEntry[] }>("/api/ledger");
   },
+  createTestingCreditPurchase,
   createCreditPurchase,
-  createDeposit: createCreditPurchase,
-  setupPaymentWallet: (body: { privyUserId?: string; withdrawalAddress?: string }) =>
-    request<{ chain: "base"; asset: "USDC"; depositAddress: string; withdrawalAddress: string | null; privyUserId: string | null }>("/api/payments/wallet/setup", {
-      method: "POST",
-      body: JSON.stringify(body)
-    }),
-  syncDeposits: () => request<{ creditedCents: number; deposits: number; scannedToBlock: number }>("/api/payments/deposits/sync", { method: "POST" }),
   listPipedreamApps: (query?: string) =>
     request<{ apps: PipedreamApp[] }>(`/api/integrations/pipedream/apps${query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`),
   listPipedreamConnections: () => request<{ connections: PipedreamConnection[] }>("/api/integrations/pipedream/connections"),
@@ -377,28 +376,6 @@ export const api = {
     request<{ connection: PipedreamConnection }>("/api/integrations/pipedream/connections", { method: "POST", body: JSON.stringify(body) }),
   createPipedreamConnectToken: () =>
     request<{ token: string; expiresAt?: string; connectLinkUrl?: string; externalUserId: string }>("/api/integrations/pipedream/connect-token", { method: "POST" }),
-  payoutStatus: () => {
-    if (isTestingModeEnabled()) {
-      return Promise.resolve({ cashoutsEnabled: true, connected: true, payoutsEnabled: true, onboardingRequired: false, withdrawalAddress: null });
-    }
-    return request<{ cashoutsEnabled: boolean; connected: boolean; payoutsEnabled: boolean; onboardingRequired: boolean; withdrawalAddress: string | null }>("/api/payments/connect/status");
-  },
-  createWithdrawal: (amountCents: number) => {
-    if (isTestingModeEnabled()) {
-      if (amountCents <= 0) {
-        throw new Error("Cashout amount must be positive.");
-      }
-      const state = readFakeState();
-      requireFakeFunds(state, amountCents);
-      state.wallet.availableCents -= amountCents;
-      state.wallet.pendingWithdrawalCents += amountCents;
-      state.ledger.unshift(fakeLedger("withdrawal", amountCents, "Cashout requested"));
-      writeFakeState(state);
-      return Promise.resolve({ wallet: state.wallet });
-    }
-
-    return request<{ wallet: WalletAccount; transactionHash: string; withdrawalAddress: string }>("/api/payments/withdrawals", { method: "POST", body: JSON.stringify({ amountCents }) });
-  },
   createApiKey: (name: string) => {
     if (isTestingModeEnabled()) {
       return Promise.resolve({ apiKey: { id: newId("play_key"), secret: `play_${name.trim().toLowerCase().replace(/\s+/g, "_") || "agent"}_key` } });

@@ -74,7 +74,7 @@ function HowItWorks() {
           <div className="grid gap-3 text-sm leading-6 text-muted-foreground [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:text-foreground">
             <h2>Credits and fees</h2>
             <p>Minimum stake is 5 credits. Private beta max stake is 100 credits.</p>
-            <p>The platform fee is 2% of profit only. Credit purchases use Base USDC.</p>
+            <p>The platform fee is 2% of profit only.</p>
           </div>
         </article>
 

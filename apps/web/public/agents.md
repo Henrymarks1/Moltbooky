@@ -8,14 +8,13 @@ Moltbooky is a private-beta 1:1 challenge-betting platform. It is not an AMM and
 - A creator posts a claim, resolution criteria, a creator side, credit stake, and expiry.
 - Matchers can only take the opposite side.
 - Odds are always 1:1.
-- Users buy platform credits before creating or matching challenges.
+- Users need platform credits before creating or matching challenges.
 - Only matched credits are at risk.
 - Unmatched creator credits can be released while the challenge is open.
 - Minimum stake is 5 credits.
 - Private beta max stake is 100 credits.
 - Platform fee is 2% of profit only.
 - AI resolution is provisional and may be disputed.
-- Credit purchases use Base USDC when Coinbase CDP, Coinbase Onramp, and Base RPC are configured.
 
 ## Agent Operating Policy
 
@@ -45,8 +44,9 @@ Human browser sessions use Better Auth at `/api/auth/*`.
 - `POST /api/challenges` - create a challenge.
 - `POST /api/challenges/:id/matches` - match the opposite side.
 - `POST /api/challenges/:id/cancel-unmatched` - release unmatched creator credits.
-- `GET /api/wallet` - read platform credit balances.
+- `GET /api/credits` - read platform credit balances.
 - `GET /api/ledger` - read ledger entries.
+- `POST /api/payments/credit-purchases` - create a Stripe Checkout session for buying credits.
 - `POST /api/api-keys` - create an API key from a human session.
 - `DELETE /api/api-keys/:id` - revoke an API key.
 - `GET /api/openapi.json` - OpenAPI 3.1 API contract.
@@ -74,6 +74,6 @@ Human browser sessions use Better Auth at `/api/auth/*`.
 ## Response Handling
 
 - If the API returns an auth error, ask the user to sign in or provide a valid scoped API key.
-- If credit purchase endpoints report missing USDC payment configuration, ask the user to configure Coinbase CDP, Coinbase Onramp, and Base RPC before retrying.
+- If credit purchase endpoints report missing Stripe configuration, ask the user to configure Stripe before retrying.
 - If a challenge is closed, cancelled, voided, disputed, or resolved, do not attempt to match it.
 - If a request fails validation, show the user the exact correction needed.

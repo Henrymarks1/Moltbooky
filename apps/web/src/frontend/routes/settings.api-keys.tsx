@@ -319,7 +319,7 @@ function ApiKeysPage() {
           <Badge variant="outline">challenges:read</Badge>
           <Badge variant="outline">challenges:create</Badge>
           <Badge variant="outline">matches:create</Badge>
-          <Badge variant="outline">wallet:read</Badge>
+          <Badge variant="outline">credits:read</Badge>
         </div>
       </section>
     </div>

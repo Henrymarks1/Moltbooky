@@ -1,4 +1,3 @@
-import { PrivyProvider } from "@privy-io/react-auth";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { Route as rootRoute } from "./routes/root";
@@ -6,7 +5,7 @@ import { Route as indexRoute } from "./routes/index";
 import { Route as newChallengeRoute } from "./routes/challenge.new";
 import { Route as challengeDetailRoute } from "./routes/challenge.$id";
 import { Route as myBetsRoute } from "./routes/my-bets";
-import { Route as walletRoute, WalletAliasRoute as walletAliasRoute } from "./routes/wallet";
+import { Route as creditsRoute } from "./routes/credits";
 import { Route as apiKeysRoute } from "./routes/settings.api-keys";
 import { Route as adminRoute } from "./routes/admin";
 import { Route as loginRoute } from "./routes/login";
@@ -19,8 +18,7 @@ const routeTree = rootRoute.addChildren([
   newChallengeRoute,
   challengeDetailRoute,
   myBetsRoute,
-  walletRoute,
-  walletAliasRoute,
+  creditsRoute,
   apiKeysRoute,
   adminRoute,
   loginRoute,
@@ -38,23 +36,5 @@ declare module "@tanstack/react-router" {
 initAnalytics();
 
 const app = <RouterProvider router={router} />;
-const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
 
-createRoot(document.getElementById("root")!).render(
-  privyAppId ? (
-    <PrivyProvider
-      appId={privyAppId}
-      config={{
-        embeddedWallets: {
-          ethereum: {
-            createOnLogin: "off"
-          }
-        }
-      }}
-    >
-      {app}
-    </PrivyProvider>
-  ) : (
-    app
-  )
-);
+createRoot(document.getElementById("root")!).render(app);

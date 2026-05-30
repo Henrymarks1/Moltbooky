@@ -1,5 +1,5 @@
-import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, ne, resolutionRuns, walletAccounts } from "@moltbooky/db";
-import type { Challenge, ChallengeMatch, ResolutionRun, ResolutionTool, Side, WalletAccount } from "@moltbooky/core/domain/types";
+import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, ne, resolutionRuns, creditAccounts } from "@moltbooky/db";
+import type { Challenge, ChallengeMatch, ResolutionRun, ResolutionTool, Side, CreditAccount } from "@moltbooky/core/domain/types";
 import { getSessionUserId } from "./auth";
 
 function serializeTimestamp(value: Date | string | null): string | null {
@@ -132,7 +132,7 @@ export async function ensureBetaUser(env: Env, userId: string): Promise<void> {
       .onConflictDoNothing();
 
     await tx
-      .insert(walletAccounts)
+      .insert(creditAccounts)
       .values({
         userId
       })
@@ -140,17 +140,16 @@ export async function ensureBetaUser(env: Env, userId: string): Promise<void> {
   });
 }
 
-export async function getWallet(env: Env, userId: string): Promise<WalletAccount> {
+export async function getCreditAccount(env: Env, userId: string): Promise<CreditAccount> {
   const db = createDb(env.DATABASE_URL);
   const result = await db
     .select({
-      userId: walletAccounts.userId,
-      availableCents: walletAccounts.availableCents,
-      lockedCents: walletAccounts.lockedCents,
-      pendingWithdrawalCents: walletAccounts.pendingWithdrawalCents
+      userId: creditAccounts.userId,
+      availableCents: creditAccounts.availableCents,
+      lockedCents: creditAccounts.lockedCents
     })
-    .from(walletAccounts)
-    .where(eq(walletAccounts.userId, userId))
+    .from(creditAccounts)
+    .where(eq(creditAccounts.userId, userId))
     .limit(1);
 
   if (!result[0]) {
@@ -172,25 +171,25 @@ export async function lockFunds(params: {
   const { env, userId, amountCents, type, challengeId, matchId, description, idempotencyKey } = params;
   const db = createDb(env.DATABASE_URL);
   await db.transaction(async (tx) => {
-    const wallet = await tx
+    const creditAccount = await tx
       .select()
-      .from(walletAccounts)
-      .where(and(eq(walletAccounts.userId, userId), gte(walletAccounts.availableCents, amountCents)))
+      .from(creditAccounts)
+      .where(and(eq(creditAccounts.userId, userId), gte(creditAccounts.availableCents, amountCents)))
       .for("update")
       .limit(1);
 
-    if (!wallet[0]) {
+    if (!creditAccount[0]) {
       throw new Error("Not enough available credits.");
     }
 
     await tx
-      .update(walletAccounts)
+      .update(creditAccounts)
       .set({
-        availableCents: wallet[0].availableCents - amountCents,
-        lockedCents: wallet[0].lockedCents + amountCents,
+        availableCents: creditAccount[0].availableCents - amountCents,
+        lockedCents: creditAccount[0].lockedCents + amountCents,
         updatedAt: new Date()
       })
-      .where(eq(walletAccounts.userId, userId));
+      .where(eq(creditAccounts.userId, userId));
 
     await tx.insert(ledgerEntries).values({
       id: newId("led"),
@@ -316,12 +315,11 @@ export async function actorFromRequest(env: Env, request: Request): Promise<{ us
     return { userId: sessionUserId, scopes: ["*"] };
   }
 
-  if (env.PAYMENT_LAUNCH_APPROVED !== "true") {
-    const devUserId = request.headers.get("x-user-id");
-    if (devUserId) {
-      await ensureBetaUser(env, devUserId);
-      return { userId: devUserId, scopes: ["*"] };
-    }
+  const hostname = new URL(request.url).hostname;
+  if ((hostname === "localhost" || hostname === "127.0.0.1") && env.DEV_USER_HEADER_ENABLED !== "false") {
+    const userId = request.headers.get("x-user-id") ?? "local-dev-user";
+    await ensureBetaUser(env, userId);
+    return { userId, scopes: ["*"] };
   }
 
   throw new Error("Sign in with Better Auth or use a valid agent API key.");

@@ -14,14 +14,12 @@ export type ChallengeStatus =
 
 export type LedgerEntryType =
   | "credit_purchase"
-  | "deposit"
   | "lock"
   | "unlock"
   | "match_lock"
   | "settlement_win"
   | "settlement_loss"
-  | "fee"
-  | "withdrawal";
+  | "fee";
 
 export type ResolutionOutcome = Side | "UNRESOLVED";
 
@@ -79,11 +77,10 @@ export interface ResolutionRun {
   createdAt: string;
 }
 
-export interface WalletAccount {
+export interface CreditAccount {
   userId: string;
   availableCents: number;
   lockedCents: number;
-  pendingWithdrawalCents: number;
 }
 
 export interface SettlementTransfer {

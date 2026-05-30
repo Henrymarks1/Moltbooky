@@ -15,7 +15,6 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/api/payments": "http://127.0.0.1:8789",
       "/api": "http://127.0.0.1:8787"
     }
   }

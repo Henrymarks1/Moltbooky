@@ -3,7 +3,13 @@ BETTER_AUTH_URL="http://localhost:5173"
 BETTER_AUTH_SECRET="local-dev-secret-change-me"
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
-PAYMENT_LAUNCH_APPROVED="false"
+DEV_USER_HEADER_ENABLED="true"
+
+# Optional. Enables Stripe Checkout credit purchases.
+STRIPE_SECRET_KEY=""
+STRIPE_WEBHOOK_SECRET=""
+STRIPE_SUCCESS_URL="http://localhost:5173/credits"
+STRIPE_CANCEL_URL="http://localhost:5173/credits"
 
 # Optional. Enables Pipedream Connect tokens for attaching resolver tools.
 PIPEDREAM_CLIENT_ID=""
