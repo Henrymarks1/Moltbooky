@@ -135,13 +135,65 @@ function appToResolverTool(app: PipedreamApp): ResolverToolPreset {
   };
 }
 
-function toIsoDateTime(value: FormDataEntryValue | null): string {
-  const date = new Date(String(value ?? ""));
+function padDatePart(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function toDateInputValue(date: Date): string {
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+}
+
+function toTimeInputValue(date: Date): string {
+  return `${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
+}
+
+function nextHalfHour(date: Date): Date {
+  const rounded = new Date(date);
+  rounded.setSeconds(0, 0);
+  const minutes = rounded.getMinutes();
+  const remainder = minutes % 30;
+  if (remainder > 0) {
+    rounded.setMinutes(minutes + 30 - remainder);
+  }
+  return rounded;
+}
+
+function defaultExpiryParts(): { date: string; time: string } {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return parseExpiry(nextHalfHour(tomorrow).toISOString());
+}
+
+function parseExpiry(value?: string): { date: string; time: string } {
+  const date = new Date(value ?? "");
+  if (Number.isNaN(date.getTime())) {
+    const fallback = nextHalfHour(new Date());
+    fallback.setDate(fallback.getDate() + 1);
+    return { date: toDateInputValue(fallback), time: toTimeInputValue(fallback) };
+  }
+
+  const rounded = nextHalfHour(date);
+  return { date: toDateInputValue(rounded), time: toTimeInputValue(rounded) };
+}
+
+function expiryPartsToIso(dateValue: string, timeValue: string): string {
+  const date = new Date(`${dateValue}T${timeValue}:00`);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
   return date.toISOString();
 }
+
+const expiryTimeOptions = Array.from({ length: 48 }, (_, index) => {
+  const hours = Math.floor(index / 2);
+  const minutes = index % 2 === 0 ? 0 : 30;
+  const value = `${padDatePart(hours)}:${padDatePart(minutes)}`;
+  const labelDate = new Date(2026, 0, 1, hours, minutes);
+  return {
+    value,
+    label: labelDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "").toLowerCase()
+  };
+});
 
 function NewChallenge() {
   const navigate = useNavigate();
@@ -156,7 +208,8 @@ function NewChallenge() {
   const [claim, setClaim] = useState(draftClaim);
   const [resolutionCriteria, setResolutionCriteria] = useState("");
   const [stakeCredits, setStakeCredits] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
+  const [expiryDate, setExpiryDate] = useState(() => defaultExpiryParts().date);
+  const [expiryTime, setExpiryTime] = useState(() => defaultExpiryParts().time);
   const [creatorSide, setCreatorSide] = useState<"YES" | "NO">("YES");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
@@ -192,6 +245,7 @@ function NewChallenge() {
   const connectionsById = useMemo(() => new Map(pipedreamConnections.map((connection) => [connection.id, connection])), [pipedreamConnections]);
   const connectionsByAppSlug = useMemo(() => new Map(pipedreamConnections.map((connection) => [connection.appSlug, connection])), [pipedreamConnections]);
   const selectedConnections = selectedConnectionIds.map((id) => connectionsById.get(id)).filter((connection): connection is PipedreamConnection => Boolean(connection));
+  const expiresAt = useMemo(() => expiryPartsToIso(expiryDate, expiryTime), [expiryDate, expiryTime]);
 
   const draft = useMemo<ChallengeDraft>(() => {
     return { claim, resolutionCriteria, creatorSide, visibility, stakeCredits, expiresAt, pipedreamConnectionIds: selectedConnectionIds };
@@ -215,7 +269,9 @@ function NewChallenge() {
         setCreatorSide(saved.creatorSide ?? "YES");
         setVisibility(saved.visibility ?? "public");
         setStakeCredits(saved.stakeCredits ?? "");
-        setExpiresAt(saved.expiresAt ?? "");
+        const expiry = parseExpiry(saved.expiresAt);
+        setExpiryDate(expiry.date);
+        setExpiryTime(expiry.time);
         setSelectedConnectionIds(saved.pipedreamConnectionIds ?? []);
       })
       .catch(() => {
@@ -379,7 +435,7 @@ function NewChallenge() {
         creatorSide,
         visibility,
         stakeCredits: String(form.get("stakeCredits") ?? ""),
-        expiresAt: toIsoDateTime(form.get("expiresAt"))
+        expiresAt
       });
       window.dispatchEvent(new Event(authChangeEvent));
       await navigate({ to: "/challenge/$id", params: { id: challenge.id } });
@@ -537,8 +593,23 @@ function NewChallenge() {
           </Label>
           <Label>
             <span className="inline-flex items-center gap-1.5"><TimerReset size={15} /> Expiry</span>
-            <Input name="expiresAt" type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} required />
-            <small className="text-xs font-medium text-muted-foreground">Uses your local timezone and saves as UTC.</small>
+            <div className="grid grid-cols-[minmax(0,1fr)_150px] gap-2 max-[520px]:grid-cols-1">
+              <Input aria-label="Expiry date" name="expiryDate" type="date" value={expiryDate} onChange={(event) => setExpiryDate(event.target.value)} required />
+              <select
+                aria-label="Expiry time"
+                name="expiryTime"
+                className="h-11 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                value={expiryTime}
+                onChange={(event) => setExpiryTime(event.target.value)}
+                required
+              >
+                {expiryTimeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </Label>
         </div>
           </CardContent>
