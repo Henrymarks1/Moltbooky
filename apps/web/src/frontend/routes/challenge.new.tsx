@@ -1,14 +1,14 @@
 import { createRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFrontendClient } from "@pipedream/sdk/browser";
-import { CheckCircle2, CircleDollarSign, Globe2, Link2, TimerReset } from "lucide-react";
+import { CheckCircle2, CircleDollarSign, Globe2, Link2, Search, Sparkles, TimerReset } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
-import { api } from "../lib/api";
+import { api, type ChallengeDraft, type PipedreamApp, type PipedreamConnection } from "../lib/api";
 import { draftClaimKey } from "../lib/drafts";
 import { authChangeEvent } from "./root";
 import { rootRoute } from "./root";
@@ -25,35 +25,20 @@ type ResolverToolPreset = {
   appName: string;
   authPropName: string;
   actionKey: string;
-  iconSrc: string;
+  iconSrc?: string;
   iconFallback: string;
-  tint: string;
   summary: string;
   defaultInstructions: string;
 };
 
 const resolverToolPresets: ResolverToolPreset[] = [
   {
-    id: "strava",
-    appSlug: "strava",
-    appName: "Strava",
-    authPropName: "strava",
-    actionKey: "strava-list-activities",
-    iconSrc: "https://cdn.simpleicons.org/strava/FC4C02",
-    iconFallback: "S",
-    tint: "#fc4c02",
-    summary: "Activities, distances, routes",
-    defaultInstructions: "Use Strava only to verify activities relevant to this market."
-  },
-  {
     id: "linkedin",
     appSlug: "linkedin",
     appName: "LinkedIn",
     authPropName: "linkedin",
     actionKey: "linkedin-get-profile",
-    iconSrc: "https://cdn.simpleicons.org/linkedin/0A66C2",
     iconFallback: "in",
-    tint: "#0a66c2",
     summary: "Profile and company signals",
     defaultInstructions: "Use LinkedIn only to verify profile or company facts relevant to this market."
   },
@@ -63,49 +48,84 @@ const resolverToolPresets: ResolverToolPreset[] = [
     appName: "GitHub",
     authPropName: "github",
     actionKey: "github-get-repository",
-    iconSrc: "https://cdn.simpleicons.org/github/181717",
     iconFallback: "GH",
-    tint: "#181717",
     summary: "Repos, commits, releases",
     defaultInstructions: "Use GitHub only to verify repository, release, issue, or commit evidence relevant to this market."
   },
   {
-    id: "fitbit",
-    appSlug: "fitbit",
-    appName: "Fitbit",
-    authPropName: "fitbit",
-    actionKey: "fitbit-get-activities",
-    iconSrc: "https://cdn.simpleicons.org/fitbit/00B0B9",
-    iconFallback: "F",
-    tint: "#00b0b9",
-    summary: "Health and activity data",
-    defaultInstructions: "Use Fitbit only to verify activity or health data relevant to this market."
+    id: "strava",
+    appSlug: "strava",
+    appName: "Strava",
+    authPropName: "strava",
+    actionKey: "strava-list-activities",
+    iconFallback: "S",
+    summary: "Activities, distances, routes",
+    defaultInstructions: "Use Strava only to verify activities relevant to this market."
   },
   {
-    id: "google-sheets",
-    appSlug: "google_sheets",
-    appName: "Google Sheets",
-    authPropName: "google_sheets",
-    actionKey: "google_sheets-get-values",
-    iconSrc: "https://cdn.simpleicons.org/googlesheets/34A853",
+    id: "slack",
+    appSlug: "slack",
+    appName: "Slack",
+    authPropName: "slack",
+    actionKey: "slack-fetch-conversation-history",
+    iconFallback: "S",
+    summary: "Channels, messages, workspace activity",
+    defaultInstructions: "Use Slack only to verify workspace messages or channel evidence relevant to this market."
+  },
+  {
+    id: "gmail",
+    appSlug: "gmail",
+    appName: "Gmail",
+    authPropName: "gmail",
+    actionKey: "gmail-search-emails",
     iconFallback: "G",
-    tint: "#34a853",
-    summary: "Rows, records, calculations",
-    defaultInstructions: "Use Google Sheets only to verify spreadsheet values relevant to this market."
+    summary: "Emails, senders, timestamps",
+    defaultInstructions: "Use Gmail only to verify email evidence relevant to this market."
   },
   {
-    id: "notion",
-    appSlug: "notion",
-    appName: "Notion",
-    authPropName: "notion",
-    actionKey: "notion-search",
-    iconSrc: "https://cdn.simpleicons.org/notion/000000",
-    iconFallback: "N",
-    tint: "#111827",
-    summary: "Pages and database records",
-    defaultInstructions: "Use Notion only to verify pages or database records relevant to this market."
+    id: "google-drive",
+    appSlug: "google_drive",
+    appName: "Google Drive",
+    authPropName: "google_drive",
+    actionKey: "google_drive-search-files",
+    iconFallback: "GD",
+    summary: "Files, folders, documents",
+    defaultInstructions: "Use Google Drive only to verify file or document evidence relevant to this market."
+  },
+  {
+    id: "google-calendar",
+    appSlug: "google_calendar",
+    appName: "Google Calendar",
+    authPropName: "google_calendar",
+    actionKey: "google_calendar-list-events",
+    iconFallback: "GC",
+    summary: "Events, schedules, attendees",
+    defaultInstructions: "Use Google Calendar only to verify event or schedule evidence relevant to this market."
   }
 ];
+
+const resolverToolPresetsBySlug = new Map(resolverToolPresets.map((tool) => [tool.appSlug, tool]));
+const defaultResolverToolSlugs = resolverToolPresets.map((tool) => tool.appSlug);
+
+function appFallback(name: string): string {
+  const words = name.replace(/\([^)]*\)/g, "").trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0]?.toUpperCase()).join("") || "?";
+}
+
+function appToResolverTool(app: PipedreamApp): ResolverToolPreset {
+  const preset = resolverToolPresetsBySlug.get(app.nameSlug);
+  return {
+    id: app.nameSlug,
+    appSlug: app.nameSlug,
+    appName: app.name,
+    authPropName: preset?.authPropName ?? app.nameSlug,
+    actionKey: preset?.actionKey ?? `${app.nameSlug}-make-api-request`,
+    iconSrc: app.imgSrc,
+    iconFallback: appFallback(app.name),
+    summary: preset?.summary ?? app.categories?.slice(0, 2).join(", ") ?? app.authType ?? "Pipedream connection",
+    defaultInstructions: preset?.defaultInstructions ?? `Use ${app.name} only to verify evidence relevant to this market.`
+  };
+}
 
 function toIsoDateTime(value: FormDataEntryValue | null): string {
   const date = new Date(String(value ?? ""));
@@ -125,23 +145,151 @@ function NewChallenge() {
     window.sessionStorage.removeItem(draftClaimKey);
     return draft;
   });
+  const [claim, setClaim] = useState(draftClaim);
+  const [resolutionCriteria, setResolutionCriteria] = useState("");
+  const [stakeCredits, setStakeCredits] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
   const [creatorSide, setCreatorSide] = useState<"YES" | "NO">("YES");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
-  const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+  const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
   const [connectingPipedream, setConnectingPipedream] = useState(false);
   const [pipedreamStatus, setPipedreamStatus] = useState("");
   const [connectError, setConnectError] = useState("");
-  const [connectedAccountIds, setConnectedAccountIds] = useState<Record<string, string>>({});
+  const [pipedreamConnections, setPipedreamConnections] = useState<PipedreamConnection[]>([]);
+  const [pipedreamApps, setPipedreamApps] = useState<PipedreamApp[]>([]);
+  const [pipedreamAppsLoading, setPipedreamAppsLoading] = useState(false);
+  const [pipedreamAppsError, setPipedreamAppsError] = useState("");
+  const [appSearch, setAppSearch] = useState("");
+  const [visibleToolLimit, setVisibleToolLimit] = useState(90);
+  const [draftReady, setDraftReady] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const selectedTool = resolverToolPresets.find((tool) => tool.id === selectedToolId) ?? null;
+  const resolverTools = useMemo(() => {
+    if (!pipedreamApps.length) {
+      return resolverToolPresets;
+    }
+    const toolsBySlug = new Map(pipedreamApps.map((app) => [app.nameSlug, appToResolverTool(app)]));
+    const toolsByName = new Map(pipedreamApps.map((app) => [app.name.toLowerCase(), appToResolverTool(app)]));
+    const pinnedTools = defaultResolverToolSlugs
+      .map((slug) => {
+        const preset = resolverToolPresetsBySlug.get(slug);
+        return toolsBySlug.get(slug) ?? (preset ? toolsByName.get(preset.appName.toLowerCase()) : undefined) ?? preset;
+      })
+      .filter((tool): tool is ResolverToolPreset => Boolean(tool));
+    const pinnedSlugs = new Set(pinnedTools.map((tool) => tool.appSlug));
+    const pinnedNames = new Set(pinnedTools.map((tool) => tool.appName.toLowerCase()));
+    return [...pinnedTools, ...pipedreamApps.filter((app) => !pinnedSlugs.has(app.nameSlug) && !pinnedNames.has(app.name.toLowerCase())).map(appToResolverTool)];
+  }, [pipedreamApps]);
+  const visibleResolverTools = resolverTools.slice(0, visibleToolLimit);
+  const connectionsById = useMemo(() => new Map(pipedreamConnections.map((connection) => [connection.id, connection])), [pipedreamConnections]);
+  const connectionsByAppSlug = useMemo(() => new Map(pipedreamConnections.map((connection) => [connection.appSlug, connection])), [pipedreamConnections]);
+  const selectedConnections = selectedConnectionIds.map((id) => connectionsById.get(id)).filter((connection): connection is PipedreamConnection => Boolean(connection));
+
+  const draft = useMemo<ChallengeDraft>(() => {
+    return { claim, resolutionCriteria, creatorSide, visibility, stakeCredits, expiresAt, pipedreamConnectionIds: selectedConnectionIds };
+  }, [claim, creatorSide, expiresAt, resolutionCriteria, selectedConnectionIds, stakeCredits, visibility]);
+
+  useEffect(() => {
+    setVisibleToolLimit(90);
+  }, [appSearch]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getChallengeDraft()
+      .then(({ challenge }) => {
+        if (cancelled || !challenge) {
+          return;
+        }
+        const saved = challenge.draft;
+        setClaim(saved.claim ?? "");
+        setResolutionCriteria(saved.resolutionCriteria ?? "");
+        setCreatorSide(saved.creatorSide ?? "YES");
+        setVisibility(saved.visibility ?? "public");
+        setStakeCredits(saved.stakeCredits ?? "");
+        setExpiresAt(saved.expiresAt ?? "");
+        setSelectedConnectionIds(saved.pipedreamConnectionIds ?? []);
+      })
+      .catch(() => {
+        // Drafts require auth; an anonymous user can still compose until publish redirects.
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDraftReady(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listPipedreamConnections()
+      .then(({ connections }) => {
+        if (!cancelled) {
+          setPipedreamConnections(connections);
+        }
+      })
+      .catch(() => {
+        // The app directory is useful before sign-in; saved connections require an authenticated user.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPipedreamAppsLoading(true);
+    setPipedreamAppsError("");
+    api
+      .listPipedreamApps(appSearch)
+      .then(({ apps }) => {
+        if (!cancelled) {
+          setPipedreamApps(apps);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setPipedreamAppsError((err as Error).message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPipedreamAppsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appSearch]);
+
+  useEffect(() => {
+    if (!draftReady) {
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      void api.saveChallengeDraft(draft).catch(() => {
+        // Autosave should never block composing a market.
+      });
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [draft, draftReady]);
 
   async function selectResolverTool(tool: ResolverToolPreset) {
-    setSelectedToolId(tool.id);
-    setConnectingPipedream(true);
     setConnectError("");
     setPipedreamStatus("");
     setError("");
+    const savedConnection = connectionsByAppSlug.get(tool.appSlug);
+    if (savedConnection) {
+      setSelectedConnectionIds((ids) => (ids.includes(savedConnection.id) ? ids : [...ids, savedConnection.id]));
+      setPipedreamStatus(`${savedConnection.appName} added to this agent.`);
+      return;
+    }
+
+    setConnectingPipedream(true);
     try {
       const initialToken = await api.createPipedreamConnectToken();
       const client = createFrontendClient({
@@ -160,8 +308,24 @@ function NewChallenge() {
       await client.connectAccount({
         app: tool.appSlug,
         onSuccess: ({ id }) => {
-          setConnectedAccountIds((accounts) => ({ ...accounts, [tool.id]: id }));
-          setPipedreamStatus(`${tool.appName} connected.`);
+          void api
+            .savePipedreamConnection({
+              appSlug: tool.appSlug,
+              appName: tool.appName,
+              accountId: id,
+              authPropName: tool.authPropName
+            })
+            .then(({ connection }) => {
+              setPipedreamConnections((connections) => {
+                const withoutCurrentApp = connections.filter((item) => item.appSlug !== connection.appSlug);
+                return [...withoutCurrentApp, connection];
+              });
+              setSelectedConnectionIds((ids) => (ids.includes(connection.id) ? ids : [...ids, connection.id]));
+              setPipedreamStatus(`${connection.appName} connected and added to this agent.`);
+            })
+            .catch((err) => {
+              setConnectError((err as Error).message);
+            });
         },
         onError: (err) => {
           setConnectError(err.message);
@@ -200,33 +364,10 @@ function NewChallenge() {
     const form = new FormData(event.currentTarget);
 
     try {
-      let configuredProps: Record<string, unknown> | undefined;
-      const configuredPropsRaw = String(form.get("pipedreamConfiguredProps") ?? "").trim();
-      if (configuredPropsRaw) {
-        const parsed = JSON.parse(configuredPropsRaw) as unknown;
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          throw new Error("Pipedream default props must be a JSON object.");
-        }
-        configuredProps = parsed as Record<string, unknown>;
-      }
-
-      const resolutionTool = selectedTool
-        ? {
-            type: "pipedream_action" as const,
-            appSlug: String(form.get("pipedreamAppSlug") ?? selectedTool.appSlug).trim(),
-            appName: String(form.get("pipedreamAppName") ?? selectedTool.appName).trim() || selectedTool.appName,
-            authPropName: String(form.get("pipedreamAuthPropName") ?? selectedTool.authPropName).trim(),
-            accountId: String(form.get("pipedreamAccountId") ?? "").trim() || undefined,
-            actionKey: String(form.get("pipedreamActionKeyOverride") || form.get("pipedreamActionKey") || selectedTool.actionKey).trim(),
-            configuredProps,
-            instructions: String(form.get("pipedreamInstructions") ?? "").trim() || selectedTool.defaultInstructions
-          }
-        : null;
-
       const { challenge } = await api.createChallenge({
         claim: String(form.get("claim") ?? ""),
         resolutionCriteria: String(form.get("resolutionCriteria") ?? ""),
-        resolutionTool,
+        pipedreamConnectionIds: selectedConnectionIds,
         creatorSide,
         visibility,
         stakeCredits: String(form.get("stakeCredits") ?? ""),
@@ -271,7 +412,8 @@ function NewChallenge() {
           <Textarea
             name="claim"
             placeholder="I bet YES that OpenAI launches a new model by June 30, 2026."
-            defaultValue={draftClaim}
+            value={claim}
+            onChange={(event) => setClaim(event.target.value)}
             required
           />
         </Label>
@@ -280,80 +422,114 @@ function NewChallenge() {
           <Textarea
             name="resolutionCriteria"
             placeholder="Resolve YES only if OpenAI announces general availability on its official site or API docs before the expiry."
+            value={resolutionCriteria}
+            onChange={(event) => setResolutionCriteria(event.target.value)}
             required
           />
         </Label>
         <div className="tool-picker">
-          {selectedTool && (
-            <>
-              <input type="hidden" name="pipedreamAppSlug" value={selectedTool.appSlug} />
-              <input type="hidden" name="pipedreamAppName" value={selectedTool.appName} />
-              <input type="hidden" name="pipedreamAuthPropName" value={selectedTool.authPropName} />
-              <input type="hidden" name="pipedreamActionKey" value={selectedTool.actionKey} />
-              <input type="hidden" name="pipedreamAccountId" value={connectedAccountIds[selectedTool.id] ?? ""} />
-            </>
-          )}
             <div className="tool-picker-header">
-              <span>Give the resolver evidence access</span>
-              <strong>{selectedTool?.appName ?? "Web search only"}</strong>
+              <div>
+                <span>Give the resolver evidence access</span>
+                <small>{appSearch.trim() ? `${pipedreamApps.length.toLocaleString()} matching apps` : "Popular Pipedream apps"}</small>
+              </div>
+              <strong>Click to add to agent</strong>
             </div>
-            <div className="tool-card-grid">
-              {resolverToolPresets.map((tool) => (
-                <button
-                  type="button"
-                  key={tool.id}
-                  className={selectedToolId === tool.id ? "tool-card selected" : "tool-card"}
-                  onClick={() => selectResolverTool(tool)}
-                  disabled={connectingPipedream}
-                  aria-pressed={selectedToolId === tool.id}
-                >
-                  <span className="tool-card-icon" style={{ "--tool-color": tool.tint } as React.CSSProperties}>
-                    <em>{tool.iconFallback}</em>
-                    <img src={tool.iconSrc} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />
-                  </span>
-                  <span>
-                    <strong>{tool.appName}</strong>
-                    <small>{tool.summary}</small>
-                  </span>
-                </button>
+            <div className="agent-tool-strip">
+              <span className="agent-tool-label">Agent tools</span>
+              <div className="agent-tool-pill always-on">
+                <Sparkles size={14} />
+                <span>Exa web search</span>
+              </div>
+              {selectedConnections.map((connection) => {
+                const preset = resolverToolPresetsBySlug.get(connection.appSlug);
+                return (
+                  <div className="agent-tool-pill" key={connection.id}>
+                    <span className="agent-tool-logo">
+                      <em>{preset?.iconFallback ?? appFallback(connection.appName)}</em>
+                    </span>
+                    <span>{connection.appName}</span>
+                  </div>
+                );
+              })}
+              {selectedConnectionIds.length > selectedConnections.length && (
+                <div className="agent-tool-pill">
+                  <span>{selectedConnectionIds.length - selectedConnections.length} saved connection{selectedConnectionIds.length - selectedConnections.length === 1 ? "" : "s"}</span>
+                </div>
+              )}
+            </div>
+            <label className="tool-search">
+              <Search size={16} />
+              <Input
+                value={appSearch}
+                onChange={(event) => setAppSearch(event.target.value)}
+                placeholder="Search Pipedream apps"
+                type="search"
+              />
+            </label>
+            <div
+              className="tool-card-grid"
+              onScroll={(event) => {
+                const target = event.currentTarget;
+                if (target.scrollTop + target.clientHeight >= target.scrollHeight - 120) {
+                  setVisibleToolLimit((limit) => Math.min(limit + 90, resolverTools.length));
+                }
+              }}
+            >
+              {visibleResolverTools.map((tool) => (
+                (() => {
+                  const savedConnection = connectionsByAppSlug.get(tool.appSlug);
+                  const isAdded = Boolean(savedConnection && selectedConnectionIds.includes(savedConnection.id));
+                  return (
+                  <button
+                    type="button"
+                    key={tool.id}
+                    className={isAdded ? "tool-card selected" : "tool-card"}
+                    onClick={() => selectResolverTool(tool)}
+                    disabled={connectingPipedream}
+                    aria-pressed={isAdded}
+                  >
+                    <span className="tool-card-icon">
+                      {tool.iconSrc ? (
+                        <img src={tool.iconSrc} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+                      ) : (
+                        <em>{tool.iconFallback}</em>
+                      )}
+                    </span>
+                    <span className="tool-card-body">
+                      <span className="tool-card-title">
+                        <strong>{tool.appName}</strong>
+                        {savedConnection && <span className="tool-chip">Connected</span>}
+                      </span>
+                      <small>{tool.summary}</small>
+                    </span>
+                  </button>
+                  );
+                })()
               ))}
+              {!resolverTools.length && (
+                <div className="tool-empty">
+                  <strong>No matching apps</strong>
+                  <span>Try a different search.</span>
+                </div>
+              )}
             </div>
+            {resolverTools.length > visibleResolverTools.length && (
+              <p className="tool-count">Showing {visibleResolverTools.length.toLocaleString()} of {resolverTools.length.toLocaleString()} apps. Scroll for more.</p>
+            )}
+            {pipedreamAppsLoading && <p className="tool-status">Loading Pipedream app directory...</p>}
+            {pipedreamAppsError && <p className="tool-error">{pipedreamAppsError}</p>}
             {pipedreamStatus && <p className="tool-status"><Link2 size={15} /> {pipedreamStatus}</p>}
             {connectError && <p className="tool-error">{connectError}</p>}
-            {selectedTool && <details className="tool-advanced">
-              <summary>Advanced resolver settings</summary>
-              <div className="two-col">
-                <Label>
-                  Connected account ID
-                  <Input value={connectedAccountIds[selectedTool.id] ?? ""} placeholder="Filled after authorization" readOnly />
-                </Label>
-                <Label>
-                  Action key
-                  <Input name="pipedreamActionKeyOverride" placeholder={selectedTool.actionKey} />
-                </Label>
-              </div>
-            </details>}
-            {selectedTool && (
-              <>
-                <Label>
-                  Default props JSON
-                  <Textarea name="pipedreamConfiguredProps" placeholder={'{"before": "2026-06-30T23:59:00Z"}'} />
-                </Label>
-                <Label>
-                  Resolver instructions
-                  <Textarea name="pipedreamInstructions" placeholder={selectedTool.defaultInstructions} />
-                </Label>
-              </>
-            )}
         </div>
         <div className="two-col">
           <Label>
             <span><CircleDollarSign size={15} /> Stake</span>
-            <Input name="stakeCredits" inputMode="decimal" placeholder="25.00" required />
+            <Input name="stakeCredits" inputMode="decimal" placeholder="25.00" value={stakeCredits} onChange={(event) => setStakeCredits(event.target.value)} required />
           </Label>
           <Label>
             <span><TimerReset size={15} /> Expiry</span>
-            <Input name="expiresAt" type="datetime-local" required />
+            <Input name="expiresAt" type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} required />
             <small className="field-help">Uses your local timezone and saves as UTC.</small>
           </Label>
         </div>

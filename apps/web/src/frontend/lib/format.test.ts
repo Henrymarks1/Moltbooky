@@ -7,6 +7,7 @@ const challenge: Challenge = {
   creatorId: "creator",
   claim: "A sufficiently clear claim for display tests.",
   resolutionCriteria: "A sufficiently clear resolution standard for display tests.",
+  pipedreamConnectionIds: [],
   creatorSide: "YES",
   visibility: "public",
   stakeCents: 10_000,

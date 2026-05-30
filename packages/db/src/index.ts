@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/neon-serverless";
 import * as schema from "./db/schema";
 
 export * from "./db/schema";
-export { and, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
+export { and, desc, eq, gte, isNull, lte, ne, or } from "drizzle-orm";
 export { schema };
 
 export function createDb(databaseUrl: string) {

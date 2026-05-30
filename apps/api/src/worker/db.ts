@@ -1,4 +1,4 @@
-import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionRuns, walletAccounts } from "@moltbooky/db";
+import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, ne, resolutionRuns, walletAccounts } from "@moltbooky/db";
 import type { Challenge, ChallengeMatch, ResolutionRun, ResolutionTool, Side, WalletAccount } from "@moltbooky/core/domain/types";
 import { getSessionUserId } from "./auth";
 
@@ -10,11 +10,15 @@ function serializeTimestamp(value: Date | string | null): string | null {
 }
 
 function toChallenge(row: typeof challenges.$inferSelect): Challenge {
-  let resolutionTool: ResolutionTool | null = null;
+  let resolutionTool: Challenge["resolutionTool"] = null;
   if (row.resolutionTool) {
     try {
-      const parsed = JSON.parse(row.resolutionTool) as ResolutionTool;
-      resolutionTool = parsed?.type === "pipedream_action" ? parsed : null;
+      const parsed = JSON.parse(row.resolutionTool) as ResolutionTool | ResolutionTool[];
+      resolutionTool = Array.isArray(parsed)
+        ? parsed.filter((tool): tool is ResolutionTool => tool?.type === "pipedream_action")
+        : parsed?.type === "pipedream_action"
+          ? parsed
+          : null;
     } catch {
       resolutionTool = null;
     }
@@ -26,6 +30,7 @@ function toChallenge(row: typeof challenges.$inferSelect): Challenge {
     claim: row.claim,
     resolutionCriteria: row.resolutionCriteria,
     resolutionTool,
+    pipedreamConnectionIds: row.pipedreamConnectionIds ?? [],
     creatorSide: row.creatorSide as Challenge["creatorSide"],
     visibility: row.visibility as Challenge["visibility"],
     stakeCents: row.stakeCents,
@@ -205,7 +210,7 @@ export async function listChallenges(env: Env): Promise<Challenge[]> {
   const result = await db
     .select()
     .from(challenges)
-    .where(eq(challenges.visibility, "public"))
+    .where(and(eq(challenges.visibility, "public"), ne(challenges.status, "draft")))
     .orderBy(desc(challenges.createdAt))
     .limit(100);
   return result.map(toChallenge);
@@ -216,7 +221,7 @@ export async function listUserChallenges(env: Env, userId: string): Promise<Chal
   const createdRows = await db
     .select()
     .from(challenges)
-    .where(eq(challenges.creatorId, userId))
+    .where(and(eq(challenges.creatorId, userId), ne(challenges.status, "draft")))
     .orderBy(desc(challenges.createdAt))
     .limit(100);
   const matchedRows = await db

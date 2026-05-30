@@ -37,13 +37,15 @@ export interface PipedreamResolutionTool {
 }
 
 export type ResolutionTool = PipedreamResolutionTool;
+export type ResolutionTools = ResolutionTool[];
 
 export interface Challenge {
   id: string;
   creatorId: string;
   claim: string;
   resolutionCriteria: string;
-  resolutionTool?: ResolutionTool | null;
+  resolutionTool?: ResolutionTool | ResolutionTools | null;
+  pipedreamConnectionIds: string[];
   creatorSide: Side;
   visibility: ChallengeVisibility;
   stakeCents: number;

@@ -3,7 +3,7 @@ import { availableToMatch, oppositeSide, settleChallenge, validateChallengeInput
 import { DEFAULT_AGENT_POLICY, createApiKeySecret, hashApiKey } from "@moltbooky/core/domain/apiKeys";
 import { creditsToCents } from "@moltbooky/core/domain/money";
 import type { Challenge, ChallengeMatch, Side } from "@moltbooky/core/domain/types";
-import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, ledgerEntries, walletAccounts } from "@moltbooky/db";
+import { and, apiKeys, challengeMatches, challenges, createDb, desc, eq, ledgerEntries, pipedreamConnections, walletAccounts } from "@moltbooky/db";
 import {
   actorFromRequest,
   ensureBetaUser,
@@ -44,6 +44,8 @@ const resolutionToolSchema = z.object({
   configuredProps: jsonRecordSchema.optional(),
   instructions: z.string().trim().max(2000).optional()
 });
+const resolutionToolsSchema = z.array(resolutionToolSchema).max(8);
+const pipedreamConnectionIdsSchema = z.array(z.string().trim().min(1).max(120)).max(8).default([]);
 const requestDateTimeSchema = z.string().trim().transform((value, ctx) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -63,7 +65,8 @@ const challengeSchema = z.object({
   creatorId: z.string(),
   claim: z.string(),
   resolutionCriteria: z.string(),
-  resolutionTool: resolutionToolSchema.nullable().optional(),
+  resolutionTool: z.union([resolutionToolSchema, resolutionToolsSchema]).nullable().optional(),
+  pipedreamConnectionIds: z.array(z.string()),
   creatorSide: sideSchema,
   visibility: challengeVisibilitySchema,
   stakeCents: centsSchema,
@@ -136,7 +139,8 @@ const createChallengeRequestSchema = z
   .object({
     claim: z.string().min(1),
     resolutionCriteria: z.string().min(1),
-    resolutionTool: resolutionToolSchema.nullable().optional(),
+    resolutionTool: z.union([resolutionToolSchema, resolutionToolsSchema]).nullable().optional(),
+    pipedreamConnectionIds: pipedreamConnectionIdsSchema.optional(),
     creatorSide: sideSchema,
     visibility: challengeVisibilitySchema.default("public"),
     stakeCredits: creditValueSchema.optional(),
@@ -147,6 +151,22 @@ const createChallengeRequestSchema = z
   .refine((value) => value.stakeCredits !== undefined || value.stakeDollars !== undefined || value.stakeCents !== undefined, {
     message: "stakeCredits or stakeCents is required."
   });
+const challengeDraftDataSchema = z.object({
+  claim: z.string().optional(),
+  resolutionCriteria: z.string().optional(),
+  creatorSide: sideSchema.optional(),
+  visibility: challengeVisibilitySchema.optional(),
+  stakeCredits: z.string().optional(),
+  expiresAt: z.string().optional(),
+  pipedreamConnectionIds: pipedreamConnectionIdsSchema.optional()
+});
+const saveChallengeDraftRequestSchema = z.object({
+  draft: challengeDraftDataSchema
+});
+const challengeDraftResponseSchema = z.object({
+  id: z.string(),
+  draft: challengeDraftDataSchema
+});
 
 const createMatchRequestSchema = z
   .object({
@@ -167,6 +187,30 @@ const pipedreamTokenResponseSchema = z.object({
   expiresAt: z.string().optional(),
   connectLinkUrl: z.string().optional(),
   externalUserId: z.string()
+});
+const pipedreamAppSchema = z.object({
+  id: z.string(),
+  nameSlug: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  imgSrc: z.string().optional(),
+  categories: z.array(z.string()).optional(),
+  authType: z.string().optional()
+});
+const pipedreamConnectionSchema = z.object({
+  id: z.string(),
+  appSlug: z.string(),
+  appName: z.string(),
+  accountId: z.string(),
+  authPropName: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+const savePipedreamConnectionRequestSchema = z.object({
+  appSlug: z.string().trim().min(1).max(80),
+  appName: z.string().trim().min(1).max(120),
+  accountId: z.string().trim().min(1).max(120),
+  authPropName: z.string().trim().min(1).max(80)
 });
 
 const finalizeChallengeRequestSchema = z.object({
@@ -327,6 +371,43 @@ async function pipedreamAccessToken(env: Env, scope: string): Promise<string> {
   return data.access_token;
 }
 
+async function currentActor(env: Env, request: Request): Promise<{ userId: string; scopes: string[] }> {
+  try {
+    return await actorFromRequest(env, request);
+  } catch (error) {
+    if (!isLocalRequest(request) || !(error as Error).message.includes("BETTER_AUTH_SECRET")) {
+      throw error;
+    }
+
+    const userId = request.headers.get("x-user-id") ?? "local-dev-user";
+    await ensureBetaUser(env, userId);
+    return { userId, scopes: ["*"] };
+  }
+}
+
+function uniquePipedreamConnectionIds(ids: string[] = []): string[] {
+  return Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean))).slice(0, 8);
+}
+
+async function validateUserPipedreamConnectionIds(env: Env, userId: string, ids: string[] = []): Promise<string[]> {
+  const connectionIds = uniquePipedreamConnectionIds(ids);
+  if (connectionIds.length === 0) {
+    return [];
+  }
+
+  const db = createDb(env.DATABASE_URL);
+  const rows = await db
+    .select({ id: pipedreamConnections.id })
+    .from(pipedreamConnections)
+    .where(eq(pipedreamConnections.userId, userId));
+  const ownedIds = new Set(rows.map((row) => row.id));
+  const missingId = connectionIds.find((id) => !ownedIds.has(id));
+  if (missingId) {
+    throw new Error(`Pipedream connection ${missingId} was not found for this user.`);
+  }
+  return connectionIds;
+}
+
 async function applyWalletDelta(tx: any, userId: string, availableDeltaCents: number, lockedDeltaCents: number): Promise<void> {
   const wallet = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, userId)).for("update").limit(1);
   if (!wallet[0]) {
@@ -403,6 +484,186 @@ app.openapi(pipedreamConfigRoute, (c) =>
   })
 );
 
+const listPipedreamAppsRoute = createRoute({
+  method: "get",
+  path: "/api/integrations/pipedream/apps",
+  responses: {
+    200: {
+      description: "Pipedream apps available for Connect",
+      content: {
+        "application/json": {
+          schema: z.object({
+            apps: z.array(pipedreamAppSchema)
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(listPipedreamAppsRoute, async (c) => {
+  const accessToken = await pipedreamAccessToken(c.env, "connect:tokens:create");
+  const query = c.req.query("q")?.trim();
+  const params = new URLSearchParams({
+    limit: "100",
+    has_actions: "true",
+    sort_key: "featured_weight",
+    sort_direction: "desc"
+  });
+  if (query) {
+    params.set("q", query);
+  }
+
+  const response = await fetch(`https://api.pipedream.com/v1/connect/apps?${params.toString()}`, {
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "x-pd-environment": c.env.PIPEDREAM_PROJECT_ENVIRONMENT ?? "development"
+    }
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    data?: Array<{
+      id?: string;
+      name_slug?: string;
+      name?: string;
+      description?: string;
+      img_src?: string;
+      categories?: string[];
+      auth_type?: string;
+    }>;
+    error?: string;
+  };
+
+  if (!response.ok || !data.data) {
+    throw new Error(data.error ?? "Could not list Pipedream apps.");
+  }
+
+  const apps = data.data
+    .filter((app) => app.id && app.name_slug && app.name)
+    .map((app) => ({
+      id: app.id!,
+      nameSlug: app.name_slug!,
+      name: app.name!,
+      description: app.description,
+      imgSrc: app.img_src,
+      categories: app.categories,
+      authType: app.auth_type
+    }));
+
+  return c.json({ apps });
+});
+
+const listPipedreamConnectionsRoute = createRoute({
+  method: "get",
+  path: "/api/integrations/pipedream/connections",
+  responses: {
+    200: {
+      description: "Saved Pipedream connections for the current user",
+      content: {
+        "application/json": {
+          schema: z.object({
+            connections: z.array(pipedreamConnectionSchema)
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(listPipedreamConnectionsRoute, async (c) => {
+  const actor = await currentActor(c.env, c.req.raw);
+  const db = createDb(c.env.DATABASE_URL);
+  const rows = await db
+    .select()
+    .from(pipedreamConnections)
+    .where(eq(pipedreamConnections.userId, actor.userId))
+    .orderBy(desc(pipedreamConnections.updatedAt));
+
+  return c.json({
+    connections: rows.map((row) => ({
+      id: row.id,
+      appSlug: row.appSlug,
+      appName: row.appName,
+      accountId: row.accountId,
+      authPropName: row.authPropName,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt
+    }))
+  });
+});
+
+const savePipedreamConnectionRoute = createRoute({
+  method: "post",
+  path: "/api/integrations/pipedream/connections",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: savePipedreamConnectionRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    201: {
+      description: "Saved Pipedream connection",
+      content: {
+        "application/json": {
+          schema: z.object({
+            connection: pipedreamConnectionSchema
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(savePipedreamConnectionRoute, async (c) => {
+  const actor = await currentActor(c.env, c.req.raw);
+  const body = c.req.valid("json");
+  const db = createDb(c.env.DATABASE_URL);
+  const now = new Date();
+  const rows = await db
+    .insert(pipedreamConnections)
+    .values({
+      id: newId("pdc"),
+      userId: actor.userId,
+      appSlug: body.appSlug,
+      appName: body.appName,
+      accountId: body.accountId,
+      authPropName: body.authPropName,
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: [pipedreamConnections.userId, pipedreamConnections.appSlug],
+      set: {
+        appName: body.appName,
+        accountId: body.accountId,
+        authPropName: body.authPropName,
+        updatedAt: now
+      }
+    })
+    .returning();
+  const connection = rows[0];
+
+  return c.json(
+    {
+      connection: {
+        id: connection.id,
+        appSlug: connection.appSlug,
+        appName: connection.appName,
+        accountId: connection.accountId,
+        authPropName: connection.authPropName,
+        createdAt: connection.createdAt instanceof Date ? connection.createdAt.toISOString() : connection.createdAt,
+        updatedAt: connection.updatedAt instanceof Date ? connection.updatedAt.toISOString() : connection.updatedAt
+      }
+    },
+    201
+  );
+});
+
 const createPipedreamTokenRoute = createRoute({
   method: "post",
   path: "/api/integrations/pipedream/connect-token",
@@ -420,18 +681,7 @@ const createPipedreamTokenRoute = createRoute({
 });
 
 app.openapi(createPipedreamTokenRoute, async (c) => {
-  let actor: { userId: string; scopes: string[] };
-  try {
-    actor = await actorFromRequest(c.env, c.req.raw);
-  } catch (error) {
-    if (!isLocalRequest(c.req.raw) || !(error as Error).message.includes("BETTER_AUTH_SECRET")) {
-      throw error;
-    }
-
-    const userId = c.req.raw.headers.get("x-user-id") ?? "local-dev-user";
-    await ensureBetaUser(c.env, userId);
-    actor = { userId, scopes: ["*"] };
-  }
+  const actor = await currentActor(c.env, c.req.raw);
 
   const accessToken = await pipedreamAccessToken(c.env, "connect:tokens:create");
   const allowedOrigins = c.env.PIPEDREAM_ALLOWED_ORIGINS ? JSON.parse(c.env.PIPEDREAM_ALLOWED_ORIGINS) : undefined;
@@ -453,6 +703,157 @@ app.openapi(createPipedreamTokenRoute, async (c) => {
     throw new Error(data.error ?? "Could not create a Pipedream Connect token.");
   }
   return c.json({ token: data.token, expiresAt: data.expires_at, connectLinkUrl: data.connect_link_url, externalUserId: actor.userId }, 201);
+});
+
+const getChallengeDraftRoute = createRoute({
+  method: "get",
+  path: "/api/challenges/draft",
+  responses: {
+    200: {
+      description: "Current user's challenge draft",
+      content: {
+        "application/json": {
+          schema: z.object({
+            challenge: challengeDraftResponseSchema.nullable()
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(getChallengeDraftRoute, async (c) => {
+  const actor = await currentActor(c.env, c.req.raw);
+  const db = createDb(c.env.DATABASE_URL);
+  const rows = await db
+    .select()
+    .from(challenges)
+    .where(and(eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft")))
+    .orderBy(desc(challenges.updatedAt))
+    .limit(1);
+  if (!rows[0]) {
+    return c.json({ challenge: null });
+  }
+
+  const draft: z.infer<typeof challengeDraftDataSchema> = {
+    claim: rows[0].claim,
+    resolutionCriteria: rows[0].resolutionCriteria,
+    creatorSide: rows[0].creatorSide as z.infer<typeof sideSchema>,
+    visibility: rows[0].visibility as z.infer<typeof challengeVisibilitySchema>,
+    stakeCredits: rows[0].stakeCents > 0 ? (rows[0].stakeCents / 100).toFixed(2) : "",
+    expiresAt: rows[0].expiresAt instanceof Date ? rows[0].expiresAt.toISOString() : String(rows[0].expiresAt),
+    pipedreamConnectionIds: rows[0].pipedreamConnectionIds ?? []
+  };
+  return c.json({ challenge: { id: rows[0].id, draft } });
+});
+
+const saveChallengeDraftRoute = createRoute({
+  method: "put",
+  path: "/api/challenges/draft",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: saveChallengeDraftRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    200: {
+      description: "Saved challenge draft",
+      content: {
+        "application/json": {
+          schema: z.object({
+            challenge: challengeDraftResponseSchema
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(saveChallengeDraftRoute, async (c) => {
+  const actor = await currentActor(c.env, c.req.raw);
+  const body = c.req.valid("json");
+  const db = createDb(c.env.DATABASE_URL);
+  const now = new Date();
+  const pipedreamConnectionIds = await validateUserPipedreamConnectionIds(c.env, actor.userId, body.draft.pipedreamConnectionIds);
+  const existing = await db
+    .select({ id: challenges.id })
+    .from(challenges)
+    .where(and(eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft")))
+    .orderBy(desc(challenges.updatedAt))
+    .limit(1);
+  const expiresAt = body.draft.expiresAt && !Number.isNaN(new Date(body.draft.expiresAt).getTime()) ? new Date(body.draft.expiresAt) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const stakeCents = body.draft.stakeCredits && /^\d+(\.\d{1,2})?$/.test(body.draft.stakeCredits) ? creditsToCents(body.draft.stakeCredits) : 0;
+  const draft = {
+    ...body.draft,
+    pipedreamConnectionIds
+  };
+
+  let challengeId = existing[0]?.id;
+  if (challengeId) {
+    await db
+      .update(challenges)
+      .set({
+        claim: body.draft.claim ?? "",
+        resolutionCriteria: body.draft.resolutionCriteria ?? "",
+        resolutionTool: null,
+        pipedreamConnectionIds,
+        creatorSide: body.draft.creatorSide ?? "YES",
+        visibility: body.draft.visibility ?? "public",
+        stakeCents,
+        expiresAt,
+        updatedAt: now
+      })
+      .where(eq(challenges.id, challengeId));
+  } else {
+    challengeId = newId("ch");
+    await db.insert(challenges).values({
+      id: challengeId,
+      creatorId: actor.userId,
+      claim: body.draft.claim ?? "",
+      resolutionCriteria: body.draft.resolutionCriteria ?? "",
+      resolutionTool: null,
+      pipedreamConnectionIds,
+      creatorSide: body.draft.creatorSide ?? "YES",
+      visibility: body.draft.visibility ?? "public",
+      stakeCents,
+      status: "draft",
+      expiresAt,
+      updatedAt: now
+    });
+  }
+
+  return c.json({ challenge: { id: challengeId, draft } });
+});
+
+const deleteChallengeDraftRoute = createRoute({
+  method: "delete",
+  path: "/api/challenges/draft",
+  responses: {
+    200: {
+      description: "Deleted challenge draft",
+      content: {
+        "application/json": {
+          schema: z.object({
+            deleted: z.boolean()
+          })
+        }
+      }
+    },
+    ...errorResponses
+  }
+});
+
+app.openapi(deleteChallengeDraftRoute, async (c) => {
+  const actor = await currentActor(c.env, c.req.raw);
+  const db = createDb(c.env.DATABASE_URL);
+  await db.delete(challenges).where(and(eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft")));
+  return c.json({ deleted: true });
 });
 
 const listChallengesRoute = createRoute({
@@ -539,7 +940,15 @@ app.openapi(createChallengeRoute, async (c) => {
   const body = c.req.valid("json");
   const stakeCents = body.stakeCents ?? creditsToCents(body.stakeCredits ?? body.stakeDollars ?? "");
   const creatorSide = parseSide(body.creatorSide);
-  const challengeId = newId("ch");
+  const pipedreamConnectionIds = await validateUserPipedreamConnectionIds(c.env, actor.userId, body.pipedreamConnectionIds);
+  const db = createDb(c.env.DATABASE_URL);
+  const existingDraft = await db
+    .select({ id: challenges.id })
+    .from(challenges)
+    .where(and(eq(challenges.creatorId, actor.userId), eq(challenges.status, "draft")))
+    .orderBy(desc(challenges.updatedAt))
+    .limit(1);
+  const challengeId = existingDraft[0]?.id ?? newId("ch");
 
   validateChallengeInput({
     claim: body.claim ?? "",
@@ -558,19 +967,28 @@ app.openapi(createChallengeRoute, async (c) => {
     idempotencyKey: `challenge-create:${challengeId}`
   });
 
-  const db = createDb(c.env.DATABASE_URL);
-  await db.insert(challenges).values({
-    id: challengeId,
-    creatorId: actor.userId,
+  const challengeValues = {
     claim: body.claim!.trim(),
     resolutionCriteria: body.resolutionCriteria!.trim(),
     resolutionTool: body.resolutionTool ? JSON.stringify(body.resolutionTool) : null,
+    pipedreamConnectionIds,
     creatorSide,
     visibility: body.visibility,
     stakeCents,
     status: "open",
-    expiresAt: new Date(body.expiresAt!)
-  });
+    expiresAt: new Date(body.expiresAt!),
+    updatedAt: new Date()
+  };
+
+  if (existingDraft[0]) {
+    await db.update(challenges).set(challengeValues).where(eq(challenges.id, challengeId));
+  } else {
+    await db.insert(challenges).values({
+      id: challengeId,
+      creatorId: actor.userId,
+      ...challengeValues
+    });
+  }
 
   return c.json({ challenge: await getChallenge(c.env, challengeId) }, 201);
 });

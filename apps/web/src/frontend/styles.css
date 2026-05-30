@@ -186,32 +186,52 @@
     @apply truncate;
   }
 
-  .resolver-tools {
-    @apply grid grid-cols-3 gap-3 max-[820px]:grid-cols-2 max-[560px]:grid-cols-1;
+  .public-markets-panel {
+    @apply grid gap-3 rounded-lg border bg-card p-4 text-card-foreground;
   }
 
-  .resolver-tools > div {
-    @apply grid grid-cols-[36px_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card p-3 text-card-foreground;
+  .public-markets-header {
+    @apply flex items-start justify-between gap-3;
   }
 
-  .resolver-tools svg {
-    @apply h-9 w-9 rounded-md bg-muted p-2 text-foreground;
+  .public-markets-header h2 {
+    @apply text-lg font-semibold tracking-tight;
   }
 
-  .resolver-tools span {
-    @apply grid min-w-0 gap-0.5;
+  .public-markets-header p {
+    @apply mt-1 text-sm text-muted-foreground;
   }
 
-  .resolver-tools strong {
-    @apply truncate text-sm font-semibold;
+  .public-markets-list {
+    @apply grid gap-2;
   }
 
-  .resolver-tools small {
-    @apply truncate text-xs font-medium text-muted-foreground;
+  .public-market-row {
+    @apply grid grid-cols-[minmax(0,1fr)_140px_120px] items-center gap-4 rounded-md border bg-background p-3 text-foreground no-underline transition-colors hover:bg-muted/40 max-[820px]:grid-cols-1;
   }
 
-  .prompt-links {
-    @apply flex flex-wrap justify-center gap-2;
+  .public-market-row h3 {
+    @apply mt-2 text-sm font-semibold leading-snug tracking-normal;
+  }
+
+  .public-market-row p {
+    @apply mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground;
+  }
+
+  .public-market-row .row-side strong {
+    @apply text-xl;
+  }
+
+  .public-markets-empty {
+    @apply grid gap-1 rounded-md border bg-background p-4 text-center;
+  }
+
+  .public-markets-empty strong {
+    @apply text-sm font-semibold;
+  }
+
+  .public-markets-empty span {
+    @apply text-xs font-medium text-muted-foreground;
   }
 
   .auth-actions {
@@ -1038,6 +1058,86 @@
     @apply inline-flex items-center gap-2 text-sm font-semibold;
   }
 
+  .connection-list {
+    @apply grid gap-2;
+  }
+
+  .connection-row {
+    @apply grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border bg-card p-3 max-[560px]:grid-cols-[44px_minmax(0,1fr)] max-[560px]:gap-y-3;
+  }
+
+  .connection-logo {
+    @apply grid h-11 w-11 place-items-center overflow-hidden rounded-md border bg-background text-muted-foreground;
+  }
+
+  .connection-logo img {
+    @apply h-8 w-8 object-contain;
+  }
+
+  .connection-row span:nth-child(2) {
+    @apply grid min-w-0 gap-1;
+  }
+
+  .connection-row strong {
+    @apply truncate text-sm font-semibold;
+  }
+
+  .connection-row small {
+    @apply text-xs font-medium text-muted-foreground;
+  }
+
+  .connection-row button {
+    @apply max-[560px]:col-span-2;
+  }
+
+  .connection-add {
+    @apply grid gap-3 rounded-lg border bg-muted/30 p-3;
+  }
+
+  .connection-add-header {
+    @apply grid gap-1;
+  }
+
+  .connection-add-header strong {
+    @apply text-sm font-semibold;
+  }
+
+  .connection-add-header small {
+    @apply text-xs font-medium text-muted-foreground;
+  }
+
+  .settings-search {
+    @apply relative block;
+  }
+
+  .settings-search svg {
+    @apply pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground;
+  }
+
+  .settings-search input {
+    @apply h-10 pl-9 text-sm;
+  }
+
+  .connection-app-grid {
+    @apply grid max-h-[320px] grid-cols-2 gap-2 overflow-y-auto pr-1 max-[720px]:grid-cols-1;
+  }
+
+  .connection-app-card {
+    @apply grid min-h-[70px] grid-cols-[40px_minmax(0,1fr)_18px] items-center gap-3 rounded-md border bg-card p-3 text-left text-card-foreground transition-colors hover:border-primary/40 hover:bg-background disabled:cursor-wait disabled:opacity-70;
+  }
+
+  .connection-app-card > span:nth-child(2) {
+    @apply grid min-w-0 gap-1;
+  }
+
+  .connection-app-card strong {
+    @apply truncate text-sm font-semibold;
+  }
+
+  .connection-app-card small {
+    @apply truncate text-xs font-medium text-muted-foreground;
+  }
+
   .tool-picker {
     @apply grid gap-4 rounded-lg border bg-muted/30 p-4;
   }
@@ -1046,21 +1146,72 @@
     @apply flex items-center justify-between gap-3;
   }
 
+  .tool-picker-header > div {
+    @apply grid gap-1;
+  }
+
   .tool-picker-header span {
     @apply text-xs font-semibold uppercase text-muted-foreground;
     letter-spacing: 0.06em;
+  }
+
+  .tool-picker-header small {
+    @apply text-xs font-medium text-muted-foreground;
   }
 
   .tool-picker-header strong {
     @apply text-base font-semibold;
   }
 
+  .agent-tool-strip {
+    @apply flex min-h-11 flex-wrap items-center gap-2 rounded-md border bg-background px-3 py-2;
+  }
+
+  .agent-tool-label {
+    @apply mr-1 text-xs font-semibold uppercase text-muted-foreground;
+    letter-spacing: 0.06em;
+  }
+
+  .agent-tool-pill {
+    @apply inline-flex h-7 max-w-full items-center gap-2 rounded-full border bg-card px-2.5 text-xs font-semibold text-foreground;
+  }
+
+  .agent-tool-pill.always-on {
+    @apply bg-muted/50;
+  }
+
+  .agent-tool-logo {
+    @apply relative grid h-4 w-4 shrink-0 place-items-center overflow-hidden rounded-sm;
+  }
+
+  .agent-tool-logo img {
+    @apply h-4 w-4 object-contain;
+  }
+
+  .agent-tool-logo em {
+    @apply absolute text-[9px] font-black not-italic text-muted-foreground;
+  }
+
+  .tool-search {
+    @apply relative block;
+  }
+
+  .tool-search svg {
+    @apply pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground;
+  }
+
+  .tool-search input {
+    @apply h-10 pl-9 text-sm;
+  }
+
   .tool-card-grid {
-    @apply grid grid-cols-3 gap-3 max-[980px]:grid-cols-2 max-[560px]:grid-cols-1;
+    @apply grid grid-cols-3 content-start gap-2 overflow-y-auto pr-1 max-[980px]:grid-cols-2 max-[560px]:grid-cols-1;
+    height: 360px;
+    max-height: 360px;
   }
 
   .tool-card {
-    @apply grid min-h-[92px] grid-cols-[44px_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card p-3 text-left text-card-foreground transition-colors hover:border-primary/40 hover:bg-background disabled:cursor-wait disabled:opacity-70;
+    @apply grid min-h-[78px] grid-cols-[40px_minmax(0,1fr)] items-center gap-3 rounded-md border bg-card p-3 text-left text-card-foreground transition-colors hover:border-primary/40 hover:bg-background disabled:cursor-wait disabled:opacity-70;
   }
 
   .tool-card.selected {
@@ -1068,21 +1219,23 @@
   }
 
   .tool-card-icon {
-    @apply relative grid h-11 w-11 place-items-center rounded-lg border bg-background;
-    border-color: color-mix(in srgb, var(--tool-color) 35%, hsl(var(--border)));
+    @apply relative grid h-10 w-10 place-items-center overflow-hidden rounded-md border bg-background;
   }
 
   .tool-card-icon img {
-    @apply relative z-10 h-6 w-6 object-contain;
+    @apply relative z-10 h-7 w-7 object-contain;
   }
 
   .tool-card-icon em {
-    @apply absolute text-xs font-black not-italic;
-    color: var(--tool-color);
+    @apply absolute text-xs font-black not-italic text-muted-foreground;
   }
 
-  .tool-card span:last-child {
+  .tool-card-body {
     @apply grid min-w-0 gap-1;
+  }
+
+  .tool-card-title {
+    @apply flex min-w-0 items-center gap-2;
   }
 
   .tool-card strong {
@@ -1093,26 +1246,33 @@
     @apply truncate text-xs font-medium text-muted-foreground;
   }
 
+  .tool-chip {
+    @apply shrink-0 rounded-full border bg-muted/50 px-2 py-0.5 text-[10px] font-semibold leading-none text-muted-foreground;
+  }
+
+  .tool-empty {
+    @apply col-span-full grid min-h-[78px] place-items-center gap-1 rounded-md border bg-card p-4 text-center;
+  }
+
+  .tool-empty strong {
+    @apply text-sm font-semibold;
+  }
+
+  .tool-empty span {
+    @apply text-xs font-medium text-muted-foreground;
+  }
+
   .tool-status {
     @apply inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium text-muted-foreground;
+  }
+
+  .tool-count {
+    @apply text-xs font-medium text-muted-foreground;
   }
 
   .tool-error {
     @apply rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm leading-6 text-destructive;
   }
-
-  .tool-advanced {
-    @apply rounded-lg border bg-card p-3;
-  }
-
-  .tool-advanced summary {
-    @apply cursor-pointer text-sm font-semibold text-muted-foreground;
-  }
-
-  .tool-advanced > div {
-    @apply mt-3;
-  }
-
 
   .share-panel h2,
   .panel h2 {

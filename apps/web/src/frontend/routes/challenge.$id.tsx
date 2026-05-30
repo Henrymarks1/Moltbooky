@@ -298,7 +298,7 @@ function ChallengeDetail() {
         <div className="section-title">
           <h2><BrainCircuit size={18} /> Resolution agent</h2>
           <div className="row-meta">
-            {challenge.resolutionTool?.type === "pipedream_action" && <Badge variant="outline">{challenge.resolutionTool.appName || challenge.resolutionTool.appSlug}</Badge>}
+            {challenge.pipedreamConnectionIds.length > 0 && <Badge variant="outline">{challenge.pipedreamConnectionIds.length} connected app{challenge.pipedreamConnectionIds.length === 1 ? "" : "s"}</Badge>}
             <Badge variant="outline">{agentState.label}</Badge>
           </div>
         </div>
@@ -315,7 +315,7 @@ function ChallengeDetail() {
             </div>
             <div className={agentState.phase === "running" ? "active" : ""}>
               <span>2</span>
-              <p>{challenge.resolutionTool ? "Search and call the attached Pipedream tool for evidence." : "Search for evidence against the resolution criteria."}</p>
+              <p>{challenge.pipedreamConnectionIds.length > 0 ? "Search and call the attached Pipedream connections for evidence." : "Search for evidence against the resolution criteria."}</p>
             </div>
             <div className={agentState.phase === "finished" ? "active" : ""}>
               <span>3</span>

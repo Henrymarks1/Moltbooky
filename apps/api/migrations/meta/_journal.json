@@ -43,6 +43,27 @@
       "when": 1779751800000,
       "tag": "0005_pipedream_resolution_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780167600000,
+      "tag": "0006_pipedream_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780168380000,
+      "tag": "0007_challenge_draft_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780170000000,
+      "tag": "0008_challenge_pipedream_connection_ids",
+      "breakpoints": true
     }
   ]
 }

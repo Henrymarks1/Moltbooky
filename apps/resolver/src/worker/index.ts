@@ -1,6 +1,6 @@
 import { provisionalDisputeDeadline } from "@moltbooky/core/domain/challenge";
 import type { ResolutionOutcome, ResolutionTool } from "@moltbooky/core/domain/types";
-import { and, challengeMatches, challenges, createDb, eq, ledgerEntries, lte, or, resolutionRuns, walletAccounts } from "@moltbooky/db";
+import { and, challengeMatches, challenges, createDb, eq, ledgerEntries, lte, or, pipedreamConnections, resolutionRuns, walletAccounts } from "@moltbooky/db";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
@@ -23,7 +23,7 @@ const resolverSystemPrompt = [
   "You are Moltbooky's provisional resolution agent for private-beta 1:1 challenge bets.",
   "Your job is to evaluate a binary claim against its resolution criteria using external evidence.",
   "Use the exaSearch tool when evidence could be current, factual, or externally verifiable.",
-  "If the challenge includes a Pipedream resolution action, use pipedreamAction only for evidence directly relevant to the stated criteria.",
+  "If the challenge includes Pipedream connections, use pipedreamAction only for evidence directly relevant to the stated criteria.",
   "Return YES only when the evidence clearly satisfies the claim and criteria.",
   "Return NO only when the evidence clearly contradicts the claim or criteria.",
   "Return UNRESOLVED when evidence is missing, ambiguous, inaccessible, conflicting, stale, or below the confidence threshold.",
@@ -32,15 +32,28 @@ const resolverSystemPrompt = [
   "The response must be a single JSON object with outcome, confidence, sourceUrls, and shortRationale."
 ].join("\n");
 
-function parseResolutionTool(value: string | null): ResolutionTool | null {
+type ResolverPipedreamTool = ResolutionTool & { connectionId?: string };
+
+const defaultPipedreamActionKeys: Record<string, string> = {
+  linkedin: "linkedin-get-profile",
+  github: "github-get-repository",
+  strava: "strava-list-activities",
+  slack: "slack-fetch-conversation-history",
+  gmail: "gmail-search-emails",
+  google_drive: "google_drive-search-files",
+  google_calendar: "google_calendar-list-events"
+};
+
+function parseResolutionTools(value: string | null): ResolverPipedreamTool[] {
   if (!value) {
-    return null;
+    return [];
   }
   try {
-    const parsed = JSON.parse(value) as ResolutionTool;
-    return parsed?.type === "pipedream_action" ? parsed : null;
+    const parsed = JSON.parse(value) as ResolutionTool | ResolutionTool[];
+    const tools = Array.isArray(parsed) ? parsed : [parsed];
+    return tools.filter((tool): tool is ResolverPipedreamTool => tool?.type === "pipedream_action");
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -81,7 +94,8 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
       provisionalOutcome: challenges.provisionalOutcome,
       claim: challenges.claim,
       resolutionCriteria: challenges.resolutionCriteria,
-      resolutionTool: challenges.resolutionTool
+      resolutionTool: challenges.resolutionTool,
+      pipedreamConnectionIds: challenges.pipedreamConnectionIds
     })
     .from(challenges)
     .where(eq(challenges.id, challengeId))
@@ -112,7 +126,8 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
   }
 
   const exaQuery = `${challenge.claim}\nResolution criteria: ${challenge.resolutionCriteria}`;
-  const resolverResult = await runAiResolver(env, exaQuery, parseResolutionTool(challenge.resolutionTool), challenge.creatorId);
+  const resolutionTools = await loadPipedreamResolutionTools(env, challenge.creatorId, challenge.pipedreamConnectionIds ?? [], challenge.resolutionTool);
+  const resolverResult = await runAiResolver(env, exaQuery, resolutionTools, challenge.creatorId);
 
   await db.insert(resolutionRuns).values({
     id: newId("res"),
@@ -219,7 +234,36 @@ async function refundUnresolvedChallenge(env: Env, challengeId: string): Promise
   });
 }
 
-async function runAiResolver(env: Env, query: string, resolutionTool: ResolutionTool | null = null, externalUserId = ""): Promise<ResolverResult> {
+async function loadPipedreamResolutionTools(env: Env, creatorId: string, connectionIds: string[], legacyResolutionTool: string | null): Promise<ResolverPipedreamTool[]> {
+  const uniqueConnectionIds = Array.from(new Set(connectionIds.filter(Boolean)));
+  if (uniqueConnectionIds.length === 0) {
+    return parseResolutionTools(legacyResolutionTool);
+  }
+
+  const db = createDb(env.DATABASE_URL);
+  const connections = await db.select().from(pipedreamConnections).where(eq(pipedreamConnections.userId, creatorId));
+  const connectionsById = new Map(connections.map((connection) => [connection.id, connection]));
+  const tools: ResolverPipedreamTool[] = [];
+  for (const connectionId of uniqueConnectionIds) {
+    const connection = connectionsById.get(connectionId);
+    if (!connection) {
+      continue;
+    }
+    tools.push({
+      type: "pipedream_action",
+      connectionId: connection.id,
+      appSlug: connection.appSlug,
+      appName: connection.appName,
+      authPropName: connection.authPropName,
+      accountId: connection.accountId,
+      actionKey: defaultPipedreamActionKeys[connection.appSlug] ?? `${connection.appSlug}-make-api-request`,
+      instructions: `Use ${connection.appName} only to verify evidence relevant to this market.`
+    });
+  }
+  return tools;
+}
+
+async function runAiResolver(env: Env, query: string, resolutionTools: ResolverPipedreamTool[] = [], externalUserId = ""): Promise<ResolverResult> {
   if (!env.EXA_API_KEY || !env.OPENAI_API_KEY) {
     return {
       outcome: "UNRESOLVED",
@@ -277,17 +321,26 @@ async function runAiResolver(env: Env, query: string, resolutionTool: Resolution
     })
   };
 
-  if (resolutionTool?.type === "pipedream_action") {
+  if (resolutionTools.length > 0) {
+    const availableConnections = resolutionTools
+      .map((resolutionTool) => `${resolutionTool.connectionId ?? resolutionTool.appSlug}: ${resolutionTool.appName ?? resolutionTool.appSlug} (${resolutionTool.actionKey})`)
+      .join("; ");
     tools.pipedreamAction = tool({
       description: [
-        `Run the market's configured Pipedream action (${resolutionTool.actionKey}) for authenticated ${resolutionTool.appName ?? resolutionTool.appSlug} evidence.`,
-        resolutionTool.instructions ? `Creator instructions: ${resolutionTool.instructions}` : "",
+        `Run one of the market's configured Pipedream connections for authenticated evidence. Available connections: ${availableConnections}.`,
         "Only request props needed to evaluate the resolution criteria. Do not use this tool for unrelated exploration."
       ].filter(Boolean).join(" "),
       inputSchema: z.object({
+        connectionId: z.string().min(1).describe("The configured connection id to use."),
         props: z.record(z.string(), z.unknown()).default({})
       }),
-      execute: async ({ props }) => runPipedreamAction(env, resolutionTool, props, externalUserId)
+      execute: async ({ connectionId, props }) => {
+        const resolutionTool = resolutionTools.find((tool) => tool.connectionId === connectionId || tool.appSlug === connectionId);
+        if (!resolutionTool) {
+          return { error: `Pipedream connection ${connectionId} is not attached to this challenge.` };
+        }
+        return runPipedreamAction(env, resolutionTool, props, externalUserId);
+      }
     });
   }
 
@@ -298,7 +351,7 @@ async function runAiResolver(env: Env, query: string, resolutionTool: Resolution
     system: resolverSystemPrompt,
     prompt: [
       "Resolve this Moltbooky challenge.",
-      resolutionTool ? "Use Exa and the configured Pipedream action when they can supply relevant evidence, then return only the required JSON object." : "Use Exa for evidence, then return only the required JSON object.",
+      resolutionTools.length ? "Use Exa and the configured Pipedream connections when they can supply relevant evidence, then return only the required JSON object." : "Use Exa for evidence, then return only the required JSON object.",
       "",
       query
     ].join("\n"),
@@ -322,7 +375,7 @@ async function runAiResolver(env: Env, query: string, resolutionTool: Resolution
   };
 }
 
-async function runPipedreamAction(env: Env, resolutionTool: ResolutionTool, props: Record<string, unknown>, externalUserId: string): Promise<unknown> {
+async function runPipedreamAction(env: Env, resolutionTool: ResolverPipedreamTool, props: Record<string, unknown>, externalUserId: string): Promise<unknown> {
   if (!env.PIPEDREAM_CLIENT_ID || !env.PIPEDREAM_CLIENT_SECRET || !env.PIPEDREAM_PROJECT_ID) {
     return { error: "Pipedream is not configured for the resolver." };
   }

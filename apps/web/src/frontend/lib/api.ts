@@ -4,6 +4,33 @@ import type { Challenge, ChallengeMatch, LedgerEntryType, ResolutionRun, WalletA
 import { isTestingModeEnabled, testingUser } from "./testingMode";
 
 type LedgerEntry = { id: string; type: LedgerEntryType; amountCents: number; description: string; createdAt: string };
+export type PipedreamApp = {
+  id: string;
+  nameSlug: string;
+  name: string;
+  description?: string;
+  imgSrc?: string;
+  categories?: string[];
+  authType?: string;
+};
+export type PipedreamConnection = {
+  id: string;
+  appSlug: string;
+  appName: string;
+  accountId: string;
+  authPropName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ChallengeDraft = {
+  claim?: string;
+  resolutionCriteria?: string;
+  creatorSide?: "YES" | "NO";
+  visibility?: "public" | "private";
+  stakeCredits?: string;
+  expiresAt?: string;
+  pipedreamConnectionIds?: string[];
+};
 
 type FakeState = {
   wallet: WalletAccount;
@@ -63,7 +90,8 @@ function readFakeState(): FakeState {
       challenges: (parsed.challenges ?? []).map((challenge) => ({
         ...challenge,
         visibility: challenge.visibility ?? "public",
-        resolutionTool: challenge.resolutionTool ?? null
+        resolutionTool: challenge.resolutionTool ?? null,
+        pipedreamConnectionIds: challenge.pipedreamConnectionIds ?? []
       })),
       matches: parsed.matches ?? [],
       resolutionRuns: parsed.resolutionRuns ?? [],
@@ -219,10 +247,13 @@ export const api = {
     }
     return request<{ challenge: Challenge; matches: ChallengeMatch[]; resolutionRuns: ResolutionRun[]; availableToMatchCents: number }>(`/api/challenges/${id}`);
   },
+  getChallengeDraft: () => request<{ challenge: { id: string; draft: ChallengeDraft } | null }>("/api/challenges/draft"),
+  saveChallengeDraft: (draft: ChallengeDraft) => request<{ challenge: { id: string; draft: ChallengeDraft } }>("/api/challenges/draft", { method: "PUT", body: JSON.stringify({ draft }) }),
+  deleteChallengeDraft: () => request<{ deleted: boolean }>("/api/challenges/draft", { method: "DELETE" }),
   createChallenge: (body: {
     claim: string;
     resolutionCriteria: string;
-    resolutionTool?: Challenge["resolutionTool"] | null;
+    pipedreamConnectionIds?: string[];
     creatorSide: "YES" | "NO";
     visibility: "public" | "private";
     stakeCredits: string;
@@ -239,7 +270,8 @@ export const api = {
         creatorId: testingUser.id,
         claim: body.claim.trim(),
         resolutionCriteria: body.resolutionCriteria.trim(),
-        resolutionTool: body.resolutionTool ?? null,
+        resolutionTool: null,
+        pipedreamConnectionIds: body.pipedreamConnectionIds ?? [],
         creatorSide: body.creatorSide,
         visibility: body.visibility,
         stakeCents,
@@ -338,6 +370,11 @@ export const api = {
       body: JSON.stringify(body)
     }),
   syncDeposits: () => request<{ creditedCents: number; deposits: number; scannedToBlock: number }>("/api/payments/deposits/sync", { method: "POST" }),
+  listPipedreamApps: (query?: string) =>
+    request<{ apps: PipedreamApp[] }>(`/api/integrations/pipedream/apps${query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`),
+  listPipedreamConnections: () => request<{ connections: PipedreamConnection[] }>("/api/integrations/pipedream/connections"),
+  savePipedreamConnection: (body: { appSlug: string; appName: string; accountId: string; authPropName: string }) =>
+    request<{ connection: PipedreamConnection }>("/api/integrations/pipedream/connections", { method: "POST", body: JSON.stringify(body) }),
   createPipedreamConnectToken: () =>
     request<{ token: string; expiresAt?: string; connectLinkUrl?: string; externalUserId: string }>("/api/integrations/pipedream/connect-token", { method: "POST" }),
   payoutStatus: () => {

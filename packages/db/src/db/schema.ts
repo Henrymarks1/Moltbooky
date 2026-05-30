@@ -98,6 +98,24 @@ export const userPaymentProfiles = pgTable(
   })
 );
 
+export const pipedreamConnections = pgTable(
+  "pipedream_connections",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => appUsers.id),
+    appSlug: text("app_slug").notNull(),
+    appName: text("app_name").notNull(),
+    accountId: text("account_id").notNull(),
+    authPropName: text("auth_prop_name").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    userAppIdx: uniqueIndex("pipedream_connections_user_app_unique").on(table.userId, table.appSlug),
+    userIdx: index("idx_pipedream_connections_user").on(table.userId)
+  })
+);
+
 export const ledgerEntries = pgTable(
   "ledger_entries",
   {
@@ -150,6 +168,7 @@ export const challenges = pgTable(
     claim: text("claim").notNull(),
     resolutionCriteria: text("resolution_criteria").notNull(),
     resolutionTool: text("resolution_tool"),
+    pipedreamConnectionIds: text("pipedream_connection_ids").array().notNull().default(sql`ARRAY[]::text[]`),
     creatorSide: text("creator_side").notNull(),
     visibility: text("visibility").notNull().default("public"),
     stakeCents: integer("stake_cents").notNull(),

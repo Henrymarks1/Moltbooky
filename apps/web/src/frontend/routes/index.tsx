@@ -1,9 +1,14 @@
 import { Link, createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUp, Bot, Clock3, FileSearch, Globe2, Scale, SearchCheck, ShieldCheck } from "lucide-react";
+import { ArrowUp, Bot } from "lucide-react";
+import type { Challenge } from "@moltbooky/core/domain/types";
+import { StatusPill } from "../components/StatusPill";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Skeleton } from "../components/ui/skeleton";
+import { api } from "../lib/api";
 import { draftClaimKey } from "../lib/drafts";
+import { credits, matchProgress, shortDate } from "../lib/format";
 import { rootRoute } from "./root";
 
 export const Route = createRoute({
@@ -20,44 +25,14 @@ const promptExamples = [
   "will my flight arrive before 8pm?"
 ];
 
-const resolverTools = [
-  {
-    icon: SearchCheck,
-    label: "Web search",
-    detail: "Find public evidence"
-  },
-  {
-    icon: FileSearch,
-    label: "Primary sources",
-    detail: "Prefer official records"
-  },
-  {
-    icon: Clock3,
-    label: "Expiry clock",
-    detail: "Check timing precisely"
-  },
-  {
-    icon: Globe2,
-    label: "Public links",
-    detail: "Cite what it used"
-  },
-  {
-    icon: ShieldCheck,
-    label: "Rules",
-    detail: "Follow market terms"
-  },
-  {
-    icon: Scale,
-    label: "Review",
-    detail: "Escalate disputes"
-  }
-];
-
 function Home() {
   const navigate = useNavigate();
   const [claim, setClaim] = useState("");
   const [exampleIndex, setExampleIndex] = useState(0);
   const [typedExample, setTypedExample] = useState("");
+  const [publicMarkets, setPublicMarkets] = useState<Challenge[]>([]);
+  const [marketsLoading, setMarketsLoading] = useState(true);
+  const [marketsError, setMarketsError] = useState("");
 
   const activeExample = useMemo(() => promptExamples[exampleIndex], [exampleIndex]);
 
@@ -75,6 +50,34 @@ function Home() {
     }, 1800);
     return () => window.clearTimeout(timeout);
   }, [activeExample, typedExample]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPublicMarkets() {
+      setMarketsLoading(true);
+      setMarketsError("");
+      try {
+        const data = await api.listChallenges();
+        if (active) {
+          setPublicMarkets(data.challenges);
+        }
+      } catch (err) {
+        if (active) {
+          setMarketsError(err instanceof Error ? err.message : "Public markets could not be loaded.");
+        }
+      } finally {
+        if (active) {
+          setMarketsLoading(false);
+        }
+      }
+    }
+
+    void loadPublicMarkets();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -112,30 +115,80 @@ function Home() {
           </div>
         </form>
 
-        <div className="resolver-tools" aria-label="Resolver tools">
-          {resolverTools.map((tool) => {
-            const Icon = tool.icon;
-            return (
-              <div key={tool.label}>
-                <Icon size={18} />
-                <span>
-                  <strong>{tool.label}</strong>
-                  <small>{tool.detail}</small>
-                </span>
-              </div>
-            );
-          })}
-        </div>
+        <section className="public-markets-panel" aria-labelledby="public-markets-title">
+          <div className="public-markets-header">
+            <div>
+              <h2 id="public-markets-title">Public markets</h2>
+              <p>Open markets available to match right now.</p>
+            </div>
+            <Button asChild variant="ghost">
+              <Link to="/my-bets">My bets</Link>
+            </Button>
+          </div>
 
-        <div className="prompt-links">
-          <Button asChild variant="ghost">
-            <Link to="/how-it-works">How resolution works</Link>
-          </Button>
-          <Button asChild variant="ghost">
-            <Link to="/settings/api-keys">Connect an agent</Link>
-          </Button>
-        </div>
+          {marketsError && <div className="notice error">Public markets could not be loaded: {marketsError}</div>}
+
+          <div className="public-markets-list">
+            {marketsLoading && publicMarkets.length === 0 && <PublicMarketsSkeleton />}
+            {!marketsLoading && publicMarkets.length === 0 && !marketsError && (
+              <div className="public-markets-empty">
+                <strong>No public markets yet</strong>
+                <span>Create the first one from the prompt above.</span>
+              </div>
+            )}
+            {publicMarkets.slice(0, 5).map((market) => (
+              <Link className="public-market-row" key={market.id} to="/challenge/$id" params={{ id: market.id }}>
+                <div>
+                  <div className="row-meta">
+                    <StatusPill status={market.status} />
+                    <Badge variant="outline">Expires {shortDate(market.expiresAt)}</Badge>
+                  </div>
+                  <h3>{market.claim}</h3>
+                  <p>{market.resolutionCriteria}</p>
+                </div>
+                <div className="market-depth">
+                  <span>{credits(market.matchedCents)} matched</span>
+                  <div className="mini-meter">
+                    <span style={{ width: `${matchProgress(market)}%` }} />
+                  </div>
+                </div>
+                <div className="row-side">
+                  <strong>{credits(Math.max(0, market.stakeCents - market.matchedCents))}</strong>
+                  <span>open</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+
       </section>
     </div>
+  );
+}
+
+function PublicMarketsSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div className="public-market-row" key={index}>
+          <div>
+            <div className="row-meta">
+              <Skeleton className="h-6 w-20 rounded-full" />
+              <Skeleton className="h-6 w-28 rounded-full" />
+            </div>
+            <Skeleton className="mt-3 h-5 w-full max-w-[520px]" />
+            <Skeleton className="mt-3 h-4 w-full max-w-[440px]" />
+          </div>
+          <div className="market-depth">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-2 w-full min-w-[140px] rounded-full" />
+          </div>
+          <div className="row-side">
+            <Skeleton className="h-7 w-16" />
+            <Skeleton className="h-4 w-10" />
+          </div>
+        </div>
+      ))}
+    </>
   );
 }

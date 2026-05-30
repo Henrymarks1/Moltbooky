@@ -6,6 +6,10 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 PAYMENT_LAUNCH_APPROVED = "true"
 BETTER_AUTH_URL = "https://moltbooky.com"
+PIPEDREAM_CLIENT_ID = "uym23nvsV3XiOobTGZOCcRovHMNcBLvkR4gVkUbfYt4"
+PIPEDREAM_PROJECT_ID = "proj_YRsMxDE"
+PIPEDREAM_PROJECT_ENVIRONMENT = "production"
+PIPEDREAM_ALLOWED_ORIGINS = "[\"https://moltbooky.com\"]"
 
 [[durable_objects.bindings]]
 name = "CHALLENGE_OBJECT"
