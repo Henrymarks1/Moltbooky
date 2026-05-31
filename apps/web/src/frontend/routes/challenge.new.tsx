@@ -1,5 +1,5 @@
 import { createRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFrontendClient } from "@pipedream/sdk/browser";
 import { ArrowLeft, ArrowRight, CheckCircle2, CircleDollarSign, Globe2, Link2, Search, Sparkles, TimerReset } from "lucide-react";
 import { Badge } from "../components/ui/badge";
@@ -229,6 +229,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(0);
+  const publishRequestedRef = useRef(false);
 
   useEffect(() => {
     setClaim(initialClaim);
@@ -430,6 +431,9 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!publishRequestedRef.current) {
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -453,6 +457,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
       }
       setError(message);
     } finally {
+      publishRequestedRef.current = false;
       setLoading(false);
     }
   }
@@ -709,7 +714,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
                   {step === 2 ? "Review" : "Next"} <ArrowRight size={16} />
                 </Button>
               ) : (
-                <Button type="submit" disabled={loading || !canPublish}>
+                <Button type="submit" disabled={loading || !canPublish} onClick={() => { publishRequestedRef.current = true; }}>
                   <CheckCircle2 size={18} /> {loading ? "Publishing..." : "Publish bet"}
                 </Button>
               )}

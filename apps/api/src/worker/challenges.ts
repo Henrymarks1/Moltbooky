@@ -1,7 +1,7 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
 import { availableToMatch, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
 import { creditsToCents } from "@moltbooky/core/domain/money";
-import { challengeMatches, challenges, createDb, eq, ledgerEntries } from "@moltbooky/db";
+import { challengeMatches, challenges, createDb, eq, ledgerEntries, pipedreamConnections } from "@moltbooky/db";
 import {
   actorFromRequest,
   getChallenge,
@@ -62,6 +62,29 @@ const createMatchRequestSchema = z
   .refine((value) => value.amountCredits !== undefined || value.amountDollars !== undefined || value.amountCents !== undefined, {
     message: "amountCredits or amountCents is required."
   });
+
+const resolverConnectionSchema = z.object({
+  id: z.string(),
+  appSlug: z.string(),
+  appName: z.string()
+});
+
+async function listChallengeResolverConnections(env: Env, creatorId: string, connectionIds: string[] = []) {
+  if (connectionIds.length === 0) {
+    return [];
+  }
+  const db = createDb(env.DATABASE_URL);
+  const rows = await db
+    .select({
+      id: pipedreamConnections.id,
+      appSlug: pipedreamConnections.appSlug,
+      appName: pipedreamConnections.appName
+    })
+    .from(pipedreamConnections)
+    .where(eq(pipedreamConnections.userId, creatorId));
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  return connectionIds.map((connectionId) => rowsById.get(connectionId)).filter((row): row is NonNullable<typeof row> => Boolean(row));
+}
 
 export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): void {
   const listChallengesRoute = createRoute({
@@ -159,7 +182,17 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     responses: {
       200: {
         description: "Challenge detail",
-        content: { "application/json": { schema: z.object({ challenge: challengeSchema, matches: z.array(challengeMatchSchema), resolutionRuns: z.array(resolutionRunSchema), availableToMatchCents: centsSchema }) } }
+        content: {
+          "application/json": {
+            schema: z.object({
+              challenge: challengeSchema,
+              matches: z.array(challengeMatchSchema),
+              resolutionRuns: z.array(resolutionRunSchema),
+              availableToMatchCents: centsSchema,
+              resolverConnections: z.array(resolverConnectionSchema)
+            })
+          }
+        }
       },
       ...errorResponses
     }
@@ -175,7 +208,8 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
       challenge,
       matches: await listMatches(c.env, challenge.id),
       resolutionRuns: await listResolutionRuns(c.env, challenge.id),
-      availableToMatchCents: availableToMatch(challenge)
+      availableToMatchCents: availableToMatch(challenge),
+      resolverConnections: await listChallengeResolverConnections(c.env, challenge.creatorId, challenge.pipedreamConnectionIds)
     });
   });
 

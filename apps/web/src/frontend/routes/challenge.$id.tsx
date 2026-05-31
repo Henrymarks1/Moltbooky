@@ -2,14 +2,14 @@ import { Link, createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { CalendarClock, CircleDollarSign, Copy, PlugZap, RefreshCw, Trash2, UserRound } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
-import type { Challenge, ChallengeMatch, ResolutionTool } from "@moltbooky/core/domain/types";
+import type { Challenge, ChallengeMatch } from "@moltbooky/core/domain/types";
 import { StatusPill } from "../components/StatusPill";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
-import { api } from "../lib/api";
+import { api, type ChallengeResolverConnection } from "../lib/api";
 import { credits, shortDate } from "../lib/format";
 import { setSeoMeta } from "../lib/seo";
 import { authChangeEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
@@ -28,6 +28,8 @@ function ChallengeDetail() {
   const [available, setAvailable] = useState(0);
   const [message, setMessage] = useState("");
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [resolverConnections, setResolverConnections] = useState<ChallengeResolverConnection[]>([]);
+  const [appIconSrcBySlug, setAppIconSrcBySlug] = useState<Record<string, string>>({});
   const [deleting, setDeleting] = useState(false);
   const [matchCredits, setMatchCredits] = useState("5");
   const [matching, setMatching] = useState(false);
@@ -38,6 +40,7 @@ function ChallengeDetail() {
     setChallenge(data.challenge);
     setMatches(data.matches);
     setAvailable(data.availableToMatchCents);
+    setResolverConnections(data.resolverConnections ?? []);
   }
 
   useEffect(() => {
@@ -100,6 +103,29 @@ function ChallengeDetail() {
     };
   }, []);
 
+  useEffect(() => {
+    if (resolverConnections.length === 0) {
+      return;
+    }
+    let active = true;
+    const uniqueNames = Array.from(new Set(resolverConnections.map((connection) => connection.appName).filter(Boolean)));
+    Promise.allSettled([api.listPipedreamApps(), ...uniqueNames.map((name) => api.listPipedreamApps(name))]).then((results) => {
+      if (!active) {
+        return;
+      }
+      const icons = Object.fromEntries(
+        results
+          .flatMap((result) => (result.status === "fulfilled" ? result.value.apps : []))
+          .filter((app) => app.imgSrc)
+          .map((app) => [app.nameSlug, app.imgSrc!])
+      );
+      setAppIconSrcBySlug((current) => ({ ...current, ...icons }));
+    });
+    return () => {
+      active = false;
+    };
+  }, [resolverConnections]);
+
   if (!challenge) {
     return <ChallengeDetailSkeleton />;
   }
@@ -108,7 +134,6 @@ function ChallengeDetail() {
   const isCreator = user?.id === challenge.creatorId;
   const takerSide = oppositeSide(challenge.creatorSide);
   const creatorName = challenge.creatorName?.trim() || challenge.creatorId;
-  const resolverConnections = resolverConnectionNames(challenge.resolutionTool);
   const agentRunLabel = formatAgentRun(challenge.expiresAt, now);
 
   async function deleteChallenge() {
@@ -177,7 +202,7 @@ function ChallengeDetail() {
           <FactTile icon={<CircleDollarSign size={18} />} label="Amount" value={credits(challenge.stakeCents)} detail="Even odds" />
           <FactTile label="Creator side" value={challenge.creatorSide} detail={`The other side is ${takerSide}`} />
           <FactTile icon={<UserRound size={18} />} label="Creator" value={creatorName} detail="Started this bet" />
-          <FactTile icon={<PlugZap size={18} />} label="Resolver connections" value={resolverConnections.length ? resolverConnections.join(", ") : "None"} detail={resolverConnections.length ? "Available to the agent" : "Exa search only"} />
+          <ResolverConnectionsTile connections={resolverConnections} iconSrcBySlug={appIconSrcBySlug} />
           <div className="col-span-2 max-[640px]:col-span-1">
             <FactTile icon={<CalendarClock size={18} />} label="Resolver run" value={agentRunLabel.primary} detail={agentRunLabel.secondary} />
           </div>
@@ -233,6 +258,37 @@ function ChallengeDetail() {
   );
 }
 
+function ResolverConnectionsTile(props: { connections: ChallengeResolverConnection[]; iconSrcBySlug: Record<string, string> }) {
+  return (
+    <div className="grid min-h-[132px] content-between gap-4 rounded-lg border bg-card p-4 text-card-foreground">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold uppercase text-muted-foreground">Resolver connections</span>
+        <span className="grid h-8 w-8 place-items-center rounded-md bg-muted text-muted-foreground"><PlugZap size={18} /></span>
+      </div>
+      <div className="grid gap-2">
+        {props.connections.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {props.connections.map((connection) => {
+              const iconSrc = props.iconSrcBySlug[connection.appSlug];
+              return (
+                <span className="inline-flex h-8 items-center gap-2 rounded-full border bg-background px-3 text-xs font-semibold text-foreground" key={connection.id}>
+                  <span className="grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-[10px] font-black text-muted-foreground [&_img]:h-4 [&_img]:w-4 [&_img]:object-contain">
+                    {iconSrc ? <img src={iconSrc} alt="" /> : connection.appName.slice(0, 2).toUpperCase()}
+                  </span>
+                  <span>{connection.appName}</span>
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <strong className="break-words text-2xl font-semibold leading-tight tracking-tight">None</strong>
+        )}
+        <small className="text-sm font-medium leading-5 text-muted-foreground">{props.connections.length > 0 ? "Available to the agent, plus Exa search" : "Exa search only"}</small>
+      </div>
+    </div>
+  );
+}
+
 function FactTile(props: { icon?: React.ReactNode; label: string; value: string; detail: string }) {
   return (
     <div className="grid min-h-[132px] content-between gap-4 rounded-lg border bg-card p-4 text-card-foreground">
@@ -246,15 +302,6 @@ function FactTile(props: { icon?: React.ReactNode; label: string; value: string;
       </div>
     </div>
   );
-}
-
-function resolverConnectionNames(resolutionTool: Challenge["resolutionTool"]): string[] {
-  const tools = Array.isArray(resolutionTool) ? resolutionTool : resolutionTool ? [resolutionTool] : [];
-  const names = tools
-    .filter((tool): tool is ResolutionTool => tool.type === "pipedream_action")
-    .map((tool) => tool.appName?.trim() || tool.appSlug)
-    .filter(Boolean);
-  return [...new Set(names)];
 }
 
 function formatAgentRun(expiresAt: string, now: number): { primary: string; secondary: string } {

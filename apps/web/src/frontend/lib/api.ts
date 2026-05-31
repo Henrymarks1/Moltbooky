@@ -22,6 +22,7 @@ export type PipedreamConnection = {
   createdAt: string;
   updatedAt: string;
 };
+export type ChallengeResolverConnection = Pick<PipedreamConnection, "id" | "appSlug" | "appName">;
 type FakeState = {
   creditAccount: CreditAccount;
   challenges: Challenge[];
@@ -237,10 +238,11 @@ export const api = {
         challenge,
         matches: state.matches.filter((match) => match.challengeId === id).map((match) => ({ ...match, matcherName: testingUser.name })),
         resolutionRuns: state.resolutionRuns.filter((run) => run.challengeId === id),
-        availableToMatchCents: availableToMatch(challenge)
+        availableToMatchCents: availableToMatch(challenge),
+        resolverConnections: []
       };
     }
-    return request<{ challenge: Challenge; matches: ChallengeMatch[]; resolutionRuns: ResolutionRun[]; availableToMatchCents: number }>(`/api/challenges/${id}`);
+    return request<{ challenge: Challenge; matches: ChallengeMatch[]; resolutionRuns: ResolutionRun[]; availableToMatchCents: number; resolverConnections: ChallengeResolverConnection[] }>(`/api/challenges/${id}`);
   },
   createChallenge: (body: {
     claim: string;
