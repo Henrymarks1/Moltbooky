@@ -6,6 +6,7 @@ import type { CreditAccount } from "@moltbooky/core/domain/types";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import { Skeleton } from "../components/ui/skeleton";
 import { api } from "../lib/api";
 import { credits } from "../lib/format";
 import { isTestingModeEnabled, testingModeChangeEvent } from "../lib/testingMode";
@@ -24,6 +25,8 @@ function CreditsPage() {
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [error, setError] = useState("");
   const [ledgerError, setLedgerError] = useState("");
+  const [creditsLoading, setCreditsLoading] = useState(true);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
   const [testingMode, setTestingMode] = useState(isTestingModeEnabled());
   const [creditPurchasesEnabled, setCreditPurchasesEnabled] = useState(testingMode);
   const [notice, setNotice] = useState("");
@@ -31,6 +34,8 @@ function CreditsPage() {
   async function refreshCredits() {
     setError("");
     setLedgerError("");
+    setCreditsLoading(true);
+    setLedgerLoading(true);
     const [creditResult, ledgerResult] = await Promise.allSettled([api.credits(), api.ledger()]);
 
     if (creditResult.status === "fulfilled") {
@@ -38,6 +43,7 @@ function CreditsPage() {
     } else {
       setError(creditResult.reason instanceof Error ? creditResult.reason.message : "Credits could not be loaded.");
     }
+    setCreditsLoading(false);
 
     if (ledgerResult.status === "fulfilled") {
       const ledgerData = ledgerResult.value;
@@ -45,6 +51,7 @@ function CreditsPage() {
     } else {
       setLedgerError(ledgerResult.reason instanceof Error ? ledgerResult.reason.message : "Ledger could not be loaded.");
     }
+    setLedgerLoading(false);
   }
 
   useEffect(() => {
@@ -125,11 +132,11 @@ function CreditsPage() {
       <section className="grid grid-cols-2 gap-3 max-[720px]:grid-cols-1 [&>div]:rounded-lg [&>div]:border [&>div]:bg-card [&>div]:p-4 [&>div]:text-card-foreground [&_span]:block [&_span]:text-sm [&_span]:leading-6 [&_span]:text-muted-foreground [&_strong]:mt-1 [&_strong]:block [&_strong]:text-2xl [&_strong]:font-semibold [&_strong]:tracking-tight [&_strong]:text-foreground">
         <div>
           <span>Available</span>
-          <strong>{credits(creditAccount?.availableCents ?? 0)}</strong>
+          {creditsLoading ? <Skeleton className="mt-2 h-8 w-32" /> : <strong>{credits(creditAccount?.availableCents ?? 0)}</strong>}
         </div>
         <div>
           <span>Locked</span>
-          <strong>{credits(creditAccount?.lockedCents ?? 0)}</strong>
+          {creditsLoading ? <Skeleton className="mt-2 h-8 w-32" /> : <strong>{credits(creditAccount?.lockedCents ?? 0)}</strong>}
         </div>
       </section>
       <Card>
@@ -193,15 +200,29 @@ function CreditsPage() {
         </div>
         <div className="grid gap-3 [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-4 [&>div]:border-b [&>div]:border-border [&>div]:py-3 last:[&>div]:border-b-0 max-[560px]:[&>div]:grid [&_span]:text-sm [&_span]:font-medium [&_span]:text-muted-foreground [&_strong]:text-sm [&_strong]:font-medium">
           {ledgerError && <p className="mt-4 inline-flex items-center gap-2 text-sm leading-6 text-muted-foreground">Ledger could not be loaded. Your credit balance is still shown above.</p>}
+          {ledgerLoading && <LedgerSkeleton />}
           {ledger.map((entry) => (
             <div key={entry.id}>
               <span>{entry.description}</span>
               <strong>{entry.type} · {credits(entry.amountCents)}</strong>
             </div>
           ))}
-          {ledger.length === 0 && <p className="mt-4 inline-flex items-center gap-2 text-sm leading-6 text-muted-foreground">No ledger entries yet.</p>}
+          {!ledgerLoading && ledger.length === 0 && <p className="mt-4 inline-flex items-center gap-2 text-sm leading-6 text-muted-foreground">No ledger entries yet.</p>}
         </div>
       </section>
     </div>
+  );
+}
+
+function LedgerSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div key={index}>
+          <Skeleton className="h-4 w-48 max-w-full" />
+          <Skeleton className="h-4 w-28" />
+        </div>
+      ))}
+    </>
   );
 }

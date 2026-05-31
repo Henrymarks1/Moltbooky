@@ -1,5 +1,5 @@
-import { Link, Outlet, createRootRoute, useRouterState } from "@tanstack/react-router";
-import { Activity, ChevronDown, Coins, ListChecks, LogOut, Settings, UserCircle } from "lucide-react";
+import { Link, Outlet, createRootRoute, useNavigate, useRouterState } from "@tanstack/react-router";
+import { ChevronDown, Coins, ListChecks, LogOut, Settings, UserCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
@@ -59,6 +59,7 @@ async function signOut(): Promise<void> {
 }
 
 function RootLayout() {
+  const navigate = useNavigate();
   const href = useRouterState({ select: (state) => state.location.href });
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -141,7 +142,9 @@ function RootLayout() {
     } catch {
       setUser(await getCurrentUser());
     } finally {
+      setProfileOpen(false);
       setSigningOut(false);
+      await navigate({ to: "/" });
     }
   }
 
@@ -149,29 +152,31 @@ function RootLayout() {
     <main className="min-h-screen">
       <header className="sticky top-0 z-20 bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 max-[720px]:px-4">
         <div className="mx-auto flex min-h-16 w-full max-w-7xl items-center gap-3 max-[720px]:grid max-[720px]:grid-cols-[minmax(0,1fr)_auto] max-[720px]:gap-3 max-[720px]:py-3 [&_nav]:max-[720px]:col-span-full [&_nav]:max-[720px]:w-full [&_nav_a]:max-[720px]:h-9">
-          <div className="flex min-w-0 items-center gap-2 no-underline">
+          <Link to="/" className="flex min-w-0 items-center gap-2 rounded-md no-underline outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring">
             <div className="grid h-8 w-8 place-items-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">M</div>
             <div>
               <strong className="block text-sm font-semibold leading-tight">Moltbooky</strong>
               <span className="block text-xs font-semibold text-muted-foreground">{testingMode ? "Testing credits" : "Event bets"}</span>
             </div>
-          </div>
-          <nav className={cn("flex items-center gap-1 overflow-x-auto", pathname === "/" && "hidden")}>
-            <Link
-              to="/"
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
-              activeProps={{ className: "bg-muted text-foreground hover:bg-muted" }}
-            >
-              <Activity size={18} /> Bets
-            </Link>
+          </Link>
+          <nav className="flex items-center gap-1 overflow-x-auto">
             {user && (
-              <Link
-                to="/my-bets"
-                className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
-                activeProps={{ className: "bg-muted text-foreground hover:bg-muted" }}
-              >
-                <ListChecks size={18} /> My bets
-              </Link>
+              <>
+                <Link
+                  to="/credits"
+                  className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
+                  activeProps={{ className: "bg-muted text-foreground hover:bg-muted" }}
+                >
+                  <Coins size={18} /> Credits
+                </Link>
+                <Link
+                  to="/my-bets"
+                  className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
+                  activeProps={{ className: "bg-muted text-foreground hover:bg-muted" }}
+                >
+                  <ListChecks size={18} /> My bets
+                </Link>
+              </>
             )}
           </nav>
           {!authLoaded ? (
@@ -196,12 +201,6 @@ function RootLayout() {
               </Button>
               {profileOpen && (
                 <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 overflow-hidden rounded-lg border bg-card p-1 text-card-foreground shadow-lg [&_a]:flex [&_a]:h-10 [&_a]:w-full [&_a]:items-center [&_a]:gap-2 [&_a]:rounded-md [&_a]:px-3 [&_a]:text-sm [&_a]:font-medium [&_a]:text-foreground [&_a]:no-underline hover:[&_a]:bg-muted [&_button]:flex [&_button]:h-10 [&_button]:w-full [&_button]:items-center [&_button]:gap-2 [&_button]:rounded-md [&_button]:border-0 [&_button]:bg-transparent [&_button]:px-3 [&_button]:text-left [&_button]:text-sm [&_button]:font-medium [&_button]:text-foreground hover:[&_button]:bg-muted disabled:[&_button]:pointer-events-none disabled:[&_button]:opacity-50" role="menu">
-                  <Link to="/my-bets" role="menuitem" onClick={() => setProfileOpen(false)}>
-                    <ListChecks size={16} /> My bets
-                  </Link>
-                  <Link to="/credits" role="menuitem" onClick={() => setProfileOpen(false)}>
-                    <Coins size={16} /> Credits
-                  </Link>
                   <Link to="/settings/api-keys" role="menuitem" onClick={() => setProfileOpen(false)}>
                     <Settings size={16} /> Settings
                   </Link>

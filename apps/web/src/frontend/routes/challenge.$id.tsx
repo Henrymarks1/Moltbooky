@@ -263,7 +263,26 @@ function formatAgentRun(expiresAt: string, now: number): { primary: string; seco
   if (msUntilRun <= 0) {
     return { primary: shortDate(expiresAt), secondary: "Runs as soon as the resolver picks it up" };
   }
-  return { primary: shortDate(expiresAt), secondary: "Runs at expiry" };
+  return { primary: formatCountdown(msUntilRun), secondary: `Runs ${shortDate(expiresAt)}` };
+}
+
+function formatCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
 }
 
 function ChallengeDetailSkeleton() {
