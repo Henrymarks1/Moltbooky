@@ -1,9 +1,12 @@
 import { Link, Outlet, createRootRoute, useNavigate, useRouterState } from "@tanstack/react-router";
-import { ChevronDown, Coins, ListChecks, LogOut, Settings, UserCircle } from "lucide-react";
+import { ChevronDown, Coins, ListChecks, LogOut, PlusCircle, Settings, UserCircle, Wrench, X, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import { capturePageview, identifyAnalyticsUser, resetAnalyticsUser } from "../lib/analytics";
+import { api } from "../lib/api";
+import { credits } from "../lib/format";
 import { cn } from "../lib/utils";
 import { seoForPath, setSeoMeta } from "../lib/seo";
 import { isTestingModeEnabled, testingModeChangeEvent, testingUser } from "../lib/testingMode";
@@ -25,6 +28,8 @@ type SessionResponse = {
 };
 
 export const authChangeEvent = "moltbooky-auth-change";
+export const challengeRefreshEvent = "moltbooky-challenge-refresh";
+export const creditRefreshEvent = "moltbooky-credit-refresh";
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   if (isTestingModeEnabled()) {
@@ -67,7 +72,9 @@ function RootLayout() {
   const [signingOut, setSigningOut] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [testingMode, setTestingMode] = useState(isTestingModeEnabled());
+  const [devToolsEnabled, setDevToolsEnabled] = useState(false);
   const previousUserId = useRef<string | null>(null);
+  const challengeId = pathname.match(/^\/challenge\/([^/]+)$/)?.[1];
 
   useEffect(() => {
     let active = true;
@@ -131,6 +138,30 @@ function RootLayout() {
       previousUserId.current = null;
     }
   }, [authLoaded, user]);
+
+  useEffect(() => {
+    let active = true;
+    if (!authLoaded || !user || testingMode) {
+      setDevToolsEnabled(false);
+      return;
+    }
+
+    api
+      .testingConfig()
+      .then((config) => {
+        if (active) {
+          setDevToolsEnabled(config.enabled);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setDevToolsEnabled(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [authLoaded, testingMode, user?.id]);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -222,6 +253,89 @@ function RootLayout() {
       <section className={cn("px-6 py-5 max-[720px]:px-4", pathname === "/" && "py-0")}>
         <Outlet />
       </section>
+      {devToolsEnabled && <DevModeMenu challengeId={challengeId ? decodeURIComponent(challengeId) : undefined} />}
     </main>
+  );
+}
+
+function DevModeMenu(props: { challengeId?: string }) {
+  const [open, setOpen] = useState(false);
+  const [amountCredits, setAmountCredits] = useState("50");
+  const [busy, setBusy] = useState<"credits" | "resolve" | null>(null);
+  const [message, setMessage] = useState("");
+
+  async function addCredits() {
+    setBusy("credits");
+    setMessage("");
+    try {
+      const result = await api.addTestingCredits(amountCredits);
+      window.dispatchEvent(new Event(creditRefreshEvent));
+      setMessage(`Added ${credits(result.amountCents)}.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not add testing credits.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resolveBetNow() {
+    if (!props.challengeId) {
+      return;
+    }
+    setBusy("resolve");
+    setMessage("");
+    try {
+      const result = await api.resolveTestingChallenge(props.challengeId);
+      window.dispatchEvent(new Event(challengeRefreshEvent));
+      const resolverResult = result.resolver as { result?: { outcome?: string; shortRationale?: string } };
+      setMessage(resolverResult.result?.outcome ? `Resolver returned ${resolverResult.result.outcome}.` : "Resolver finished.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not run resolver.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!open) {
+    return (
+      <Button className="fixed bottom-5 right-5 z-50 shadow-lg" type="button" onClick={() => setOpen(true)}>
+        <Wrench size={16} /> Dev
+      </Button>
+    );
+  }
+
+  return (
+    <div className="fixed bottom-5 right-5 z-50 grid w-[min(360px,calc(100vw-40px))] gap-3 rounded-lg border bg-card p-4 text-card-foreground shadow-2xl">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <strong className="block text-sm font-semibold">Dev mode</strong>
+          <span className="text-xs font-medium text-muted-foreground">Testing-only tools for this account.</span>
+        </div>
+        <Button aria-label="Close dev menu" size="icon" type="button" variant="ghost" onClick={() => setOpen(false)}>
+          <X size={16} />
+        </Button>
+      </div>
+
+      <div className="grid gap-2 rounded-md border bg-muted/20 p-3">
+        <label className="grid gap-1 text-sm font-semibold">
+          Add credits
+          <Input min="1" step="1" type="number" value={amountCredits} onChange={(event) => setAmountCredits(event.target.value)} />
+        </label>
+        <Button type="button" onClick={addCredits} disabled={busy !== null}>
+          <PlusCircle size={16} /> {busy === "credits" ? "Adding..." : "Add testing credits"}
+        </Button>
+      </div>
+
+      {props.challengeId && (
+        <div className="grid gap-2 rounded-md border bg-muted/20 p-3">
+          <span className="text-sm font-semibold">Current bet</span>
+          <Button type="button" onClick={resolveBetNow} disabled={busy !== null}>
+            <Zap size={16} /> {busy === "resolve" ? "Resolving..." : "Run resolver now"}
+          </Button>
+        </div>
+      )}
+
+      {message && <p className="rounded-md border bg-background p-2 text-xs font-medium text-muted-foreground">{message}</p>}
+    </div>
   );
 }

@@ -10,7 +10,7 @@ import { Skeleton } from "../components/ui/skeleton";
 import { api } from "../lib/api";
 import { credits } from "../lib/format";
 import { isTestingModeEnabled, testingModeChangeEvent } from "../lib/testingMode";
-import { rootRoute } from "./root";
+import { creditRefreshEvent, rootRoute } from "./root";
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -81,9 +81,11 @@ function CreditsPage() {
     }
 
     window.addEventListener(testingModeChangeEvent, refreshTestingMode);
+    window.addEventListener(creditRefreshEvent, refreshTestingMode);
     window.addEventListener("storage", refreshTestingMode);
     return () => {
       window.removeEventListener(testingModeChangeEvent, refreshTestingMode);
+      window.removeEventListener(creditRefreshEvent, refreshTestingMode);
       window.removeEventListener("storage", refreshTestingMode);
     };
   }, []);

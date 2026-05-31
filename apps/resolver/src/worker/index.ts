@@ -438,8 +438,48 @@ function parseResolverJson(text: string): unknown {
   }
 }
 
+function isManualResolverRequestAllowed(request: Request, env: Env): boolean {
+  const configuredToken = env.RESOLVER_TEST_TOKEN?.trim();
+  if (configuredToken) {
+    const authHeader = request.headers.get("authorization") ?? "";
+    const bearerToken = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+    return bearerToken === configuredToken || request.headers.get("x-resolver-test-token") === configuredToken;
+  }
+
+  const hostname = new URL(request.url).hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+async function handleFetch(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+
+  if (request.method === "GET" && url.pathname === "/") {
+    return Response.json({ ok: true, name: "Moltbooky Resolver" });
+  }
+
+  if (request.method === "POST" && url.pathname === "/enqueue") {
+    if (!isManualResolverRequestAllowed(request, env)) {
+      return Response.json({ error: "Manual resolver access is not allowed." }, { status: 403 });
+    }
+    const enqueued = await enqueueOpenChallenges(env);
+    return Response.json({ ok: true, enqueued });
+  }
+
+  const resolveMatch = url.pathname.match(/^\/resolve\/([^/]+)$/);
+  if (request.method === "POST" && resolveMatch) {
+    if (!isManualResolverRequestAllowed(request, env)) {
+      return Response.json({ error: "Manual resolver access is not allowed." }, { status: 403 });
+    }
+    const challengeId = decodeURIComponent(resolveMatch[1]);
+    const result = await resolveChallenge(env, challengeId);
+    return Response.json({ ok: true, challengeId, result });
+  }
+
+  return Response.json({ error: "Not found." }, { status: 404 });
+}
+
 export default {
-  fetch: () => Response.json({ ok: true, name: "Moltbooky Resolver" }),
+  fetch: handleFetch,
   scheduled: async (_event: ScheduledEvent, env: Env) => {
     await enqueueOpenChallenges(env);
   },

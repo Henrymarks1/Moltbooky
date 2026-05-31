@@ -8,6 +8,7 @@ import { json } from "./db";
 import { registerIntegrationRoutes } from "./integrations";
 import { registerPaymentsRoutes } from "./payments";
 import { agentSkillMarkdown } from "./skill";
+import { registerTestingRoutes } from "./testing";
 
 export { ChallengeObject } from "./challenge-object";
 
@@ -55,6 +56,7 @@ registerChallengeRoutes(app);
 registerCreditRoutes(app);
 registerApiKeyRoutes(app);
 registerAdminRoutes(app);
+registerTestingRoutes(app);
 
 export default {
   fetch: app.fetch

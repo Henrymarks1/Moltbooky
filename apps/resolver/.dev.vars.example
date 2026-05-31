@@ -4,6 +4,9 @@ DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require"
 EXA_API_KEY=""
 OPENAI_API_KEY=""
 
+# Optional. Required to call manual resolver HTTP endpoints outside localhost.
+RESOLVER_TEST_TOKEN=""
+
 # Optional. Enables Pipedream actions during resolution for markets that attach a tool.
 PIPEDREAM_CLIENT_ID=""
 PIPEDREAM_CLIENT_SECRET=""

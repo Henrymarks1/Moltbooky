@@ -358,6 +358,11 @@ export const api = {
   },
   createTestingCreditPurchase,
   createCreditPurchase,
+  testingConfig: () => request<{ enabled: boolean; email?: string }>("/api/testing/config"),
+  addTestingCredits: (amountCredits: string) =>
+    request<{ amountCents: number }>("/api/testing/credits", { method: "POST", body: JSON.stringify({ amountCredits }) }),
+  resolveTestingChallenge: (id: string) =>
+    request<{ challenge: Challenge | null; resolver: unknown }>(`/api/testing/challenges/${id}/resolve`, { method: "POST" }),
   listPipedreamApps: (query?: string) =>
     request<{ apps: PipedreamApp[] }>(`/api/integrations/pipedream/apps${query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`),
   listPipedreamConnections: () => request<{ connections: PipedreamConnection[] }>("/api/integrations/pipedream/connections"),

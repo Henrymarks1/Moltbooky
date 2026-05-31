@@ -17,3 +17,8 @@ PIPEDREAM_CLIENT_SECRET=""
 PIPEDREAM_PROJECT_ID=""
 PIPEDREAM_PROJECT_ENVIRONMENT="development"
 PIPEDREAM_ALLOWED_ORIGINS='["http://localhost:5173"]'
+
+# Optional. Enables signed-in testing tools for listed emails.
+TESTING_MODE_EMAILS="henryesmarks@gmail.com"
+RESOLVER_URL="http://localhost:8788"
+RESOLVER_TEST_TOKEN=""
