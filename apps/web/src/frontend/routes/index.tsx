@@ -83,7 +83,12 @@ function Home() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await navigate({ to: "/new" });
+    const trimmedClaim = claim.trim();
+    if (!trimmedClaim) {
+      await navigate({ to: "/new" });
+      return;
+    }
+    await navigate({ to: "/new", search: { claim: trimmedClaim } });
   }
 
   return (

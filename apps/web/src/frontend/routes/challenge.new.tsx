@@ -1,12 +1,13 @@
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { createFrontendClient } from "@pipedream/sdk/browser";
-import { CheckCircle2, CircleDollarSign, Globe2, Link2, Search, Sparkles, TimerReset } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, CircleDollarSign, Globe2, Link2, Search, Sparkles, TimerReset } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Slider } from "../components/ui/slider";
 import { Textarea } from "../components/ui/textarea";
 import { api, type PipedreamApp, type PipedreamConnection } from "../lib/api";
 import { cn } from "../lib/utils";
@@ -108,11 +109,14 @@ const resolverToolPresetsBySlug = new Map(resolverToolPresets.map((tool) => [too
 const defaultResolverToolSlugs = resolverToolPresets.map((tool) => tool.appSlug);
 const noticeErrorClass = "rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive";
 const toolCardClass =
-  "grid min-h-[92px] grid-cols-[44px_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card p-3 text-left text-card-foreground transition-colors hover:border-primary/40 hover:bg-background disabled:cursor-wait disabled:opacity-70";
+  "grid min-h-[68px] grid-cols-[34px_minmax(0,1fr)] items-center gap-2 rounded-md border bg-card p-2 text-left text-card-foreground transition-colors hover:border-primary/40 hover:bg-background disabled:cursor-wait disabled:opacity-70";
 const toolIconClass =
-  "relative grid h-11 w-11 place-items-center overflow-hidden rounded-lg border bg-background text-xs font-black text-muted-foreground [&_img]:relative [&_img]:z-10 [&_img]:h-6 [&_img]:w-6 [&_img]:object-contain [&_em]:absolute [&_em]:text-xs [&_em]:font-black [&_em]:not-italic";
+  "relative grid h-8 w-8 place-items-center overflow-hidden rounded-md border bg-background text-[10px] font-black text-muted-foreground [&_img]:relative [&_img]:z-10 [&_img]:h-5 [&_img]:w-5 [&_img]:object-contain [&_em]:absolute [&_em]:text-[10px] [&_em]:font-black [&_em]:not-italic";
 const segmentedClass =
-  "grid grid-cols-2 rounded-lg bg-muted p-1 [&_button]:inline-flex [&_button]:h-10 [&_button]:items-center [&_button]:justify-center [&_button]:gap-2 [&_button]:rounded-md [&_button]:border-0 [&_button]:bg-transparent [&_button]:text-sm [&_button]:font-medium [&_button]:text-muted-foreground [&_button]:transition-colors";
+  "grid grid-cols-2 rounded-md border bg-muted/70 p-1 [&_button]:inline-flex [&_button]:h-9 [&_button]:items-center [&_button]:justify-center [&_button]:gap-2 [&_button]:rounded-[5px] [&_button]:border-0 [&_button]:bg-transparent [&_button]:text-sm [&_button]:font-semibold [&_button]:text-muted-foreground [&_button]:transition-colors hover:[&_button]:bg-background/70 hover:[&_button]:text-foreground";
+const wizardStepClass = "mx-auto grid w-full max-w-xl gap-4";
+const chipIconClass =
+  "grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded-full bg-background/80 text-[10px] font-black text-muted-foreground [&_img]:h-4 [&_img]:w-4 [&_img]:object-contain [&_em]:not-italic";
 
 function appFallback(name: string): string {
   const words = name.replace(/\([^)]*\)/g, "").trim().split(/\s+/).filter(Boolean);
@@ -132,6 +136,10 @@ function appToResolverTool(app: PipedreamApp): ResolverToolPreset {
     summary: preset?.summary ?? app.categories?.slice(0, 2).join(", ") ?? app.authType ?? "Pipedream connection",
     defaultInstructions: preset?.defaultInstructions ?? `Use ${app.name} only to verify evidence relevant to this bet.`
   };
+}
+
+function iconMapFromApps(apps: PipedreamApp[]): Record<string, string> {
+  return Object.fromEntries(apps.filter((app) => app.imgSrc).map((app) => [app.nameSlug, app.imgSrc!]));
 }
 
 function padDatePart(value: number): string {
@@ -194,11 +202,15 @@ const expiryTimeOptions = Array.from({ length: 48 }, (_, index) => {
   };
 });
 
-export function NewChallenge() {
+type NewChallengeProps = {
+  initialClaim?: string;
+};
+
+export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
   const navigate = useNavigate();
-  const [claim, setClaim] = useState("");
+  const [claim, setClaim] = useState(initialClaim);
   const [resolutionCriteria, setResolutionCriteria] = useState("");
-  const [stakeCredits, setStakeCredits] = useState("");
+  const [stakeCredits, setStakeCredits] = useState("25");
   const [expiryDate, setExpiryDate] = useState(() => defaultExpiryParts().date);
   const [expiryTime, setExpiryTime] = useState(() => defaultExpiryParts().time);
   const [creatorSide, setCreatorSide] = useState<"YES" | "NO">("YES");
@@ -211,10 +223,17 @@ export function NewChallenge() {
   const [pipedreamApps, setPipedreamApps] = useState<PipedreamApp[]>([]);
   const [pipedreamAppsLoading, setPipedreamAppsLoading] = useState(false);
   const [pipedreamAppsError, setPipedreamAppsError] = useState("");
+  const [appIconSrcBySlug, setAppIconSrcBySlug] = useState<Record<string, string>>({});
   const [appSearch, setAppSearch] = useState("");
   const [visibleToolLimit, setVisibleToolLimit] = useState(90);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    setClaim(initialClaim);
+  }, [initialClaim]);
+
   const resolverTools = useMemo(() => {
     if (!pipedreamApps.length) {
       return resolverToolPresets;
@@ -231,11 +250,39 @@ export function NewChallenge() {
     const pinnedNames = new Set(pinnedTools.map((tool) => tool.appName.toLowerCase()));
     return [...pinnedTools, ...pipedreamApps.filter((app) => !pinnedSlugs.has(app.nameSlug) && !pinnedNames.has(app.name.toLowerCase())).map(appToResolverTool)];
   }, [pipedreamApps]);
-  const visibleResolverTools = resolverTools.slice(0, visibleToolLimit);
   const connectionsById = useMemo(() => new Map(pipedreamConnections.map((connection) => [connection.id, connection])), [pipedreamConnections]);
   const connectionsByAppSlug = useMemo(() => new Map(pipedreamConnections.map((connection) => [connection.appSlug, connection])), [pipedreamConnections]);
   const selectedConnections = selectedConnectionIds.map((id) => connectionsById.get(id)).filter((connection): connection is PipedreamConnection => Boolean(connection));
   const expiresAt = useMemo(() => expiryPartsToIso(expiryDate, expiryTime), [expiryDate, expiryTime]);
+  const stakeAmount = Number(stakeCredits);
+  const hasBetDetails = Boolean(claim.trim() && resolutionCriteria.trim());
+  const hasTerms = Boolean(Number.isFinite(stakeAmount) && stakeAmount >= 5 && expiryDate && expiryTime && expiresAt);
+  const canPublish = Boolean(hasBetDetails && hasTerms);
+  const resolverToolsForView = resolverTools.slice(0, appSearch.trim() ? visibleToolLimit : 8);
+  const exaIconSrc = appIconSrcBySlug.exa;
+  const steps = [
+    { title: "Write the bet", ready: hasBetDetails },
+    { title: "Choose resolver tools", ready: true },
+    { title: "Set the terms", ready: hasTerms },
+    { title: "Review", ready: canPublish }
+  ];
+
+  function canOpenStep(index: number): boolean {
+    if (index <= step) {
+      return true;
+    }
+    if (index === 1) {
+      return hasBetDetails;
+    }
+    if (index === 2) {
+      return hasBetDetails;
+    }
+    return canPublish;
+  }
+
+  function nextStep() {
+    setStep((current) => Math.min(current + 1, steps.length - 1));
+  }
 
   useEffect(() => {
     setVisibleToolLimit(90);
@@ -267,6 +314,7 @@ export function NewChallenge() {
       .then(({ apps }) => {
         if (!cancelled) {
           setPipedreamApps(apps);
+          setAppIconSrcBySlug((current) => ({ ...current, ...iconMapFromApps(apps) }));
         }
       })
       .catch((err) => {
@@ -283,6 +331,23 @@ export function NewChallenge() {
       cancelled = true;
     };
   }, [appSearch]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listPipedreamApps("exa")
+      .then(({ apps }) => {
+        if (!cancelled) {
+          setAppIconSrcBySlug((current) => ({ ...current, ...iconMapFromApps(apps) }));
+        }
+      })
+      .catch(() => {
+        // Exa search is built in; the Pipedream logo is a visual enhancement when available.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function selectResolverTool(tool: ResolverToolPreset) {
     setConnectError("");
@@ -367,16 +432,15 @@ export function NewChallenge() {
     event.preventDefault();
     setLoading(true);
     setError("");
-    const form = new FormData(event.currentTarget);
 
     try {
       const { challenge } = await api.createChallenge({
-        claim: String(form.get("claim") ?? ""),
-        resolutionCriteria: String(form.get("resolutionCriteria") ?? ""),
+        claim,
+        resolutionCriteria,
         pipedreamConnectionIds: selectedConnectionIds,
         creatorSide,
         visibility,
-        stakeCredits: String(form.get("stakeCredits") ?? ""),
+        stakeCredits,
         expiresAt
       });
       window.dispatchEvent(new Event(authChangeEvent));
@@ -394,210 +458,275 @@ export function NewChallenge() {
   }
 
   return (
-    <div className="mx-auto grid max-w-7xl gap-6">
-      <header className="flex items-start justify-between gap-4 [&_h1]:max-w-[850px] [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:tracking-tight max-[720px]:[&_h1]:text-2xl [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
+    <div className="mx-auto grid max-w-7xl gap-4">
+      <header className="flex items-start justify-between gap-4 [&_h1]:max-w-[850px] [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:tracking-tight max-[720px]:[&_h1]:text-xl [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
         <div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="outline">New bet</Badge>
-            <Badge variant="outline">Even odds</Badge>
-          </div>
           <h1>Launch a bet in under a minute.</h1>
           <p>Post a claim, choose your side, and lock platform credits for matching.</p>
         </div>
       </header>
 
-      <form className="grid grid-cols-[minmax(0,1fr)_340px] items-start gap-4 max-[920px]:grid-cols-1" onSubmit={submit}>
-        <Card className="grid gap-3">
-          <CardHeader>
-            <CardTitle>Bet details</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-        {error && <div className={noticeErrorClass}>{error}</div>}
-        <Label>
-          Claim
-          <Textarea
-            name="claim"
-            placeholder="I bet YES that OpenAI launches a new model by June 30, 2026."
-            value={claim}
-            onChange={(event) => setClaim(event.target.value)}
-            required
-          />
-        </Label>
-        <Label>
-          Resolution criteria
-          <Textarea
-            name="resolutionCriteria"
-            placeholder="Resolve YES only if OpenAI announces general availability on its official site or API docs before the expiry."
-            value={resolutionCriteria}
-            onChange={(event) => setResolutionCriteria(event.target.value)}
-            required
-          />
-        </Label>
-        <div className="grid gap-4 rounded-lg border bg-muted/30 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <span className="text-xs font-semibold uppercase text-muted-foreground">Give the resolver evidence access</span>
-                <small className="mt-1 block text-sm text-muted-foreground">{appSearch.trim() ? `${pipedreamApps.length.toLocaleString()} matching apps` : "Popular Pipedream apps"}</small>
-              </div>
-              <strong className="text-base font-semibold">Click to add to agent</strong>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
-              <span className="text-xs font-semibold uppercase text-muted-foreground">Agent tools</span>
-              <div className="inline-flex h-8 items-center gap-2 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground">
-                <Sparkles size={14} />
-                <span>Exa web search</span>
-              </div>
-              {selectedConnections.map((connection) => {
-                const preset = resolverToolPresetsBySlug.get(connection.appSlug);
-                return (
-                  <div className="inline-flex h-8 items-center gap-2 rounded-full border bg-muted px-3 text-xs font-semibold text-foreground" key={connection.id}>
-                    <span className="grid h-5 w-5 place-items-center rounded-full bg-background text-[10px] font-black text-muted-foreground">
-                      <em>{preset?.iconFallback ?? appFallback(connection.appName)}</em>
-                    </span>
-                    <span>{connection.appName}</span>
-                  </div>
-                );
-              })}
-              {selectedConnectionIds.length > selectedConnections.length && (
-                <div className="inline-flex h-8 items-center gap-2 rounded-full border bg-muted px-3 text-xs font-semibold text-foreground">
-                  <span>{selectedConnectionIds.length - selectedConnections.length} saved connection{selectedConnectionIds.length - selectedConnections.length === 1 ? "" : "s"}</span>
-                </div>
-              )}
-            </div>
-            <label className="relative block [&_svg]:pointer-events-none [&_svg]:absolute [&_svg]:left-3 [&_svg]:top-1/2 [&_svg]:z-10 [&_svg]:-translate-y-1/2 [&_svg]:text-muted-foreground [&_input]:pl-9">
-              <Search size={16} />
-              <Input
-                value={appSearch}
-                onChange={(event) => setAppSearch(event.target.value)}
-                placeholder="Search Pipedream apps"
-                type="search"
-              />
-            </label>
-            <div
-              className="grid max-h-[420px] grid-cols-3 gap-3 overflow-auto pr-1 max-[980px]:grid-cols-2 max-[560px]:grid-cols-1"
-              onScroll={(event) => {
-                const target = event.currentTarget;
-                if (target.scrollTop + target.clientHeight >= target.scrollHeight - 120) {
-                  setVisibleToolLimit((limit) => Math.min(limit + 90, resolverTools.length));
-                }
-              }}
-            >
-              {visibleResolverTools.map((tool) => (
-                (() => {
-                  const savedConnection = connectionsByAppSlug.get(tool.appSlug);
-                  const isAdded = Boolean(savedConnection && selectedConnectionIds.includes(savedConnection.id));
-                  return (
-                  <button
-                    type="button"
-                    key={tool.id}
-                    className={cn(toolCardClass, isAdded && "border-primary bg-background ring-2 ring-primary/10")}
-                    onClick={() => selectResolverTool(tool)}
-                    disabled={connectingPipedream}
-                    aria-pressed={isAdded}
-                  >
-                    <span className={toolIconClass}>
-                      {tool.iconSrc ? (
-                        <img src={tool.iconSrc} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />
-                      ) : (
-                        <em>{tool.iconFallback}</em>
-                      )}
-                    </span>
-                    <span className="grid min-w-0 gap-1">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <strong className="truncate text-sm font-semibold">{tool.appName}</strong>
-                        {savedConnection && <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-secondary-foreground">Connected</span>}
-                      </span>
-                      <small className="truncate text-xs font-medium text-muted-foreground">{tool.summary}</small>
-                    </span>
-                  </button>
-                  );
-                })()
-              ))}
-              {!resolverTools.length && (
-                <div className="col-span-full grid gap-1 rounded-lg border border-dashed bg-card p-4 text-center text-sm text-muted-foreground [&_strong]:text-foreground">
-                  <strong>No matching apps</strong>
-                  <span>Try a different search.</span>
-                </div>
-              )}
-            </div>
-            {resolverTools.length > visibleResolverTools.length && (
-              <p className="text-xs font-medium text-muted-foreground">Showing {visibleResolverTools.length.toLocaleString()} of {resolverTools.length.toLocaleString()} apps. Scroll for more.</p>
-            )}
-            {pipedreamAppsLoading && <p className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium text-muted-foreground">Loading Pipedream app directory...</p>}
-            {pipedreamAppsError && <p className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm leading-6 text-destructive">{pipedreamAppsError}</p>}
-            {pipedreamStatus && <p className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium text-muted-foreground"><Link2 size={15} /> {pipedreamStatus}</p>}
-            {connectError && <p className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm leading-6 text-destructive">{connectError}</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-3 max-[720px]:grid-cols-1">
-          <Label>
-            <span className="inline-flex items-center gap-1.5"><CircleDollarSign size={15} /> Stake</span>
-            <Input name="stakeCredits" inputMode="decimal" placeholder="25.00" value={stakeCredits} onChange={(event) => setStakeCredits(event.target.value)} required />
-          </Label>
-          <Label>
-            <span className="inline-flex items-center gap-1.5"><TimerReset size={15} /> Expiry</span>
-            <div className="grid grid-cols-[minmax(0,1fr)_150px] gap-2 max-[520px]:grid-cols-1">
-              <Input aria-label="Expiry date" name="expiryDate" type="date" value={expiryDate} onChange={(event) => setExpiryDate(event.target.value)} required />
-              <select
-                aria-label="Expiry time"
-                name="expiryTime"
-                className="h-11 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                value={expiryTime}
-                onChange={(event) => setExpiryTime(event.target.value)}
-                required
-              >
-                {expiryTimeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </Label>
-        </div>
-          </CardContent>
-        </Card>
+      <form className="grid gap-4" onSubmit={submit}>
+        <Card className="mx-auto w-full max-w-3xl">
+          <CardContent className="grid gap-4 p-5 max-[560px]:p-4">
+            {error && <div className={noticeErrorClass}>{error}</div>}
 
-        <Card className="grid gap-3">
-          <CardHeader>
-            <CardTitle>Position and access</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-        <div className="grid gap-2 rounded-lg border bg-muted p-4 text-foreground">
-          <span className="text-sm text-muted-foreground">Creator position</span>
-          <strong className="text-3xl font-semibold leading-none tracking-tight">{creatorSide}</strong>
-          <p className="text-sm leading-6 text-muted-foreground">The counterparty receives the opposite side at the same stake.</p>
-        </div>
-        <div className={segmentedClass} role="group" aria-label="Creator side">
-          <button type="button" className={creatorSide === "YES" ? "bg-background text-foreground shadow-sm" : ""} onClick={() => setCreatorSide("YES")}>
-            YES
-          </button>
-          <button type="button" className={creatorSide === "NO" ? "bg-background text-foreground shadow-sm" : ""} onClick={() => setCreatorSide("NO")}>
-            NO
-          </button>
-        </div>
-        <div className="grid gap-2 rounded-lg border bg-muted p-4 text-foreground">
-          <span className="text-sm text-muted-foreground">{visibility === "public" ? "Public bet" : "Private bet"}</span>
-          <strong className="text-3xl font-semibold leading-none tracking-tight">{visibility === "public" ? "Listed" : "Share link"}</strong>
-          <p className="text-sm leading-6 text-muted-foreground">
-            {visibility === "public"
-              ? "Visible in the public bet feed and accessible by link."
-              : "Hidden from the public feed. Anyone with the share link can open it."}
-          </p>
-        </div>
-        <div className={segmentedClass} role="group" aria-label="Bet visibility">
-          <button type="button" className={visibility === "public" ? "bg-background text-foreground shadow-sm" : ""} onClick={() => setVisibility("public")}>
-            <Globe2 size={16} /> Public
-          </button>
-          <button type="button" className={visibility === "private" ? "bg-background text-foreground shadow-sm" : ""} onClick={() => setVisibility("private")}>
-            <Link2 size={16} /> Private
-          </button>
-        </div>
-        <Button type="submit" disabled={loading}>
-          <CheckCircle2 size={18} /> {loading ? "Publishing..." : "Publish bet"}
-        </Button>
+            {step === 0 && (
+              <section className={wizardStepClass}>
+                <SectionIntro step="01" title="Write the bet" description="Two fields. The claim is what people see; the criteria tell the resolver how to decide." />
+                <Label>
+                  Claim
+                  <Textarea
+                    className="min-h-20"
+                    name="claim"
+                    placeholder="Will OpenAI launch a new model by June 30?"
+                    value={claim}
+                    onChange={(event) => setClaim(event.target.value)}
+                    required
+                  />
+                </Label>
+                <Label>
+                  Resolution criteria
+                  <Textarea
+                    className="min-h-20"
+                    name="resolutionCriteria"
+                    placeholder="Resolve YES only if OpenAI announces general availability on its official site or API docs before the expiry."
+                    value={resolutionCriteria}
+                    onChange={(event) => setResolutionCriteria(event.target.value)}
+                    required
+                  />
+                </Label>
+              </section>
+            )}
+
+            {step === 2 && (
+              <section className={wizardStepClass}>
+                <SectionIntro step="03" title="Set the terms" description="Choose the money, your side, visibility, and when the resolver runs." />
+                <div className="grid gap-2">
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground"><CircleDollarSign size={15} /> Stake</span>
+                      <strong className="mt-1 block text-xl font-semibold tracking-tight">{stakeAmount || 25} credits</strong>
+                    </div>
+                    <Input
+                      className="h-9 w-24 text-right"
+                      inputMode="decimal"
+                      min="5"
+                      max="100"
+                      name="stakeCredits"
+                      type="number"
+                      value={stakeCredits}
+                      onChange={(event) => setStakeCredits(event.target.value)}
+                      required
+                    />
+                  </div>
+                  <Slider
+                    min={5}
+                    max={100}
+                    step={1}
+                    value={[Number.isFinite(stakeAmount) ? Math.min(100, Math.max(5, stakeAmount)) : 25]}
+                    onValueChange={([value]) => setStakeCredits(String(value))}
+                    aria-label="Stake credits"
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <span className="text-sm font-semibold text-muted-foreground">Your side</span>
+                  <div className={segmentedClass} role="group" aria-label="Creator side">
+                    <button type="button" className={creatorSide === "YES" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setCreatorSide("YES")}>
+                      YES
+                    </button>
+                    <button type="button" className={creatorSide === "NO" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setCreatorSide("NO")}>
+                      NO
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <span className="text-sm font-semibold text-muted-foreground">Access</span>
+                  <div className={segmentedClass} role="group" aria-label="Bet visibility">
+                    <button type="button" className={visibility === "public" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setVisibility("public")}>
+                      <Globe2 size={16} /> Public
+                    </button>
+                    <button type="button" className={visibility === "private" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setVisibility("private")}>
+                      <Link2 size={16} /> Private
+                    </button>
+                  </div>
+                </div>
+
+                <Label>
+                  <span className="inline-flex items-center gap-1.5"><TimerReset size={15} /> Expiry</span>
+                  <div className="grid grid-cols-[minmax(0,1fr)_122px] gap-2 max-[420px]:grid-cols-1">
+                    <Input aria-label="Expiry date" name="expiryDate" type="date" value={expiryDate} onChange={(event) => setExpiryDate(event.target.value)} required />
+                    <select
+                      aria-label="Expiry time"
+                      name="expiryTime"
+                      className="h-11 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      value={expiryTime}
+                      onChange={(event) => setExpiryTime(event.target.value)}
+                      required
+                    >
+                      {expiryTimeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </Label>
+              </section>
+            )}
+
+            {step === 1 && (
+              <section className="mx-auto grid w-full max-w-4xl gap-4">
+              <SectionIntro step="02" title="Choose resolver tools" description="Pick the sources the resolver can use to check the bet. Web search is already included; add private apps only when the answer needs account data." />
+              <div className="grid gap-3">
+                <label className="relative block w-full [&_svg]:pointer-events-none [&_svg]:absolute [&_svg]:left-3 [&_svg]:top-1/2 [&_svg]:z-10 [&_svg]:-translate-y-1/2 [&_svg]:text-muted-foreground [&_input]:pl-9">
+                  <Search size={16} />
+                  <Input className="h-12 w-full text-base" value={appSearch} onChange={(event) => setAppSearch(event.target.value)} placeholder="Search apps if needed" type="search" />
+                </label>
+                <div
+                  className="grid max-h-[260px] grid-cols-[repeat(2,minmax(0,1fr))] gap-2 overflow-auto pr-1 max-[560px]:grid-cols-1"
+                  onScroll={(event) => {
+                    const target = event.currentTarget;
+                    if (target.scrollTop + target.clientHeight >= target.scrollHeight - 120) {
+                      setVisibleToolLimit((limit) => Math.min(limit + 90, resolverTools.length));
+                    }
+                  }}
+                >
+                  {resolverToolsForView.map((tool) => {
+                    const savedConnection = connectionsByAppSlug.get(tool.appSlug);
+                    const isAdded = Boolean(savedConnection && selectedConnectionIds.includes(savedConnection.id));
+                    return (
+                      <button
+                        type="button"
+                        key={tool.id}
+                        className={cn(toolCardClass, isAdded && "border-primary bg-background ring-2 ring-primary/10")}
+                        onClick={() => selectResolverTool(tool)}
+                        disabled={connectingPipedream}
+                        aria-pressed={isAdded}
+                      >
+                        <span className={toolIconClass}>
+                          {tool.iconSrc ? (
+                            <img src={tool.iconSrc} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+                          ) : (
+                            <em>{tool.iconFallback}</em>
+                          )}
+                        </span>
+                        <span className="grid min-w-0 gap-1">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <strong className="truncate text-sm font-semibold">{tool.appName}</strong>
+                            {savedConnection && <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-secondary-foreground">Connected</span>}
+                          </span>
+                          <small className="truncate text-xs font-medium text-muted-foreground">{tool.summary}</small>
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {!resolverTools.length && (
+                    <div className="col-span-full grid gap-1 rounded-lg border border-dashed bg-card p-4 text-center text-sm text-muted-foreground [&_strong]:text-foreground">
+                      <strong>No matching apps</strong>
+                      <span>Try a different search.</span>
+                    </div>
+                  )}
+                </div>
+                {resolverTools.length > resolverToolsForView.length && (
+                  <p className="text-xs font-medium text-muted-foreground">Showing {resolverToolsForView.length.toLocaleString()} of {resolverTools.length.toLocaleString()} apps. Search to narrow the list.</p>
+                )}
+                {pipedreamAppsLoading && <p className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium text-muted-foreground">Loading Pipedream app directory...</p>}
+                {pipedreamAppsError && <p className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm leading-6 text-destructive">{pipedreamAppsError}</p>}
+                {pipedreamStatus && <p className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium text-muted-foreground"><Link2 size={15} /> {pipedreamStatus}</p>}
+                {connectError && <p className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm leading-6 text-destructive">{connectError}</p>}
+                <div className="grid gap-2 border-t pt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-semibold text-foreground">Selected tools</span>
+                    <Badge variant="outline">{selectedConnectionIds.length + 1} total</Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex h-7 items-center gap-2 rounded-full border bg-background px-3 text-xs font-semibold text-foreground">
+                      {exaIconSrc ? <span className={chipIconClass}><img src={exaIconSrc} alt="" /></span> : <Sparkles size={14} />}
+                      <span>Exa web search</span>
+                    </div>
+                    {selectedConnections.map((connection) => {
+                      const preset = resolverToolPresetsBySlug.get(connection.appSlug);
+                      const iconSrc = appIconSrcBySlug[connection.appSlug];
+                      return (
+                        <div className="inline-flex h-7 items-center gap-2 rounded-full border bg-background px-3 text-xs font-semibold text-foreground" key={connection.id}>
+                          <span className={chipIconClass}>
+                            {iconSrc ? <img src={iconSrc} alt="" /> : <em>{preset?.iconFallback ?? appFallback(connection.appName)}</em>}
+                          </span>
+                          <span>{connection.appName}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              </section>
+            )}
+
+            {step === 3 && (
+              <section className={wizardStepClass}>
+              <SectionIntro step="04" title="Review and publish" description="Quick check, then launch." />
+              <div className="grid gap-3">
+                <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  <strong className="text-base font-semibold text-foreground">{claim.trim() || "Untitled bet"}</strong>
+                  <span>{stakeCredits ? `${stakeCredits} credits` : "Choose a stake"} · {creatorSide} · {visibility === "public" ? "Public" : "Private"} · runs {expiryTimeOptions.find((option) => option.value === expiryTime)?.label ?? expiryTime}</span>
+                  <span>{selectedConnectionIds.length + 1} resolver tool{selectedConnectionIds.length === 0 ? "" : "s"}</span>
+                </div>
+                {!canPublish && <p className="text-sm leading-6 text-muted-foreground">Fill out the claim, resolution criteria, stake, and expiry to publish.</p>}
+              </div>
+              </section>
+            )}
+
+            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-t pt-4 max-[520px]:grid-cols-1">
+              <Button type="button" variant="outline" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0}>
+                <ArrowLeft size={16} /> Back
+              </Button>
+              <div className="flex items-center justify-center gap-2" aria-label="Form progress">
+                {steps.map((item, index) => (
+                  <button
+                    aria-label={`Go to step ${index + 1}`}
+                    className={cn(
+                      "grid h-8 w-8 place-items-center rounded-full border bg-background text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45",
+                      index === step && "border-primary bg-primary text-primary-foreground"
+                    )}
+                    disabled={!canOpenStep(index)}
+                    key={item.title}
+                    onClick={() => setStep(index)}
+                    type="button"
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+              </div>
+              {step < steps.length - 1 ? (
+                <Button
+                  type="button"
+                  onClick={nextStep}
+                  disabled={(step === 0 && !hasBetDetails) || (step === 2 && !hasTerms)}
+                >
+                  {step === 2 ? "Review" : "Next"} <ArrowRight size={16} />
+                </Button>
+              ) : (
+                <Button type="submit" disabled={loading || !canPublish}>
+                  <CheckCircle2 size={18} /> {loading ? "Publishing..." : "Publish bet"}
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
       </form>
+    </div>
+  );
+}
+
+function SectionIntro(props: { step: string; title: string; description: string }) {
+  return (
+    <div className="grid content-start gap-1">
+      <span className="text-xs font-semibold uppercase text-muted-foreground">{props.step}</span>
+      <h2 className="text-base font-semibold tracking-tight">{props.title}</h2>
+      <p className="text-xs leading-5 text-muted-foreground">{props.description}</p>
     </div>
   );
 }
