@@ -4,7 +4,7 @@ DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require"
 EXA_API_KEY=""
 OPENAI_API_KEY=""
 
-# Optional. Required to call manual resolver HTTP endpoints outside localhost.
+# Required. API Durable Object alarms use this bearer token to start resolver runs.
 RESOLVER_TEST_TOKEN=""
 
 # Optional. Enables Pipedream actions during resolution for markets that attach a tool.

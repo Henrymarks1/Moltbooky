@@ -77,6 +77,17 @@ export interface ResolutionRun {
   createdAt: string;
 }
 
+export interface ResolutionEvent {
+  id: string;
+  challengeId: string;
+  runId?: string | null;
+  kind: "run_started" | "model_step" | "tool_call" | "tool_result" | "agent_output" | "run_finished" | "error";
+  title: string;
+  body?: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface CreditAccount {
   userId: string;
   availableCents: number;

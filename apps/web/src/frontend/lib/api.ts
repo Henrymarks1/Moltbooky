@@ -1,6 +1,6 @@
 import { availableToMatch, oppositeSide, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
 import { creditsToCents } from "@moltbooky/core/domain/money";
-import type { Challenge, ChallengeMatch, LedgerEntryType, ResolutionRun, CreditAccount } from "@moltbooky/core/domain/types";
+import type { Challenge, ChallengeMatch, LedgerEntryType, ResolutionEvent, ResolutionRun, CreditAccount } from "@moltbooky/core/domain/types";
 import { isTestingModeEnabled, testingUser } from "./testingMode";
 
 type LedgerEntry = { id: string; type: LedgerEntryType; amountCents: number; description: string; createdAt: string };
@@ -27,6 +27,7 @@ type FakeState = {
   creditAccount: CreditAccount;
   challenges: Challenge[];
   matches: ChallengeMatch[];
+  resolutionEvents: ResolutionEvent[];
   resolutionRuns: ResolutionRun[];
   ledger: LedgerEntry[];
 };
@@ -51,6 +52,7 @@ function initialFakeState(): FakeState {
     },
     challenges: [],
     matches: [],
+    resolutionEvents: [],
     resolutionRuns: [],
     ledger: [
       {
@@ -84,6 +86,7 @@ function readFakeState(): FakeState {
         pipedreamConnectionIds: challenge.pipedreamConnectionIds ?? []
       })),
       matches: parsed.matches ?? [],
+      resolutionEvents: parsed.resolutionEvents ?? [],
       resolutionRuns: parsed.resolutionRuns ?? [],
       ledger: parsed.ledger ?? []
     };
@@ -237,12 +240,14 @@ export const api = {
       return {
         challenge,
         matches: state.matches.filter((match) => match.challengeId === id).map((match) => ({ ...match, matcherName: testingUser.name })),
+        resolutionEvents: state.resolutionEvents.filter((event) => event.challengeId === id),
         resolutionRuns: state.resolutionRuns.filter((run) => run.challengeId === id),
+        currentRunId: state.resolutionRuns.find((run) => run.challengeId === id)?.id ?? null,
         availableToMatchCents: availableToMatch(challenge),
         resolverConnections: []
       };
     }
-    return request<{ challenge: Challenge; matches: ChallengeMatch[]; resolutionRuns: ResolutionRun[]; availableToMatchCents: number; resolverConnections: ChallengeResolverConnection[] }>(`/api/challenges/${id}`);
+    return request<{ challenge: Challenge; matches: ChallengeMatch[]; resolutionEvents: ResolutionEvent[]; resolutionRuns: ResolutionRun[]; currentRunId: string | null; availableToMatchCents: number; resolverConnections: ChallengeResolverConnection[] }>(`/api/challenges/${id}`);
   },
   createChallenge: (body: {
     claim: string;
@@ -361,7 +366,7 @@ export const api = {
   testingConfig: () => request<{ enabled: boolean; email?: string }>("/api/testing/config"),
   addTestingCredits: (amountCredits: string) =>
     request<{ amountCents: number }>("/api/testing/credits", { method: "POST", body: JSON.stringify({ amountCredits }) }),
-  resolveTestingChallenge: (id: string) =>
+  scheduleTestingResolution: (id: string) =>
     request<{ challenge: Challenge | null; resolver: unknown }>(`/api/testing/challenges/${id}/resolve`, { method: "POST" }),
   listPipedreamApps: (query?: string) =>
     request<{ apps: PipedreamApp[] }>(`/api/integrations/pipedream/apps${query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`),

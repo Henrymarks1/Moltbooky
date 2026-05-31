@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import worker, { enqueueOpenChallenges } from "./index";
+import worker from "./index";
 
 vi.mock("@moltbooky/db", () => {
   const challenges = {
@@ -10,7 +10,9 @@ vi.mock("@moltbooky/db", () => {
 
   return {
     and: vi.fn((...conditions: unknown[]) => ({ type: "and", conditions })),
+    challengeMatches: {},
     challenges,
+    creditAccounts: {},
     createDb: vi.fn(() => ({
       select: vi.fn(() => ({
         from: vi.fn(() => ({
@@ -21,8 +23,9 @@ vi.mock("@moltbooky/db", () => {
       }))
     })),
     eq: vi.fn((field: unknown, value: unknown) => ({ type: "eq", field, value })),
-    lte: vi.fn((field: unknown, value: unknown) => ({ type: "lte", field, value })),
+    ledgerEntries: {},
     or: vi.fn((...conditions: unknown[]) => ({ type: "or", conditions })),
+    pipedreamConnections: {},
     resolutionRuns: {}
   };
 });
@@ -36,38 +39,29 @@ describe("resolver worker", () => {
     expect(response.status).toBe(200);
   });
 
-  it("requires a token for manual endpoints outside localhost", async () => {
+  it("requires a token for resolver runs", async () => {
     const fetch = worker.fetch as (request: Request, env: Env) => Promise<Response>;
-    const response = await fetch(new Request("https://resolver.test/enqueue", { method: "POST" }), {
-      DATABASE_URL: "postgres://user:pass@example.test/db",
-      RESOLUTION_QUEUE: { send: vi.fn() }
-    } as unknown as Env);
+    const response = await fetch(new Request("https://resolver.test/resolve", { method: "POST" }), {} as Env);
 
-    await expect(response.json()).resolves.toEqual({ error: "Manual resolver access is not allowed." });
+    await expect(response.json()).resolves.toEqual({ error: "Resolver access is not allowed." });
     expect(response.status).toBe(403);
   });
 
-  it("allows manual enqueue on localhost", async () => {
-    const send = vi.fn().mockResolvedValue(undefined);
+  it("rejects invalid signed resolver payloads", async () => {
     const fetch = worker.fetch as (request: Request, env: Env) => Promise<Response>;
-    const response = await fetch(new Request("http://localhost/enqueue", { method: "POST" }), {
-      DATABASE_URL: "postgres://user:pass@example.test/db",
-      RESOLUTION_QUEUE: { send }
-    } as unknown as Env);
+    const response = await fetch(
+      new Request("https://resolver.test/resolve", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ challengeId: "ch_1" })
+      }),
+      { RESOLVER_TEST_TOKEN: "test-token" } as Env
+    );
 
-    await expect(response.json()).resolves.toEqual({ ok: true, enqueued: 2 });
-    expect(response.status).toBe(200);
-  });
-
-  it("enqueues expired open challenges", async () => {
-    const send = vi.fn().mockResolvedValue(undefined);
-    const count = await enqueueOpenChallenges({
-      DATABASE_URL: "postgres://user:pass@example.test/db",
-      RESOLUTION_QUEUE: { send }
-    } as unknown as Env);
-
-    expect(count).toBe(2);
-    expect(send).toHaveBeenCalledWith({ challengeId: "ch_1" });
-    expect(send).toHaveBeenCalledWith({ challengeId: "ch_2" });
+    await expect(response.json()).resolves.toEqual({ error: "Invalid resolver request." });
+    expect(response.status).toBe(400);
   });
 });

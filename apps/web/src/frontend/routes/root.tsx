@@ -285,12 +285,21 @@ function DevModeMenu(props: { challengeId?: string }) {
     setBusy("resolve");
     setMessage("");
     try {
-      const result = await api.resolveTestingChallenge(props.challengeId);
-      window.dispatchEvent(new Event(challengeRefreshEvent));
-      const resolverResult = result.resolver as { result?: { outcome?: string; shortRationale?: string } };
-      setMessage(resolverResult.result?.outcome ? `Resolver returned ${resolverResult.result.outcome}.` : "Resolver finished.");
+      const result = await api.scheduleTestingResolution(props.challengeId);
+      const runAt = typeof (result.resolver as { runAt?: unknown }).runAt === "string" ? (result.resolver as { runAt: string }).runAt : new Date(Date.now() + 2_000).toISOString();
+      window.dispatchEvent(
+        new CustomEvent(challengeRefreshEvent, {
+          detail: {
+            challengeId: props.challengeId,
+            expiresAt: runAt,
+            scheduled: true,
+            status: "open"
+          }
+        })
+      );
+      setMessage("Resolver alarm scheduled.");
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not run resolver.");
+      setMessage(err instanceof Error ? err.message : "Could not schedule resolver.");
     } finally {
       setBusy(null);
     }

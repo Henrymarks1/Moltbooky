@@ -16,6 +16,7 @@ interface Env {
   PIPEDREAM_PROJECT_ENVIRONMENT?: string;
   PIPEDREAM_ALLOWED_ORIGINS?: string;
   TESTING_MODE_EMAILS?: string;
+  API_INTERNAL_URL?: string;
   RESOLVER_URL?: string;
   RESOLVER_TEST_TOKEN?: string;
 }

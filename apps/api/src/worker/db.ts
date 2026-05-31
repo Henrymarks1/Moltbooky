@@ -1,5 +1,5 @@
-import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionRuns, creditAccounts } from "@moltbooky/db";
-import type { Challenge, ChallengeMatch, ResolutionRun, ResolutionTool, Side, CreditAccount } from "@moltbooky/core/domain/types";
+import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionEvents, resolutionRuns, creditAccounts } from "@moltbooky/db";
+import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionRun, ResolutionTool, Side, CreditAccount } from "@moltbooky/core/domain/types";
 import { getSessionUserId } from "./auth";
 
 function serializeTimestamp(value: Date | string | null): string | null {
@@ -87,6 +87,27 @@ function toResolutionRun(row: typeof resolutionRuns.$inferSelect): ResolutionRun
     aiRationale: row.aiRationale,
     proposedOutcome: row.proposedOutcome as ResolutionRun["proposedOutcome"],
     confidence: row.confidence,
+    createdAt: serializeTimestamp(row.createdAt)!
+  };
+}
+
+function toResolutionEvent(row: typeof resolutionEvents.$inferSelect): ResolutionEvent {
+  let metadata: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(row.metadata) as unknown;
+    metadata = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    metadata = {};
+  }
+
+  return {
+    id: row.id,
+    challengeId: row.challengeId,
+    runId: row.runId,
+    kind: row.kind as ResolutionEvent["kind"],
+    title: row.title,
+    body: row.body,
+    metadata,
     createdAt: serializeTimestamp(row.createdAt)!
   };
 }
@@ -293,6 +314,17 @@ export async function listResolutionRuns(env: Env, challengeId: string): Promise
     .orderBy(desc(resolutionRuns.createdAt))
     .limit(10);
   return result.map(toResolutionRun);
+}
+
+export async function listResolutionEvents(env: Env, challengeId: string): Promise<ResolutionEvent[]> {
+  const db = createDb(env.DATABASE_URL);
+  const result = await db
+    .select()
+    .from(resolutionEvents)
+    .where(eq(resolutionEvents.challengeId, challengeId))
+    .orderBy(resolutionEvents.createdAt)
+    .limit(80);
+  return result.map(toResolutionEvent);
 }
 
 export async function actorFromRequest(env: Env, request: Request): Promise<{ userId: string; scopes: string[] }> {

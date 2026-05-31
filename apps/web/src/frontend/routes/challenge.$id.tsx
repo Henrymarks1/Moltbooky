@@ -1,8 +1,10 @@
 import { Link, createRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import { Bot, Copy, ExternalLink, Trash2, UserRound, Zap } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
-import type { Challenge, ChallengeMatch, ResolutionRun } from "@moltbooky/core/domain/types";
+import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionRun } from "@moltbooky/core/domain/types";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -25,6 +27,7 @@ function ChallengeDetail() {
   const navigate = useNavigate();
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [matches, setMatches] = useState<ChallengeMatch[]>([]);
+  const [resolutionEvents, setResolutionEvents] = useState<ResolutionEvent[]>([]);
   const [resolutionRuns, setResolutionRuns] = useState<ResolutionRun[]>([]);
   const [available, setAvailable] = useState(0);
   const [message, setMessage] = useState("");
@@ -35,11 +38,37 @@ function ChallengeDetail() {
   const [matchCredits, setMatchCredits] = useState("5");
   const [matching, setMatching] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const resolverChatTransport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: `/api/challenges/${encodeURIComponent(id)}/resolution-stream`,
+        credentials: "include"
+      }),
+    [id]
+  );
+  const resolverChat = useChat({
+    id: `resolver-${id}`,
+    transport: resolverChatTransport,
+    onData: (dataPart) => {
+      if (dataPart.type !== "data-resolution-event") {
+        return;
+      }
+      const event = dataPart.data as ResolutionEvent;
+      setResolutionEvents((events) => (events.some((item) => item.id === event.id) ? events : [...events, event]));
+    },
+    onFinish: () => {
+      refresh().catch((err: Error) => setMessage(err.message));
+    },
+    onError: (err) => {
+      setMessage(err.message);
+    }
+  });
 
   async function refresh() {
     const data = await api.getChallenge(id);
     setChallenge(data.challenge);
     setMatches(data.matches);
+    setResolutionEvents(data.resolutionEvents);
     setResolutionRuns(data.resolutionRuns);
     setAvailable(data.availableToMatchCents);
     setResolverConnections(data.resolverConnections ?? []);
@@ -50,7 +79,18 @@ function ChallengeDetail() {
   }, [id]);
 
   useEffect(() => {
-    function refreshChallenge() {
+    void resolverChat.sendMessage({ text: "Subscribe to resolver events." });
+  }, [id, resolverChat.sendMessage]);
+
+  useEffect(() => {
+    function refreshChallenge(event: Event) {
+      if (event instanceof CustomEvent && event.detail?.challengeId === id) {
+        const expiresAt = typeof event.detail.expiresAt === "string" ? event.detail.expiresAt : new Date().toISOString();
+        setChallenge((current) => (current ? { ...current, expiresAt, status: event.detail.status ?? current.status } : current));
+        setNow(Date.now());
+        refresh().catch((err: Error) => setMessage(err.message));
+        return;
+      }
       refresh().catch((err: Error) => setMessage(err.message));
     }
 
@@ -76,7 +116,7 @@ function ChallengeDetail() {
 
     const interval = window.setInterval(() => {
       refresh().catch((err: Error) => setMessage(err.message));
-    }, 8000);
+    }, challenge.status === "resolving" ? 1200 : 8000);
     return () => window.clearInterval(interval);
   }, [challenge?.expiresAt, challenge?.status, id, challenge ? new Date(challenge.expiresAt).getTime() <= now : false]);
 
@@ -186,6 +226,7 @@ function ChallengeDetail() {
           <AgentChatPanel
             challenge={challenge}
             latestRun={latestRun}
+            resolutionEvents={resolutionEvents}
             resolverConnections={resolverConnections}
             iconSrcBySlug={appIconSrcBySlug}
             agentRunLabel={agentRunLabel}
@@ -260,6 +301,7 @@ function ChallengeDetail() {
 function AgentChatPanel(props: {
   challenge: Challenge;
   latestRun: ResolutionRun | null;
+  resolutionEvents: ResolutionEvent[];
   resolverConnections: ChallengeResolverConnection[];
   iconSrcBySlug: Record<string, string>;
   agentRunLabel: { primary: string; secondary: string };
@@ -313,7 +355,11 @@ function AgentChatPanel(props: {
           </ChatBubble>
         )}
 
-        {props.latestRun && (
+        {props.resolutionEvents.map((event) => (
+          <ResolverEventBubble event={event} key={event.id} />
+        ))}
+
+        {props.latestRun && props.resolutionEvents.length === 0 && (
           <>
             <ToolCallBubble name="Exa web search" detail={props.latestRun.exaQuery} />
             {props.resolverConnections.map((connection) => (
@@ -344,6 +390,37 @@ function AgentChatPanel(props: {
       </CardContent>
     </Card>
   );
+}
+
+function ResolverEventBubble(props: { event: ResolutionEvent }) {
+  if (props.event.kind === "tool_call" || props.event.kind === "tool_result") {
+    return <ToolCallBubble name={props.event.title} detail={props.event.body ?? ""} />;
+  }
+
+  return (
+    <ChatBubble role="agent" title={eventLabel(props.event.kind)}>
+      <div className="grid gap-1">
+        <strong className="text-sm font-semibold text-foreground">{props.event.title}</strong>
+        {props.event.body && <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{props.event.body}</p>}
+      </div>
+    </ChatBubble>
+  );
+}
+
+function eventLabel(kind: ResolutionEvent["kind"]): string {
+  if (kind === "agent_output") {
+    return "Agent output";
+  }
+  if (kind === "model_step") {
+    return "Model step";
+  }
+  if (kind === "run_finished") {
+    return "Resolver result";
+  }
+  if (kind === "error") {
+    return "Resolver issue";
+  }
+  return "Resolver";
 }
 
 function PromptBubble(props: { challenge: Challenge; connections: ChallengeResolverConnection[]; iconSrcBySlug: Record<string, string> }) {

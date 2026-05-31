@@ -184,6 +184,24 @@ export const resolutionRuns = pgTable(
   })
 );
 
+export const resolutionEvents = pgTable(
+  "resolution_events",
+  {
+    id: text("id").primaryKey(),
+    challengeId: text("challenge_id").notNull().references(() => challenges.id),
+    runId: text("run_id"),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    metadata: text("metadata").notNull().default("{}"),
+    createdAt: timestamp("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    challengeIdx: index("idx_resolution_events_challenge").on(table.challengeId, table.createdAt),
+    runIdx: index("idx_resolution_events_run").on(table.runId, table.createdAt)
+  })
+);
+
 export const disputes = pgTable("disputes", {
   id: text("id").primaryKey(),
   challengeId: text("challenge_id").notNull().references(() => challenges.id),

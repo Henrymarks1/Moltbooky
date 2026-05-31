@@ -81,6 +81,17 @@ export const resolutionRunSchema = z.object({
   createdAt: dateTimeSchema
 });
 
+export const resolutionEventSchema = z.object({
+  id: z.string(),
+  challengeId: z.string(),
+  runId: z.string().nullable().optional(),
+  kind: z.enum(["run_started", "model_step", "tool_call", "tool_result", "agent_output", "run_finished", "error"]),
+  title: z.string(),
+  body: z.string().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  createdAt: dateTimeSchema
+});
+
 export const creditAccountSchema = z.object({
   userId: z.string(),
   availableCents: centsSchema,

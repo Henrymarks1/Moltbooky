@@ -1,10 +1,12 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
 import { availableToMatch, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
 import { creditsToCents } from "@moltbooky/core/domain/money";
+import type { Challenge, ResolutionEvent } from "@moltbooky/core/domain/types";
 import { challengeMatches, challenges, createDb, eq, ledgerEntries, pipedreamConnections } from "@moltbooky/db";
 import {
   actorFromRequest,
   getChallenge,
+  listResolutionEvents,
   listChallenges,
   listMatches,
   listResolutionRuns,
@@ -29,6 +31,7 @@ import {
   idParamSchema,
   pipedreamConnectionIdsSchema,
   requestDateTimeSchema,
+  resolutionEventSchema,
   resolutionRunSchema,
   resolutionToolSchema,
   resolutionToolsSchema,
@@ -84,6 +87,37 @@ async function listChallengeResolverConnections(env: Env, creatorId: string, con
     .where(eq(pipedreamConnections.userId, creatorId));
   const rowsById = new Map(rows.map((row) => [row.id, row]));
   return connectionIds.map((connectionId) => rowsById.get(connectionId)).filter((row): row is NonNullable<typeof row> => Boolean(row));
+}
+
+function challengeObject(env: Env, challengeId: string): DurableObjectStub {
+  const durableId = env.CHALLENGE_OBJECT.idFromName(challengeId);
+  return env.CHALLENGE_OBJECT.get(durableId);
+}
+
+async function initializeChallengeObject(env: Env, challenge: Challenge): Promise<void> {
+  const response = await challengeObject(env, challenge.id).fetch(
+    new Request("https://challenge-object/initialize", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ challenge })
+    })
+  );
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({ error: "Could not initialize challenge object." }))) as { error?: string };
+    throw new Error(body.error ?? "Could not initialize challenge object.");
+  }
+}
+
+async function challengeObjectSnapshot(env: Env, challengeId: string): Promise<{ resolutionEvents: ResolutionEvent[]; currentRunId: string | null }> {
+  const response = await challengeObject(env, challengeId).fetch(new Request(`https://challenge-object/snapshot?challengeId=${encodeURIComponent(challengeId)}`));
+  if (!response.ok) {
+    return { resolutionEvents: await listResolutionEvents(env, challengeId), currentRunId: null };
+  }
+  const body = (await response.json().catch(() => ({}))) as { resolutionEvents?: ResolutionEvent[]; currentRunId?: string | null };
+  return {
+    resolutionEvents: body.resolutionEvents ?? [],
+    currentRunId: body.currentRunId ?? null
+  };
 }
 
 export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): void {
@@ -171,8 +205,12 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     };
 
     await db.insert(challenges).values({ id: challengeId, creatorId: actor.userId, ...challengeValues });
+    const challenge = await getChallenge(c.env, challengeId);
+    if (challenge) {
+      await initializeChallengeObject(c.env, challenge);
+    }
 
-    return c.json({ challenge: await getChallenge(c.env, challengeId) }, 201);
+    return c.json({ challenge }, 201);
   });
 
   const getChallengeRoute = createRoute({
@@ -187,7 +225,9 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
             schema: z.object({
               challenge: challengeSchema,
               matches: z.array(challengeMatchSchema),
+              resolutionEvents: z.array(resolutionEventSchema),
               resolutionRuns: z.array(resolutionRunSchema),
+              currentRunId: z.string().nullable(),
               availableToMatchCents: centsSchema,
               resolverConnections: z.array(resolverConnectionSchema)
             })
@@ -204,13 +244,47 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     if (!challenge) {
       return errorJson(c, "Challenge not found.", 404);
     }
+    const snapshot = await challengeObjectSnapshot(c.env, challenge.id);
     return c.json({
       challenge,
       matches: await listMatches(c.env, challenge.id),
+      resolutionEvents: snapshot.resolutionEvents,
       resolutionRuns: await listResolutionRuns(c.env, challenge.id),
+      currentRunId: snapshot.currentRunId,
       availableToMatchCents: availableToMatch(challenge),
       resolverConnections: await listChallengeResolverConnections(c.env, challenge.creatorId, challenge.pipedreamConnectionIds)
     });
+  });
+
+  app.post("/api/challenges/:id/resolution-stream", async (c) => {
+    const id = c.req.param("id");
+    return challengeObject(c.env, id).fetch(
+      new Request("https://challenge-object/stream", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ challengeId: id })
+      })
+    ) as any;
+  });
+
+  app.post("/api/internal/challenges/:id/resolver-events", async (c) => {
+    const token = c.env.RESOLVER_TEST_TOKEN?.trim();
+    const bearerToken = c.req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+    if (!token || bearerToken !== token) {
+      return errorJson(c, "Resolver event access is not allowed.", 403);
+    }
+
+    const id = c.req.param("id");
+    return challengeObject(c.env, id).fetch(
+      new Request("https://challenge-object/resolver-event", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`
+        },
+        body: await c.req.text()
+      })
+    ) as any;
   });
 
   const createMatchRoute = createRoute({
@@ -240,9 +314,7 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     const amountCents = body.amountCents ?? creditsToCents(body.amountCredits ?? body.amountDollars ?? "");
     validateMatchAmount(challenge, amountCents);
 
-    const durableId = c.env.CHALLENGE_OBJECT.idFromName(challenge.id);
-    const object = c.env.CHALLENGE_OBJECT.get(durableId);
-    return object.fetch(new Request("https://challenge-object/match", { method: "POST", body: JSON.stringify({ challengeId: challenge.id, matcherId: actor.userId, amountCents }) })) as any;
+    return challengeObject(c.env, challenge.id).fetch(new Request("https://challenge-object/match", { method: "POST", body: JSON.stringify({ challengeId: challenge.id, matcherId: actor.userId, amountCents }) })) as any;
   });
 
   const cancelUnmatchedRoute = createRoute({

@@ -1,6 +1,6 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
 import { creditsToCents } from "@moltbooky/core/domain/money";
-import { appUsers, createDb, eq, ledgerEntries } from "@moltbooky/db";
+import { appUsers, challenges, createDb, eq, ledgerEntries } from "@moltbooky/db";
 import { actorFromRequest, getChallenge, newId } from "./db";
 import { applyCreditDelta, challengeSchema, errorJson, errorResponses, idParamSchema } from "./routes.shared";
 
@@ -28,8 +28,44 @@ async function testingActor(env: Env, request: Request): Promise<{ userId: strin
   };
 }
 
-function resolverBaseUrl(env: Env): string {
-  return (env.RESOLVER_URL?.trim() || "http://localhost:8788").replace(/\/+$/, "");
+async function assertTestingChallengeAccess(env: Env, request: Request, id: string): Promise<Response | { userId: string; runAt: Date }> {
+  const actor = await testingActor(env, request);
+  if (!actor.allowed) {
+    return new Response(JSON.stringify({ error: "Testing tools are not enabled for this account." }), { status: 403, headers: { "content-type": "application/json" } });
+  }
+
+  const challenge = await getChallenge(env, id);
+  if (!challenge) {
+    return new Response(JSON.stringify({ error: "Bet not found." }), { status: 404, headers: { "content-type": "application/json" } });
+  }
+  if (challenge.creatorId !== actor.userId) {
+    return new Response(JSON.stringify({ error: "Testing resolver runs are only allowed for your own bets." }), { status: 403, headers: { "content-type": "application/json" } });
+  }
+
+  const runAt = new Date(Date.now() + 2_000);
+  if (challenge.status === "open") {
+    await createDb(env.DATABASE_URL)
+      .update(challenges)
+      .set({ expiresAt: runAt, updatedAt: new Date() })
+      .where(eq(challenges.id, id));
+  }
+
+  return { userId: actor.userId, runAt };
+}
+
+async function scheduleChallengeResolutionAlarm(env: Env, challengeId: string, runAt: Date): Promise<void> {
+  const durableId = env.CHALLENGE_OBJECT.idFromName(challengeId);
+  const object = env.CHALLENGE_OBJECT.get(durableId);
+  const response = await object.fetch(
+    new Request("https://challenge-object/schedule-resolution", {
+      method: "POST",
+      body: JSON.stringify({ challengeId, runAt: runAt.toISOString() })
+    })
+  );
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({ error: "Could not schedule resolver alarm." }))) as { error?: string };
+    throw new Error(body.error ?? "Could not schedule resolver alarm.");
+  }
 }
 
 export function registerTestingRoutes(app: OpenAPIHono<{ Bindings: Env }>): void {
@@ -105,7 +141,7 @@ export function registerTestingRoutes(app: OpenAPIHono<{ Bindings: Env }>): void
     request: { params: idParamSchema },
     responses: {
       200: {
-        description: "Triggered immediate resolver run",
+        description: "Scheduled an immediate testing resolver alarm",
         content: {
           "application/json": {
             schema: z.object({
@@ -120,37 +156,18 @@ export function registerTestingRoutes(app: OpenAPIHono<{ Bindings: Env }>): void
   });
 
   app.openapi(resolveTestingChallengeRoute, async (c) => {
-    const actor = await testingActor(c.env, c.req.raw);
-    if (!actor.allowed) {
-      return errorJson(c, "Testing tools are not enabled for this account.", 403);
-    }
-
     const { id } = c.req.valid("param");
-    const challenge = await getChallenge(c.env, id);
-    if (!challenge) {
-      return errorJson(c, "Bet not found.", 404);
-    }
-    if (challenge.creatorId !== actor.userId) {
-      return errorJson(c, "Testing resolver runs are only allowed for your own bets.", 403);
+    const access = await assertTestingChallengeAccess(c.env, c.req.raw, id);
+    if (access instanceof Response) {
+      const error = (await access.json().catch(() => ({ error: "Testing resolver run failed." }))) as { error?: string };
+      return errorJson(c, error.error ?? "Testing resolver run failed.", access.status as any);
     }
 
-    const headers: Record<string, string> = {};
-    if (c.env.RESOLVER_TEST_TOKEN?.trim()) {
-      headers.authorization = `Bearer ${c.env.RESOLVER_TEST_TOKEN.trim()}`;
-    }
-
-    const resolverResponse = await fetch(`${resolverBaseUrl(c.env)}/resolve/${encodeURIComponent(id)}`, {
-      method: "POST",
-      headers
-    });
-    const resolver = (await resolverResponse.json().catch(() => ({ error: "Resolver returned a non-JSON response." }))) as { error?: string };
-    if (!resolverResponse.ok) {
-      return c.json({ error: typeof resolver?.error === "string" ? resolver.error : "Resolver run failed.", resolver }, resolverResponse.status as any);
-    }
+    await scheduleChallengeResolutionAlarm(c.env, id, access.runAt);
 
     return c.json({
       challenge: await getChallenge(c.env, id),
-      resolver
+      resolver: { scheduled: true, runAt: access.runAt.toISOString() }
     });
   });
 }

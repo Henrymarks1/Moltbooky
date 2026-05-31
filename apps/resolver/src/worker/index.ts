@@ -1,8 +1,8 @@
 import { provisionalDisputeDeadline } from "@moltbooky/core/domain/challenge";
-import type { ResolutionOutcome, ResolutionTool } from "@moltbooky/core/domain/types";
-import { and, challengeMatches, challenges, createDb, eq, ledgerEntries, lte, or, pipedreamConnections, resolutionRuns, creditAccounts } from "@moltbooky/db";
+import type { Challenge, ResolutionEvent, ResolutionOutcome, ResolutionTool } from "@moltbooky/core/domain/types";
+import { and, challengeMatches, challenges, createDb, eq, ledgerEntries, or, pipedreamConnections, resolutionRuns, creditAccounts } from "@moltbooky/db";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, stepCountIs, tool } from "ai";
+import { stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 
 export interface ResolverResult {
@@ -33,6 +33,35 @@ const resolverSystemPrompt = [
 ].join("\n");
 
 type ResolverPipedreamTool = ResolutionTool & { connectionId?: string };
+type ResolutionEventEmitter = (
+  kind: ResolutionEvent["kind"],
+  title: string,
+  body?: string | null,
+  metadata?: Record<string, unknown>
+) => Promise<void>;
+
+const resolveRequestSchema = z.object({
+  challengeId: z.string().min(1),
+  runId: z.string().min(1),
+  challenge: z.object({
+    id: z.string().min(1),
+    creatorId: z.string().min(1),
+    claim: z.string().min(1),
+    resolutionCriteria: z.string().min(1),
+    resolutionTool: z.unknown().nullable().optional(),
+    pipedreamConnectionIds: z.array(z.string()).default([]),
+    creatorSide: z.enum(["YES", "NO"]),
+    visibility: z.enum(["public", "private"]),
+    stakeCents: z.number().int(),
+    matchedCents: z.number().int(),
+    status: z.string(),
+    expiresAt: z.string()
+  }),
+  eventCallbackUrl: z.string().url(),
+  eventCallbackToken: z.string().min(1)
+});
+
+type ResolveRequest = z.infer<typeof resolveRequestSchema> & { challenge: Challenge };
 
 const defaultPipedreamActionKeys: Record<string, string> = {
   linkedin: "linkedin-get-profile",
@@ -61,23 +90,12 @@ function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
-export async function enqueueOpenChallenges(env: Env): Promise<number> {
+export async function resolveChallenge(env: Env, request: ResolveRequest): Promise<ResolverResult> {
   const db = createDb(env.DATABASE_URL);
-  const results = await db
-    .select({ id: challenges.id })
-    .from(challenges)
-    .where(and(eq(challenges.status, "open"), lte(challenges.expiresAt, new Date())))
-    .limit(50);
+  const { challengeId, runId } = request;
+  const emit = (kind: ResolutionEvent["kind"], title: string, body?: string | null, metadata: Record<string, unknown> = {}) =>
+    appendResolutionEvent(request, kind, title, body, metadata);
 
-  for (const row of results) {
-    await env.RESOLUTION_QUEUE.send({ challengeId: row.id });
-  }
-
-  return results.length;
-}
-
-export async function resolveChallenge(env: Env, challengeId: string): Promise<ResolverResult> {
-  const db = createDb(env.DATABASE_URL);
   await db
     .update(challenges)
     .set({
@@ -125,17 +143,24 @@ export async function resolveChallenge(env: Env, challengeId: string): Promise<R
     };
   }
 
-  const exaQuery = `${challenge.claim}\nResolution criteria: ${challenge.resolutionCriteria}`;
+  const exaQuery = `${request.challenge.claim}\nResolution criteria: ${request.challenge.resolutionCriteria}`;
   const resolutionTools = await loadPipedreamResolutionTools(env, challenge.creatorId, challenge.pipedreamConnectionIds ?? [], challenge.resolutionTool);
-  const resolverResult = await runAiResolver(env, exaQuery, resolutionTools, challenge.creatorId);
+  const resolverResult = await runAiResolver(env, emit, exaQuery, resolutionTools, challenge.creatorId);
 
-  await db.insert(resolutionRuns).values({
-    id: newId("res"),
-    challengeId,
-    exaQuery,
-    sourceUrls: JSON.stringify(resolverResult.sourceUrls),
-    aiRationale: resolverResult.shortRationale,
-    proposedOutcome: resolverResult.outcome,
+  await db
+    .insert(resolutionRuns)
+    .values({
+      id: runId,
+      challengeId,
+      exaQuery,
+      sourceUrls: JSON.stringify(resolverResult.sourceUrls),
+      aiRationale: resolverResult.shortRationale,
+      proposedOutcome: resolverResult.outcome,
+      confidence: resolverResult.confidence
+    })
+    .onConflictDoNothing();
+  await emit("run_finished", "Resolver finished", resolverResult.shortRationale, {
+    outcome: resolverResult.outcome,
     confidence: resolverResult.confidence
   });
 
@@ -263,8 +288,11 @@ async function loadPipedreamResolutionTools(env: Env, creatorId: string, connect
   return tools;
 }
 
-async function runAiResolver(env: Env, query: string, resolutionTools: ResolverPipedreamTool[] = [], externalUserId = ""): Promise<ResolverResult> {
+async function runAiResolver(env: Env, emit: ResolutionEventEmitter, query: string, resolutionTools: ResolverPipedreamTool[] = [], externalUserId = ""): Promise<ResolverResult> {
+  await emit("run_started", "Resolver started", "Building evidence plan and preparing tools.");
+
   if (!env.EXA_API_KEY || !env.OPENAI_API_KEY) {
+    await emit("error", "Resolver keys missing", "Resolver keys are not configured; leaving challenge unresolved.");
     return {
       outcome: "UNRESOLVED",
       confidence: 0,
@@ -275,7 +303,7 @@ async function runAiResolver(env: Env, query: string, resolutionTools: ResolverP
 
   const searchedUrls = new Set<string>();
   const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
-  const tools: Parameters<typeof generateText>[0]["tools"] = {
+  const tools: Parameters<typeof streamText>[0]["tools"] = {
     exaSearch: tool({
       description: "Search the web with Exa for evidence relevant to resolving the challenge.",
       inputSchema: z.object({
@@ -283,6 +311,7 @@ async function runAiResolver(env: Env, query: string, resolutionTools: ResolverP
         numResults: z.number().int().min(1).max(10).default(5)
       }),
       execute: async ({ query: searchQuery, numResults }) => {
+        await emit("tool_call", "Calling Exa web search", searchQuery, { toolName: "exaSearch", numResults });
         const searchResponse = await fetch("https://api.exa.ai/search", {
           method: "POST",
           headers: {
@@ -293,6 +322,7 @@ async function runAiResolver(env: Env, query: string, resolutionTools: ResolverP
         });
 
         if (!searchResponse.ok) {
+          await emit("error", "Exa search failed", `Exa search failed with status ${searchResponse.status}.`, { toolName: "exaSearch" });
           return {
             error: `Exa search failed with status ${searchResponse.status}`,
             results: []
@@ -316,6 +346,10 @@ async function runAiResolver(env: Env, query: string, resolutionTools: ResolverP
           };
         });
 
+        await emit("tool_result", "Exa returned evidence", `${results.length} results returned.`, {
+          toolName: "exaSearch",
+          urls: results.map((result) => result.url).filter(Boolean).slice(0, 5)
+        });
         return { results };
       }
     })
@@ -337,14 +371,38 @@ async function runAiResolver(env: Env, query: string, resolutionTools: ResolverP
       execute: async ({ connectionId, props }) => {
         const resolutionTool = resolutionTools.find((tool) => tool.connectionId === connectionId || tool.appSlug === connectionId);
         if (!resolutionTool) {
+          await emit("error", "Pipedream connection unavailable", `Pipedream connection ${connectionId} is not attached to this challenge.`, { toolName: "pipedreamAction" });
           return { error: `Pipedream connection ${connectionId} is not attached to this challenge.` };
         }
-        return runPipedreamAction(env, resolutionTool, props, externalUserId);
+        await emit("tool_call", `Calling ${resolutionTool.appName ?? resolutionTool.appSlug}`, JSON.stringify(props, null, 2), {
+          toolName: "pipedreamAction",
+          connectionId
+        });
+        const output = await runPipedreamAction(env, resolutionTool, props, externalUserId);
+        await emit("tool_result", `${resolutionTool.appName ?? resolutionTool.appSlug} returned evidence`, summarizeToolOutput(output), {
+          toolName: "pipedreamAction",
+          connectionId
+        });
+        return output;
       }
     });
   }
 
-  const result = await generateText({
+  let streamedText = "";
+  const outputBuffer: string[] = [];
+  const emitOutput = async (force = false) => {
+    if (outputBuffer.length === 0) {
+      return;
+    }
+    const body = outputBuffer.join("");
+    if (!force && body.length < 80) {
+      return;
+    }
+    outputBuffer.length = 0;
+    await emit("agent_output", "Drafting resolution", body);
+  };
+
+  const result = streamText({
     model: openai("gpt-4o-mini"),
     temperature: 0,
     stopWhen: stepCountIs(4),
@@ -355,10 +413,35 @@ async function runAiResolver(env: Env, query: string, resolutionTools: ResolverP
       "",
       query
     ].join("\n"),
-    tools
+    tools,
+    onStepFinish: async (event) => {
+      await emit("model_step", "Model step finished", `Finish reason: ${event.finishReason}.`, {
+        finishReason: event.finishReason,
+        usage: event.usage
+      });
+    }
   });
+  for await (const part of result.fullStream) {
+    if (part.type === "start-step") {
+      await emit("model_step", "Model step started", "The resolver is deciding what evidence to gather next.");
+    } else if (part.type === "tool-input-start") {
+      await emit("tool_call", `Preparing ${part.toolName}`, "Choosing the tool input.");
+    } else if (part.type === "tool-call") {
+      await emit("tool_call", `Requested ${part.toolName}`, JSON.stringify(part.input, null, 2), { toolName: part.toolName });
+    } else if (part.type === "tool-result") {
+      await emit("tool_result", `${part.toolName} completed`, summarizeToolOutput(part.output), { toolName: part.toolName });
+    } else if (part.type === "text-delta") {
+      streamedText += part.text;
+      outputBuffer.push(part.text);
+      await emitOutput();
+    } else if (part.type === "error") {
+      await emit("error", "Resolver stream error", part.error instanceof Error ? part.error.message : String(part.error));
+    }
+  }
+  await emitOutput(true);
 
-  const parsed = parseResolverJson(result.text);
+  const finalText = streamedText || (await result.text);
+  const parsed = parseResolverJson(finalText);
   const validated = resolverResultSchema.safeParse(parsed);
   if (!validated.success) {
     return {
@@ -373,6 +456,42 @@ async function runAiResolver(env: Env, query: string, resolutionTools: ResolverP
     ...validated.data,
     sourceUrls: validated.data.sourceUrls.length > 0 ? validated.data.sourceUrls : Array.from(searchedUrls)
   };
+}
+
+async function appendResolutionEvent(
+  request: ResolveRequest,
+  kind: ResolutionEvent["kind"],
+  title: string,
+  body?: string | null,
+  metadata: Record<string, unknown> = {}
+): Promise<void> {
+  const response = await fetch(request.eventCallbackUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${request.eventCallbackToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+    id: newId("rev"),
+      challengeId: request.challengeId,
+      runId: request.runId,
+    kind,
+    title,
+    body,
+      metadata
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Could not append resolver event: ${response.status}`);
+  }
+}
+
+function summarizeToolOutput(output: unknown): string {
+  const text = typeof output === "string" ? output : JSON.stringify(output, null, 2);
+  if (!text) {
+    return "Tool returned no text output.";
+  }
+  return text.length > 500 ? `${text.slice(0, 500)}...` : text;
 }
 
 async function runPipedreamAction(env: Env, resolutionTool: ResolverPipedreamTool, props: Record<string, unknown>, externalUserId: string): Promise<unknown> {
@@ -440,14 +559,9 @@ function parseResolverJson(text: string): unknown {
 
 function isManualResolverRequestAllowed(request: Request, env: Env): boolean {
   const configuredToken = env.RESOLVER_TEST_TOKEN?.trim();
-  if (configuredToken) {
-    const authHeader = request.headers.get("authorization") ?? "";
-    const bearerToken = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
-    return bearerToken === configuredToken || request.headers.get("x-resolver-test-token") === configuredToken;
-  }
-
-  const hostname = new URL(request.url).hostname;
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  const authHeader = request.headers.get("authorization") ?? "";
+  const bearerToken = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  return Boolean(configuredToken && bearerToken === configuredToken);
 }
 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
@@ -457,36 +571,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     return Response.json({ ok: true, name: "Moltbooky Resolver" });
   }
 
-  if (request.method === "POST" && url.pathname === "/enqueue") {
+  if (request.method === "POST" && url.pathname === "/resolve") {
     if (!isManualResolverRequestAllowed(request, env)) {
-      return Response.json({ error: "Manual resolver access is not allowed." }, { status: 403 });
+      return Response.json({ error: "Resolver access is not allowed." }, { status: 403 });
     }
-    const enqueued = await enqueueOpenChallenges(env);
-    return Response.json({ ok: true, enqueued });
-  }
-
-  const resolveMatch = url.pathname.match(/^\/resolve\/([^/]+)$/);
-  if (request.method === "POST" && resolveMatch) {
-    if (!isManualResolverRequestAllowed(request, env)) {
-      return Response.json({ error: "Manual resolver access is not allowed." }, { status: 403 });
+    const parsed = resolveRequestSchema.safeParse(await request.json().catch(() => ({})));
+    if (!parsed.success) {
+      return Response.json({ error: "Invalid resolver request." }, { status: 400 });
     }
-    const challengeId = decodeURIComponent(resolveMatch[1]);
-    const result = await resolveChallenge(env, challengeId);
-    return Response.json({ ok: true, challengeId, result });
+    const result = await resolveChallenge(env, parsed.data as ResolveRequest);
+    return Response.json({ ok: true, challengeId: parsed.data.challengeId, runId: parsed.data.runId, result });
   }
 
   return Response.json({ error: "Not found." }, { status: 404 });
 }
 
 export default {
-  fetch: handleFetch,
-  scheduled: async (_event: ScheduledEvent, env: Env) => {
-    await enqueueOpenChallenges(env);
-  },
-  queue: async (batch: MessageBatch<{ challengeId: string }>, env: Env) => {
-    for (const message of batch.messages) {
-      await resolveChallenge(env, message.body.challengeId);
-      message.ack();
-    }
-  }
+  fetch: handleFetch
 };
