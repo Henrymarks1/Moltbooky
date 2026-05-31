@@ -214,7 +214,7 @@ function ApiKeysPage() {
                       </span>
                       <span className="grid min-w-0 gap-1">
                         <strong className="truncate text-sm font-semibold">{connection.appName}</strong>
-                        <small className="truncate text-xs font-medium text-muted-foreground">Saved for future markets</small>
+                        <small className="truncate text-xs font-medium text-muted-foreground">Saved for future bets</small>
                       </span>
                       <Button
                         type="button"
@@ -239,7 +239,7 @@ function ApiKeysPage() {
               <div className="grid gap-3 rounded-lg border bg-muted/30 p-4">
                 <div className="grid gap-1">
                   <strong className="text-base font-semibold">Add a connection</strong>
-                  <small className="text-sm text-muted-foreground">Connect here once, then reuse it while creating markets.</small>
+                  <small className="text-sm text-muted-foreground">Connect here once, then reuse it while creating bets.</small>
                 </div>
                 <label className="relative block [&_svg]:pointer-events-none [&_svg]:absolute [&_svg]:left-3 [&_svg]:top-1/2 [&_svg]:z-10 [&_svg]:-translate-y-1/2 [&_svg]:text-muted-foreground [&_input]:pl-9">
                   <Search size={16} />

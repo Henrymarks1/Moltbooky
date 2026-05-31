@@ -37,6 +37,7 @@ export const requestDateTimeSchema = z.string().trim().transform((value, ctx) =>
 export const challengeSchema = z.object({
   id: z.string(),
   creatorId: z.string(),
+  creatorName: z.string().nullable().optional(),
   claim: z.string(),
   resolutionCriteria: z.string(),
   resolutionTool: z.union([resolutionToolSchema, resolutionToolsSchema]).nullable().optional(),

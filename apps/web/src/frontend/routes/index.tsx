@@ -66,7 +66,7 @@ function Home() {
         }
       } catch (err) {
         if (active) {
-          setMarketsError(err instanceof Error ? err.message : "Public markets could not be loaded.");
+          setMarketsError(err instanceof Error ? err.message : "Public bets could not be loaded.");
         }
       } finally {
         if (active) {
@@ -90,14 +90,14 @@ function Home() {
     <div className="mx-auto grid min-h-[calc(100vh-65px)] w-full max-w-6xl place-items-center px-4 py-10">
       <section className="grid w-full max-w-4xl gap-5" aria-labelledby="prompt-home-title">
         <div className="grid justify-items-center gap-4 text-center">
-          <Badge variant="outline">Agent-resolved markets</Badge>
+          <Badge variant="outline">Agent-resolved bets</Badge>
           <h1 id="prompt-home-title" className="text-5xl font-bold tracking-normal text-foreground max-[720px]:text-4xl">Bet on Anything</h1>
         </div>
 
         <form className="grid min-h-[210px] overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-[0_24px_80px_rgba(15,23,42,0.10)]" onSubmit={submit}>
           <textarea
             className="min-h-[146px] resize-none border-0 bg-transparent px-6 py-5 text-lg leading-8 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-0 max-[560px]:px-4 max-[560px]:text-base"
-            aria-label="Describe a market"
+            aria-label="Describe a bet"
             value={claim}
             onChange={(event) => setClaim(event.target.value)}
             placeholder={typedExample}
@@ -108,7 +108,7 @@ function Home() {
               <Bot size={17} />
               <span>Resolver tools visible before launch</span>
             </div>
-            <Button type="submit" size="icon" aria-label="Create market">
+            <Button type="submit" size="icon" aria-label="Create bet">
               <ArrowUp size={20} />
             </Button>
           </div>
@@ -117,21 +117,21 @@ function Home() {
         <section className="grid gap-3 rounded-lg border bg-card p-4 text-card-foreground" aria-labelledby="public-markets-title">
           <div className="flex items-start justify-between gap-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:tracking-tight [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
             <div>
-              <h2 id="public-markets-title">Public markets</h2>
-              <p>Open markets available to match right now.</p>
+              <h2 id="public-markets-title">Public bets</h2>
+              <p>Open bets available to match right now.</p>
             </div>
             <Button asChild variant="ghost">
               <Link to="/my-bets">My bets</Link>
             </Button>
           </div>
 
-          {marketsError && <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">Public markets could not be loaded: {marketsError}</div>}
+          {marketsError && <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">Public bets could not be loaded: {marketsError}</div>}
 
           <div className="grid gap-2">
             {marketsLoading && publicMarkets.length === 0 && <PublicMarketsSkeleton />}
             {!marketsLoading && publicMarkets.length === 0 && !marketsError && (
               <div className="grid gap-1 rounded-md border border-dashed bg-muted/30 p-4 text-center text-sm text-muted-foreground [&_strong]:text-foreground">
-                <strong>No public markets yet</strong>
+                <strong>No public bets yet</strong>
                 <span>Create the first one from the prompt above.</span>
               </div>
             )}

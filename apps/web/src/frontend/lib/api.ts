@@ -190,7 +190,7 @@ export const api = {
     }
     return request<{ challenges: Challenge[] }>("/api/challenges").catch((error) => {
       if (canUseLocalDevFallback()) {
-        console.warn("Using an empty local market feed because /api/challenges could not be loaded.", error);
+        console.warn("Using an empty local bet feed because /api/challenges could not be loaded.", error);
         return { challenges: [] };
       }
       throw error;
@@ -226,7 +226,7 @@ export const api = {
           challengeId: challenge.id,
           exaQuery: `${challenge.claim}\nResolution criteria: ${challenge.resolutionCriteria}`,
           sourceUrls: [],
-          aiRationale: "Testing mode does not call the external resolver, so this market is left unresolved.",
+          aiRationale: "Testing mode does not call the external resolver, so this bet is left unresolved.",
           proposedOutcome,
           confidence: 0,
           createdAt: nowIso()

@@ -9,7 +9,7 @@ function serializeTimestamp(value: Date | string | null): string | null {
   return value instanceof Date ? value.toISOString() : value;
 }
 
-function toChallenge(row: typeof challenges.$inferSelect): Challenge {
+function toChallenge(row: typeof challenges.$inferSelect, creator?: { displayName?: string | null; authName?: string | null }): Challenge {
   let resolutionTool: Challenge["resolutionTool"] = null;
   if (row.resolutionTool) {
     try {
@@ -27,6 +27,7 @@ function toChallenge(row: typeof challenges.$inferSelect): Challenge {
   return {
     id: row.id,
     creatorId: row.creatorId,
+    creatorName: resolveDisplayName({ matcherId: row.creatorId, displayName: creator?.displayName, authName: creator?.authName }),
     claim: row.claim,
     resolutionCriteria: row.resolutionCriteria,
     resolutionTool,
@@ -212,7 +213,7 @@ export async function listChallenges(env: Env): Promise<Challenge[]> {
     .where(eq(challenges.visibility, "public"))
     .orderBy(desc(challenges.createdAt))
     .limit(100);
-  return result.map(toChallenge);
+  return result.map((row) => toChallenge(row));
 }
 
 export async function listUserChallenges(env: Env, userId: string): Promise<Challenge[]> {
@@ -253,8 +254,18 @@ export async function listUserMatches(env: Env, userId: string): Promise<Challen
 
 export async function getChallenge(env: Env, id: string): Promise<Challenge | null> {
   const db = createDb(env.DATABASE_URL);
-  const result = await db.select().from(challenges).where(eq(challenges.id, id)).limit(1);
-  return result[0] ? toChallenge(result[0]) : null;
+  const result = await db
+    .select({
+      challenge: challenges,
+      displayName: appUsers.displayName,
+      authName: authUser.name
+    })
+    .from(challenges)
+    .leftJoin(appUsers, eq(challenges.creatorId, appUsers.id))
+    .leftJoin(authUser, eq(challenges.creatorId, authUser.id))
+    .where(eq(challenges.id, id))
+    .limit(1);
+  return result[0] ? toChallenge(result[0].challenge, { displayName: result[0].displayName, authName: result[0].authName }) : null;
 }
 
 export async function listMatches(env: Env, challengeId: string): Promise<ChallengeMatch[]> {

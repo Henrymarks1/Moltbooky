@@ -40,7 +40,7 @@ const resolverToolPresets: ResolverToolPreset[] = [
     actionKey: "linkedin-get-profile",
     iconFallback: "in",
     summary: "Profile and company signals",
-    defaultInstructions: "Use LinkedIn only to verify profile or company facts relevant to this market."
+    defaultInstructions: "Use LinkedIn only to verify profile or company facts relevant to this bet."
   },
   {
     id: "github",
@@ -50,7 +50,7 @@ const resolverToolPresets: ResolverToolPreset[] = [
     actionKey: "github-get-repository",
     iconFallback: "GH",
     summary: "Repos, commits, releases",
-    defaultInstructions: "Use GitHub only to verify repository, release, issue, or commit evidence relevant to this market."
+    defaultInstructions: "Use GitHub only to verify repository, release, issue, or commit evidence relevant to this bet."
   },
   {
     id: "strava",
@@ -60,7 +60,7 @@ const resolverToolPresets: ResolverToolPreset[] = [
     actionKey: "strava-list-activities",
     iconFallback: "S",
     summary: "Activities, distances, routes",
-    defaultInstructions: "Use Strava only to verify activities relevant to this market."
+    defaultInstructions: "Use Strava only to verify activities relevant to this bet."
   },
   {
     id: "slack",
@@ -70,7 +70,7 @@ const resolverToolPresets: ResolverToolPreset[] = [
     actionKey: "slack-fetch-conversation-history",
     iconFallback: "S",
     summary: "Channels, messages, workspace activity",
-    defaultInstructions: "Use Slack only to verify workspace messages or channel evidence relevant to this market."
+    defaultInstructions: "Use Slack only to verify workspace messages or channel evidence relevant to this bet."
   },
   {
     id: "gmail",
@@ -80,7 +80,7 @@ const resolverToolPresets: ResolverToolPreset[] = [
     actionKey: "gmail-search-emails",
     iconFallback: "G",
     summary: "Emails, senders, timestamps",
-    defaultInstructions: "Use Gmail only to verify email evidence relevant to this market."
+    defaultInstructions: "Use Gmail only to verify email evidence relevant to this bet."
   },
   {
     id: "google-drive",
@@ -90,7 +90,7 @@ const resolverToolPresets: ResolverToolPreset[] = [
     actionKey: "google_drive-search-files",
     iconFallback: "GD",
     summary: "Files, folders, documents",
-    defaultInstructions: "Use Google Drive only to verify file or document evidence relevant to this market."
+    defaultInstructions: "Use Google Drive only to verify file or document evidence relevant to this bet."
   },
   {
     id: "google-calendar",
@@ -100,7 +100,7 @@ const resolverToolPresets: ResolverToolPreset[] = [
     actionKey: "google_calendar-list-events",
     iconFallback: "GC",
     summary: "Events, schedules, attendees",
-    defaultInstructions: "Use Google Calendar only to verify event or schedule evidence relevant to this market."
+    defaultInstructions: "Use Google Calendar only to verify event or schedule evidence relevant to this bet."
   }
 ];
 
@@ -130,7 +130,7 @@ function appToResolverTool(app: PipedreamApp): ResolverToolPreset {
     iconSrc: app.imgSrc,
     iconFallback: appFallback(app.name),
     summary: preset?.summary ?? app.categories?.slice(0, 2).join(", ") ?? app.authType ?? "Pipedream connection",
-    defaultInstructions: preset?.defaultInstructions ?? `Use ${app.name} only to verify evidence relevant to this market.`
+    defaultInstructions: preset?.defaultInstructions ?? `Use ${app.name} only to verify evidence relevant to this bet.`
   };
 }
 
@@ -398,10 +398,10 @@ export function NewChallenge() {
       <header className="flex items-start justify-between gap-4 [&_h1]:max-w-[850px] [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:tracking-tight max-[720px]:[&_h1]:text-2xl [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
         <div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="outline">New market</Badge>
+            <Badge variant="outline">New bet</Badge>
             <Badge variant="outline">Even odds</Badge>
           </div>
-          <h1>Launch a market in under a minute.</h1>
+          <h1>Launch a bet in under a minute.</h1>
           <p>Post a claim, choose your side, and lock platform credits for matching.</p>
         </div>
       </header>
@@ -409,7 +409,7 @@ export function NewChallenge() {
       <form className="grid grid-cols-[minmax(0,1fr)_340px] items-start gap-4 max-[920px]:grid-cols-1" onSubmit={submit}>
         <Card className="grid gap-3">
           <CardHeader>
-            <CardTitle>Market details</CardTitle>
+            <CardTitle>Bet details</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3">
         {error && <div className={noticeErrorClass}>{error}</div>}
@@ -580,7 +580,7 @@ export function NewChallenge() {
           <strong className="text-3xl font-semibold leading-none tracking-tight">{visibility === "public" ? "Listed" : "Share link"}</strong>
           <p className="text-sm leading-6 text-muted-foreground">
             {visibility === "public"
-              ? "Visible in the public market feed and accessible by link."
+              ? "Visible in the public bet feed and accessible by link."
               : "Hidden from the public feed. Anyone with the share link can open it."}
           </p>
         </div>
@@ -593,7 +593,7 @@ export function NewChallenge() {
           </button>
         </div>
         <Button type="submit" disabled={loading}>
-          <CheckCircle2 size={18} /> {loading ? "Publishing..." : "Publish challenge"}
+          <CheckCircle2 size={18} /> {loading ? "Publishing..." : "Publish bet"}
         </Button>
           </CardContent>
         </Card>

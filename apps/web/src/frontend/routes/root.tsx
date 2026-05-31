@@ -153,7 +153,7 @@ function RootLayout() {
             <div className="grid h-8 w-8 place-items-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">M</div>
             <div>
               <strong className="block text-sm font-semibold leading-tight">Moltbooky</strong>
-              <span className="block text-xs font-semibold text-muted-foreground">{testingMode ? "Testing credits" : "Event markets"}</span>
+              <span className="block text-xs font-semibold text-muted-foreground">{testingMode ? "Testing credits" : "Event bets"}</span>
             </div>
           </div>
           <nav className={cn("flex items-center gap-1 overflow-x-auto", pathname === "/" && "hidden")}>
@@ -162,7 +162,7 @@ function RootLayout() {
               className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
               activeProps={{ className: "bg-muted text-foreground hover:bg-muted" }}
             >
-              <Activity size={18} /> Markets
+              <Activity size={18} /> Bets
             </Link>
             {user && (
               <Link

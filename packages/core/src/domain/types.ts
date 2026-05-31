@@ -39,6 +39,7 @@ export type ResolutionTools = ResolutionTool[];
 export interface Challenge {
   id: string;
   creatorId: string;
+  creatorName?: string | null;
   claim: string;
   resolutionCriteria: string;
   resolutionTool?: ResolutionTool | ResolutionTools | null;

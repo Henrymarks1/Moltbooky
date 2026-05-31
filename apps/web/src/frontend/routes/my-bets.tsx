@@ -97,7 +97,7 @@ function MyBetsPage() {
       <div className="mx-auto grid max-w-7xl gap-6">
         <section className="grid min-h-[280px] place-items-center gap-3 rounded-lg border bg-card p-5 text-center text-card-foreground [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
           <h2>Log in to see your bets</h2>
-          <p>Your created and matched markets will appear here once you are signed in.</p>
+          <p>Your created and matched bets will appear here once you are signed in.</p>
           <Button asChild>
             <Link to="/login">Log in</Link>
           </Button>
@@ -111,7 +111,7 @@ function MyBetsPage() {
       <header className="flex items-start justify-between gap-4 [&_h1]:max-w-[850px] [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:tracking-tight max-[720px]:[&_h1]:text-2xl [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
         <div>
           <h1>My bets</h1>
-          <p>Markets you created or matched, with stake, matching progress, and resolution status in one place.</p>
+          <p>Bets you created or matched, with stake, matching progress, and resolution status in one place.</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <Button variant="secondary" size="icon" onClick={refreshBets} aria-label="Refresh my bets" disabled={loading}>
@@ -134,7 +134,7 @@ function MyBetsPage() {
         ) : (
           <>
             <div>
-              <span>Markets</span>
+              <span>Bets</span>
               <strong>{bets.length}</strong>
             </div>
             <div>
@@ -158,7 +158,7 @@ function MyBetsPage() {
         {!loading && bets.length === 0 && (
           <div className="grid min-h-[280px] place-items-center gap-3 rounded-lg border bg-card p-5 text-center text-card-foreground [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
             <h2>No bets yet</h2>
-            <p>Create or match a market and it will show up here for quick tracking.</p>
+            <p>Create or match a bet and it will show up here for quick tracking.</p>
             <Button asChild>
               <Link to="/new">Create your first bet</Link>
             </Button>

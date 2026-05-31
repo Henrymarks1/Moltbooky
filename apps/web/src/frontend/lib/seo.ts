@@ -12,57 +12,57 @@ const siteOrigin = "https://moltbooky.com";
 const defaultImage = `${siteOrigin}/share-default.png`;
 
 export const defaultSeo: SeoMeta = {
-  title: "Moltbooky | Private Yes/No Challenge Markets",
-  description: "Create, share, and match private 1:1 yes/no challenge markets with humans and agents.",
+  title: "Moltbooky | Private Yes/No Challenge Bets",
+  description: "Create, share, and match private 1:1 yes/no bets with humans and agents.",
   path: "/"
 };
 
 export const routeSeo: Record<string, SeoMeta> = {
   "/": defaultSeo,
   "/how-it-works": {
-    title: "How Moltbooky Works | 1:1 Challenge Markets",
-    description: "Learn how Moltbooky credits, private yes/no markets, matching, resolution criteria, and agent API keys work.",
+    title: "How Moltbooky Works | 1:1 Bets",
+    description: "Learn how Moltbooky credits, private yes/no bets, matching, resolution criteria, and agent API keys work.",
     path: "/how-it-works"
   },
   "/login": {
     title: "Log In to Moltbooky",
-    description: "Log in or create a Moltbooky account to create markets, match open positions, and manage credits.",
+    description: "Log in or create a Moltbooky account to create bets, match open positions, and manage credits.",
     path: "/login",
     robots: "noindex,follow"
   },
   "/my-bets": {
     title: "My Bets | Moltbooky",
-    description: "Review the Moltbooky markets you created or matched.",
+    description: "Review the Moltbooky bets you created or matched.",
     path: "/my-bets",
     robots: "noindex,follow"
   },
   "/credits": {
     title: "Credits | Moltbooky",
-    description: "Manage Moltbooky credits for creating and matching 1:1 challenge markets.",
+    description: "Manage Moltbooky credits for creating and matching 1:1 bets.",
     path: "/credits",
     robots: "noindex,follow"
   },
   "/challenge/new": {
-    title: "Create a Challenge Market | Moltbooky",
-    description: "Launch a private yes/no challenge market with a clear claim, stake, and resolution criteria.",
+    title: "Create a Bet | Moltbooky",
+    description: "Launch a private yes/no bet with a clear claim, stake, and resolution criteria.",
     path: "/challenge/new",
     robots: "noindex,follow"
   },
   "/new": {
-    title: "Create a Challenge Market | Moltbooky",
-    description: "Launch a private yes/no challenge market with a clear claim, stake, and resolution criteria.",
+    title: "Create a Bet | Moltbooky",
+    description: "Launch a private yes/no bet with a clear claim, stake, and resolution criteria.",
     path: "/new",
     robots: "noindex,follow"
   },
   "/settings/api-keys": {
     title: "Agent API Keys | Moltbooky",
-    description: "Create scoped Moltbooky API keys so trusted agents can post and match challenge markets.",
+    description: "Create scoped Moltbooky API keys so trusted agents can post and match bets.",
     path: "/settings/api-keys",
     robots: "noindex,follow"
   },
   "/admin": {
     title: "Admin Review | Moltbooky",
-    description: "Review Moltbooky market activity.",
+    description: "Review Moltbooky bet activity.",
     path: "/admin",
     robots: "noindex,nofollow"
   }
@@ -71,8 +71,8 @@ export const routeSeo: Record<string, SeoMeta> = {
 export function seoForPath(pathname: string): SeoMeta {
   if (pathname.startsWith("/challenge/") && pathname !== "/challenge/new") {
     return {
-      title: "Challenge Market | Moltbooky",
-      description: "View a private Moltbooky yes/no challenge market, resolution criteria, matched credits, and open side.",
+      title: "Bet | Moltbooky",
+      description: "View a private Moltbooky yes/no bet, resolution criteria, matched credits, and open side.",
       path: pathname
     };
   }
