@@ -189,8 +189,38 @@ export class ChallengeObject {
       throw new Error(`Resolver alarm failed with status ${response.status}. Retrying at ${new Date(retryAt).toISOString()}.`);
     }
 
-    const body = (await response.json().catch(() => ({}))) as { finalized?: boolean; result?: { outcome?: ResolutionOutcome } };
+    const body = (await response.json().catch(() => ({}))) as {
+      finalized?: boolean;
+      result?: {
+        outcome?: ResolutionOutcome;
+        shortRationale?: string;
+        confidence?: number;
+        sourceUrls?: string[];
+      };
+    };
     if (!body.finalized) {
+      await this.appendEvent({
+        challengeId: objectState.challenge.id,
+        runId,
+        kind: "run_finished",
+        title: "Resolver did not run",
+        body: body.result?.shortRationale ?? "The resolver returned without finalizing this bet.",
+        metadata: {
+          finalized: false,
+          outcome: body.result?.outcome ?? null,
+          confidence: body.result?.confidence ?? null,
+          sourceUrls: body.result?.sourceUrls ?? []
+        }
+      });
+
+      const refreshedChallenge = await getChallenge(this.env, objectState.challenge.id);
+      const latestState = (await this.readState()) ?? objectState;
+      await this.writeState({
+        ...latestState,
+        status: refreshedChallenge?.status ?? objectState.status,
+        challenge: refreshedChallenge ?? latestState.challenge,
+        updatedAt: new Date().toISOString()
+      });
       return;
     }
 

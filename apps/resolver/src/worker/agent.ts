@@ -1,23 +1,23 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { stepCountIs, streamText, tool } from "ai";
+import { streamText, tool } from "ai";
 import { z } from "zod";
-import { executeResolverCode } from "./dynamic-worker";
+import { createResolverCodeTool } from "./dynamic-worker";
 import { formatAvailableConnections } from "./pipedream";
 import type {
   ResolutionEventEmitter,
   ResolveRequest,
-  ResolverExecutionContext,
   ResolverPipedreamTool,
   ResolverResult,
 } from "./types";
-import { collectUrls, summarizeToolOutput } from "./utils";
+import { summarizeToolOutput } from "./utils";
 
 const resolverSystemPrompt = [
   "You are Moltbooky's provisional resolution agent for private-beta 1:1 challenge bets.",
   "Your job is to evaluate a binary claim against its resolution criteria using external evidence.",
   "All tokens you emit are public and visible to end users. Write concise, public-facing progress and rationale only.",
-  "Use executeCode to gather evidence. Write TypeScript that exports `default async function run(ctx)`.",
-  "Inside generated code, use ctx.exa.search(...) for web evidence and ctx.pipedream.run(...) for configured account evidence.",
+  "Use executeCode to gather evidence. Write a JavaScript async arrow function for Cloudflare Code Mode.",
+  "Inside generated code, use codemode.exaSearch(...) for web evidence and codemode.pipedreamRun(...) for configured account evidence.",
+  "Do not use TypeScript annotations, interfaces, imports, exports, or markdown fences in generated code.",
   "Return YES only when the evidence clearly satisfies the claim and criteria.",
   "Return NO only when the evidence clearly contradicts the claim or criteria.",
   "Use UNKNOWN when evidence is missing, ambiguous, inaccessible, conflicting, stale, or below the confidence threshold.",
@@ -43,7 +43,6 @@ const finalizedResultSchema = z.object({
 
 export async function runAiResolver(
   env: Env,
-  ctx: ResolverExecutionContext,
   request: ResolveRequest,
   emit: ResolutionEventEmitter,
   query: string,
@@ -75,46 +74,10 @@ export async function runAiResolver(
   let finalResult: ResolverResult | null = null;
   const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
   const tools: Parameters<typeof streamText>[0]["tools"] = {
-    executeCode: tool({
-      description: [
-        "Write TypeScript evidence-gathering code and run it inside a sandboxed Cloudflare Dynamic Worker.",
-        "The code must export `default async function run(ctx)`.",
-        "Use ctx.exa.search({ query, numResults }) for web evidence.",
-        resolutionTools.length
-          ? `Use ctx.pipedream.run({ connectionId, action, props }) for configured account evidence. Available connections: ${formatAvailableConnections(resolutionTools)}.`
-          : "No private Pipedream connections are configured for this challenge.",
-        "Return structured evidence that helps decide YES, NO, or UNKNOWN.",
-      ].join(" "),
-      inputSchema: z.object({
-        purpose: z.string().min(1).max(500),
-        code: z.string().min(1).max(20_000),
-      }),
-      execute: async ({ purpose, code }) => {
-        await emit("tool_call", "Executing resolver code", purpose, {
-          toolName: "executeCode",
-        });
-        const output = await executeResolverCode(env, ctx, {
-          code,
-          resolutionTools,
-          externalUserId,
-        });
-        for (const event of output.events) {
-          await emit(event.kind, event.title, event.body, {
-            ...(event.metadata ?? {}),
-            toolName: "executeCode",
-          });
-        }
-        for (const url of collectUrls(output.result)) {
-          searchedUrls.add(url);
-        }
-        await emit(
-          "tool_result",
-          "Resolver code returned evidence",
-          summarizeToolOutput(output.result),
-          { toolName: "executeCode" },
-        );
-        return output.result;
-      },
+    executeCode: createResolverCodeTool(env, emit, {
+      resolutionTools,
+      externalUserId,
+      searchedUrls
     }),
     resolveBet: tool({
       description:
@@ -186,7 +149,7 @@ export async function runAiResolver(
     prompt: [
       "Resolve this Moltbooky challenge.",
       "All text you write is public and visible to users.",
-      "Use executeCode to gather evidence. Then call resolveBet exactly once.",
+      "Use executeCode to gather evidence by writing a Code Mode async arrow function. Then call resolveBet exactly once.",
       "Do not return JSON as text. The final answer must be the resolveBet tool call.",
       resolutionTools.length
         ? `Configured Pipedream connections: ${formatAvailableConnections(resolutionTools)}.`

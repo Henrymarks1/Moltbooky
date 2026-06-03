@@ -1,5 +1,5 @@
 import { resolveChallenge } from "./resolve";
-import { resolveRequestSchema, type ResolveRequest, type ResolverExecutionContext } from "./types";
+import { resolveRequestSchema, type ResolveRequest } from "./types";
 
 function isResolverRequestAllowed(request: Request, env: Env): boolean {
   const configuredToken = env.RESOLVER_TEST_TOKEN?.trim();
@@ -8,7 +8,7 @@ function isResolverRequestAllowed(request: Request, env: Env): boolean {
   return Boolean(configuredToken && bearerToken === configuredToken);
 }
 
-export async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+export async function handleFetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
 
   if (request.method === "GET" && url.pathname === "/") {
@@ -23,7 +23,7 @@ export async function handleFetch(request: Request, env: Env, ctx: ExecutionCont
     if (!parsed.success) {
       return Response.json({ error: "Invalid resolver request." }, { status: 400 });
     }
-    const result = await resolveChallenge(env, parsed.data as ResolveRequest, ctx as ResolverExecutionContext);
+    const result = await resolveChallenge(env, parsed.data as ResolveRequest);
     return Response.json({ ok: true, challengeId: parsed.data.challengeId, runId: parsed.data.runId, finalized: result.finalized === true, result });
   }
 

@@ -1,18 +1,6 @@
 interface Env {
   DATABASE_URL: string;
-  LOADER?: {
-    load(code: {
-      mainModule: string;
-      modules: Record<string, unknown>;
-      compatibilityDate: string;
-      globalOutbound?: unknown;
-      env?: Record<string, unknown>;
-    }): {
-      getEntrypoint(): {
-        fetch(request: Request): Promise<Response>;
-      };
-    };
-  };
+  LOADER?: WorkerLoader;
   EXA_API_KEY?: string;
   OPENAI_API_KEY?: string;
   RESOLVER_TEST_TOKEN?: string;

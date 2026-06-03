@@ -46,9 +46,3 @@ export type ResolverCodeToolProps = {
   resolutionTools: ResolverPipedreamTool[];
   externalUserId: string;
 };
-
-export type ResolverExecutionContext = ExecutionContext & {
-  exports: {
-    ResolverCodeTools: (options: { props: ResolverCodeToolProps }) => unknown;
-  };
-};

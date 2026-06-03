@@ -5,5 +5,12 @@ export default defineConfig({
     alias: {
       "cloudflare:workers": new URL("./src/test/cloudflare-workers.ts", import.meta.url).pathname
     }
+  },
+  test: {
+    server: {
+      deps: {
+        inline: ["@cloudflare/codemode"]
+      }
+    }
   }
 });

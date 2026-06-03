@@ -3,9 +3,9 @@ import { and, challenges, createDb, eq } from "@moltbooky/db";
 import { runAiResolver } from "./agent";
 import { appendResolutionEvent } from "./events";
 import { loadPipedreamResolutionTools } from "./pipedream";
-import type { ResolveRequest, ResolverExecutionContext, ResolverResult } from "./types";
+import type { ResolveRequest, ResolverResult } from "./types";
 
-export async function resolveChallenge(env: Env, request: ResolveRequest, ctx: ResolverExecutionContext): Promise<ResolverResult> {
+export async function resolveChallenge(env: Env, request: ResolveRequest): Promise<ResolverResult> {
   const db = createDb(env.DATABASE_URL);
   const { challengeId } = request;
   const emit = (kind: Parameters<typeof appendResolutionEvent>[1], title: string, body?: string | null, metadata: Record<string, unknown> = {}) =>
@@ -59,5 +59,5 @@ export async function resolveChallenge(env: Env, request: ResolveRequest, ctx: R
 
   const exaQuery = `${request.challenge.claim}\nResolution criteria: ${request.challenge.resolutionCriteria}`;
   const resolutionTools = await loadPipedreamResolutionTools(env, challenge.creatorId, challenge.pipedreamConnectionIds ?? [], challenge.resolutionTool);
-  return runAiResolver(env, ctx, request, emit, exaQuery, resolutionTools, challenge.creatorId);
+  return runAiResolver(env, request, emit, exaQuery, resolutionTools, challenge.creatorId);
 }
