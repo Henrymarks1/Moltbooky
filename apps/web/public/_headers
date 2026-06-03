@@ -13,6 +13,9 @@
 /settings/*
   X-Robots-Tag: noindex, follow
 
+/challenge/*
+  Content-Security-Policy: frame-src 'self' https://live.browser-use.com
+
 /agents.md
   Content-Type: text/markdown; charset=utf-8
 

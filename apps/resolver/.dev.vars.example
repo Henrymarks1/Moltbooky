@@ -4,6 +4,11 @@ DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require"
 EXA_API_KEY=""
 OPENAI_API_KEY=""
 
+# Optional. Enables Browser Use Cloud live browser evidence gathering.
+BROWSER_USE_API_KEY=""
+BROWSER_USE_ENABLED="true"
+BROWSER_USE_MODEL="claude-sonnet-4.6"
+
 # Required. API Durable Object alarms use this bearer token to start resolver runs.
 RESOLVER_TEST_TOKEN=""
 
