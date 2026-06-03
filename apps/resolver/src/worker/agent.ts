@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { streamText, tool } from "ai";
+import { stepCountIs, streamText, tool, hasToolCall } from "ai";
 import { z } from "zod";
 import { createResolverCodeTool } from "./dynamic-worker";
 import { formatAvailableConnections } from "./pipedream";
@@ -77,7 +77,7 @@ export async function runAiResolver(
     executeCode: createResolverCodeTool(env, emit, {
       resolutionTools,
       externalUserId,
-      searchedUrls
+      searchedUrls,
     }),
     resolveBet: tool({
       description:
@@ -150,6 +150,7 @@ export async function runAiResolver(
       "Resolve this Moltbooky challenge.",
       "All text you write is public and visible to users.",
       "Use executeCode to gather evidence by writing a Code Mode async arrow function. Then call resolveBet exactly once.",
+      "Do not stop after executeCode. Once you have enough evidence or know evidence is inconclusive, call resolveBet.",
       "Do not return JSON as text. The final answer must be the resolveBet tool call.",
       resolutionTools.length
         ? `Configured Pipedream connections: ${formatAvailableConnections(resolutionTools)}.`
@@ -158,6 +159,7 @@ export async function runAiResolver(
       query,
     ].join("\n"),
     tools,
+    stopWhen: [stepCountIs(100), hasToolCall("resolveBet")],
     onStepFinish: async (event) => {
       await emit(
         "model_step",

@@ -203,7 +203,7 @@ export class ChallengeObject {
         challengeId: objectState.challenge.id,
         runId,
         kind: "run_finished",
-        title: "Resolver did not run",
+        title: "Resolver did not finalize",
         body: body.result?.shortRationale ?? "The resolver returned without finalizing this bet.",
         metadata: {
           finalized: false,
