@@ -2,9 +2,12 @@ import { Link, createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, Copy, ExternalLink, Trash2, UserRound, Zap } from "lucide-react";
+import { Bot, Copy, ExternalLink, Trash2, UserRound } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
 import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionRun } from "@moltbooky/core/domain/types";
+import { Conversation, ConversationContent, ConversationScrollButton } from "../components/ai-elements/conversation";
+import { Message, MessageContent, MessageResponse } from "../components/ai-elements/message";
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, type ToolState } from "../components/ai-elements/tool";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -13,7 +16,6 @@ import { Skeleton } from "../components/ui/skeleton";
 import { api, type ChallengeResolverConnection } from "../lib/api";
 import { credits, shortDate } from "../lib/format";
 import { setSeoMeta } from "../lib/seo";
-import { cn } from "../lib/utils";
 import { authChangeEvent, challengeRefreshEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
 export const Route = createRoute({
@@ -309,6 +311,8 @@ function AgentChatPanel(props: {
   const isWaiting = props.challenge.status === "open" && !props.latestRun;
   const isRunning = props.challenge.status === "resolving";
   const hasNoRun = !isWaiting && !isRunning && !props.latestRun;
+  const transcriptItems = buildResolverTranscript(props.resolutionEvents);
+  const hasTranscript = transcriptItems.length > 0;
 
   return (
     <Card className="flex min-h-0 flex-col overflow-hidden">
@@ -324,103 +328,257 @@ function AgentChatPanel(props: {
       <CardContent className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-4 pb-4 pt-0">
         <PromptBubble challenge={props.challenge} connections={props.resolverConnections} iconSrcBySlug={props.iconSrcBySlug} />
 
-        {isWaiting && (
-          <ChatBubble role="agent" title="Resolver scheduled">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <strong className="text-2xl font-semibold tracking-tight">{props.agentRunLabel.primary}</strong>
-              <span className="text-sm font-medium text-muted-foreground">{props.agentRunLabel.secondary}</span>
-            </div>
-          </ChatBubble>
-        )}
+        <Conversation className="min-h-0">
+          <ConversationContent className="gap-3 p-0">
+            {!hasTranscript && (isWaiting || isRunning) && <ResolverCountdownMessage agentRunLabel={props.agentRunLabel} isRunning={isRunning} />}
 
-        {isRunning && (
-          <ChatBubble role="agent" title="Resolver running">
-            <div className="grid gap-2">
-              <strong className="text-xl font-semibold">Checking evidence now</strong>
-              <p className="text-sm leading-6 text-muted-foreground">Tool calls and the final rationale will appear here when the resolver finishes.</p>
-              <div className="flex gap-1 pt-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
-                <span className="h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:150ms]" />
-                <span className="h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:300ms]" />
-              </div>
-            </div>
-          </ChatBubble>
-        )}
+            {hasNoRun && (
+              <Message from="assistant">
+                <MessageContent className="rounded-lg border bg-card p-3">
+                  <MessageResponse>{`This bet is ${props.challenge.status.replaceAll("_", " ")}. No resolver run has been recorded yet.`}</MessageResponse>
+                </MessageContent>
+              </Message>
+            )}
 
-        {hasNoRun && (
-          <ChatBubble role="agent" title="Resolver status">
-            <p className="text-sm leading-6 text-muted-foreground">
-              This bet is {props.challenge.status.replaceAll("_", " ")}. No resolver run has been recorded yet.
-            </p>
-          </ChatBubble>
-        )}
-
-        {props.resolutionEvents.map((event) => (
-          <ResolverEventBubble event={event} key={event.id} />
-        ))}
-
-        {props.latestRun && props.resolutionEvents.length === 0 && (
-          <>
-            <ToolCallBubble name="Exa web search" detail={props.latestRun.exaQuery} />
-            {props.resolverConnections.map((connection) => (
-              <ToolCallBubble key={connection.id} name={connection.appName} detail="Private account evidence source available to the resolver." />
+            {transcriptItems.map((item) => (
+              <ResolverTranscriptItem item={item} key={item.id} />
             ))}
-            <ChatBubble role="agent" title="Resolver result">
-              <div className="grid gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">Outcome {props.latestRun.proposedOutcome}</Badge>
-                  <Badge variant="outline">{Math.round(props.latestRun.confidence * 100)}% confidence</Badge>
-                </div>
-                <p className="text-sm leading-6 text-foreground">{props.latestRun.aiRationale}</p>
-                {props.latestRun.sourceUrls.length > 0 && (
-                  <div className="grid gap-2">
-                    <span className="text-xs font-semibold uppercase text-muted-foreground">Sources</span>
-                    {props.latestRun.sourceUrls.map((url) => (
-                      <a className="inline-flex min-w-0 items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground no-underline hover:bg-muted" href={url} key={url} rel="noreferrer" target="_blank">
-                        <ExternalLink size={14} />
-                        <span className="truncate">{url}</span>
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </ChatBubble>
-          </>
-        )}
+
+            {props.latestRun && props.resolutionEvents.length === 0 && <HistoricalRunMessages latestRun={props.latestRun} resolverConnections={props.resolverConnections} />}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
       </CardContent>
     </Card>
   );
 }
 
-function ResolverEventBubble(props: { event: ResolutionEvent }) {
-  if (props.event.kind === "tool_call" || props.event.kind === "tool_result") {
-    return <ToolCallBubble name={props.event.title} detail={props.event.body ?? ""} />;
+type ResolverTranscriptItem =
+  | { id: string; type: "message"; title?: string; body: string }
+  | { id: string; type: "tool"; name: string; input: unknown; output?: React.ReactNode; errorText?: string; state: ToolState };
+
+function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptItem[] {
+  const orderedEvents = [...events].sort((left, right) => getEventSequence(left) - getEventSequence(right));
+  const items: ResolverTranscriptItem[] = [];
+  const usedResults = new Set<string>();
+  let stepText = "";
+  let stepMessageId = "";
+  let stepItems: ResolverTranscriptItem[] = [];
+
+  function flushStep() {
+    const body = normalizeAgentText(stepText);
+    if (body) {
+      items.push({ id: stepMessageId || `agent-output-${items.length}`, type: "message", body });
+    }
+    items.push(...stepItems);
+    stepText = "";
+    stepMessageId = "";
+    stepItems = [];
+  }
+
+  orderedEvents.forEach((event, index) => {
+    if (event.kind === "run_started") {
+      return;
+    }
+
+    if (event.kind === "model_step") {
+      if (event.title === "Model step started") {
+        flushStep();
+      }
+      return;
+    }
+
+    if (event.kind === "agent_output") {
+      stepMessageId ||= event.id;
+      stepText += event.body ?? "";
+      return;
+    }
+
+    if (event.kind === "tool_call") {
+      if (event.title.startsWith("Preparing ") || event.title.startsWith("Requested ")) {
+        return;
+      }
+
+      const result = findToolResult(orderedEvents, index, event, usedResults);
+      if (result) {
+        usedResults.add(result.id);
+      }
+
+      stepItems.push({
+        id: event.id,
+        type: "tool",
+        name: event.title,
+        input: toolInputFromEvent(event),
+        output: result?.body ?? undefined,
+        state: result ? "output-available" : "input-available"
+      });
+      return;
+    }
+
+    if (event.kind === "tool_result") {
+      if (usedResults.has(event.id) || event.title === "executeCode completed" || event.title === "resolveBet completed") {
+        return;
+      }
+      stepItems.push({
+        id: event.id,
+        type: "tool",
+        name: event.title,
+        input: {},
+        output: event.body ?? undefined,
+        state: "output-available"
+      });
+      return;
+    }
+
+    if (event.kind === "error") {
+      flushStep();
+      items.push({ id: event.id, type: "message", title: event.title, body: event.body ?? "" });
+      return;
+    }
+
+    if (event.kind === "run_finished" && event.body) {
+      flushStep();
+      items.push({ id: event.id, type: "message", title: event.title, body: event.body });
+    }
+  });
+
+  flushStep();
+
+  return items;
+}
+
+function getEventSequence(event: ResolutionEvent): number {
+  const metadata = event.metadata;
+  if (metadata && typeof metadata === "object" && "sequence" in metadata) {
+    const sequence = (metadata as Record<string, unknown>).sequence;
+    if (typeof sequence === "number") {
+      return sequence;
+    }
+  }
+  return new Date(event.createdAt).getTime();
+}
+
+function normalizeAgentText(text: string): string {
+  return text.replace(/([.!?]["'”’)]?)(?=\S)/g, "$1 ").trim();
+}
+
+function findToolResult(events: ResolutionEvent[], startIndex: number, call: ResolutionEvent, usedResults: Set<string>): ResolutionEvent | undefined {
+  const callHelper = getMetadataString(call, "helper");
+  const callToolName = getMetadataString(call, "toolName");
+
+  for (const event of events.slice(startIndex + 1)) {
+    if (event.kind !== "tool_result" || usedResults.has(event.id)) {
+      continue;
+    }
+    if (event.title === "executeCode completed") {
+      continue;
+    }
+
+    const resultHelper = getMetadataString(event, "helper");
+    const resultToolName = getMetadataString(event, "toolName");
+    if ((callHelper && callHelper === resultHelper) || (callToolName && callToolName === resultToolName)) {
+      return event;
+    }
+  }
+  return undefined;
+}
+
+function getMetadataString(event: ResolutionEvent, key: string): string | null {
+  const metadata = event.metadata;
+  if (!metadata || typeof metadata !== "object" || !(key in metadata)) {
+    return null;
+  }
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : null;
+}
+
+function toolInputFromEvent(event: ResolutionEvent): unknown {
+  const helper = getMetadataString(event, "helper");
+  if (helper === "codemode.exaSearch" && event.body) {
+    return { query: event.body };
+  }
+  if (event.body) {
+    return { input: event.body };
+  }
+  return {};
+}
+
+function ResolverTranscriptItem(props: { item: ResolverTranscriptItem }) {
+  if (props.item.type === "tool") {
+    return (
+      <Tool defaultOpen={props.item.state === "input-available" || props.item.state === "output-error"} className="max-w-full bg-background">
+        <ToolHeader title={props.item.name} type="tool-executeCode" state={props.item.state} />
+        <ToolContent>
+          <ToolInput input={props.item.input} />
+          <ToolOutput output={props.item.output} errorText={props.item.errorText} />
+        </ToolContent>
+      </Tool>
+    );
   }
 
   return (
-    <ChatBubble role="agent" title={eventLabel(props.event.kind)}>
-      <div className="grid gap-1">
-        <strong className="text-sm font-semibold text-foreground">{props.event.title}</strong>
-        {props.event.body && <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{props.event.body}</p>}
-      </div>
-    </ChatBubble>
+    <Message from="assistant">
+      <MessageContent className="rounded-lg border bg-card p-3">
+        {props.item.title && <span className="text-xs font-semibold uppercase text-muted-foreground">{props.item.title}</span>}
+        <MessageResponse>{props.item.body}</MessageResponse>
+      </MessageContent>
+    </Message>
   );
 }
 
-function eventLabel(kind: ResolutionEvent["kind"]): string {
-  if (kind === "agent_output") {
-    return "Agent output";
-  }
-  if (kind === "model_step") {
-    return "Model step";
-  }
-  if (kind === "run_finished") {
-    return "Resolver result";
-  }
-  if (kind === "error") {
-    return "Resolver issue";
-  }
-  return "Resolver";
+function ResolverCountdownMessage(props: { agentRunLabel: { primary: string; secondary: string }; isRunning: boolean }) {
+  return (
+    <Message from="assistant">
+      <MessageContent className="rounded-lg border bg-card p-3">
+        <span className="text-xs font-semibold uppercase text-muted-foreground">{props.isRunning ? "Resolver starting" : "Resolver scheduled"}</span>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <strong className="text-2xl font-semibold tracking-tight">{props.isRunning ? "Starting now" : props.agentRunLabel.primary}</strong>
+          <span className="text-sm font-medium text-muted-foreground">{props.agentRunLabel.secondary}</span>
+        </div>
+      </MessageContent>
+    </Message>
+  );
+}
+
+function HistoricalRunMessages(props: { latestRun: ResolutionRun; resolverConnections: ChallengeResolverConnection[] }) {
+  return (
+    <>
+      <Tool defaultOpen={false} className="max-w-full bg-background">
+        <ToolHeader title="Exa web search" type="tool-executeCode" state="output-available" />
+        <ToolContent>
+          <ToolInput input={{ query: props.latestRun.exaQuery }} />
+        </ToolContent>
+      </Tool>
+      {props.resolverConnections.map((connection) => (
+        <Tool defaultOpen={false} className="max-w-full bg-background" key={connection.id}>
+          <ToolHeader title={connection.appName} type="tool-executeCode" state="output-available" />
+          <ToolContent>
+            <ToolInput input={{ source: "Private account evidence source available to the resolver." }} />
+          </ToolContent>
+        </Tool>
+      ))}
+      <Message from="assistant">
+        <MessageContent className="rounded-lg border bg-card p-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <Badge variant="outline">Outcome {props.latestRun.proposedOutcome}</Badge>
+            <Badge variant="outline">{Math.round(props.latestRun.confidence * 100)}% confidence</Badge>
+          </div>
+          <MessageResponse>{props.latestRun.aiRationale}</MessageResponse>
+          {props.latestRun.sourceUrls.length > 0 && (
+            <div className="mt-3 grid gap-2">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">Sources</span>
+              {props.latestRun.sourceUrls.map((url) => (
+                <a className="inline-flex min-w-0 items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground no-underline hover:bg-muted" href={url} key={url} rel="noreferrer" target="_blank">
+                  <ExternalLink size={14} />
+                  <span className="truncate">{url}</span>
+                </a>
+              ))}
+            </div>
+          )}
+        </MessageContent>
+      </Message>
+    </>
+  );
 }
 
 function PromptBubble(props: { challenge: Challenge; connections: ChallengeResolverConnection[]; iconSrcBySlug: Record<string, string> }) {
@@ -453,32 +611,6 @@ function ToolChip(props: { fallback: string; iconSrc?: string; label: string }) 
       </span>
       <span>{props.label}</span>
     </span>
-  );
-}
-
-function ChatBubble(props: { children: React.ReactNode; role: "agent" | "user"; title: string }) {
-  const isAgent = props.role === "agent";
-  return (
-    <div className={cn("flex items-start gap-2", !isAgent && "justify-end")}>
-      {isAgent && <span className="mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground"><Bot size={14} /></span>}
-      <div className={cn("grid max-w-[680px] gap-2 rounded-lg border p-3", isAgent ? "bg-card" : "bg-primary text-primary-foreground")}>
-        <span className={cn("text-xs font-semibold uppercase", isAgent ? "text-muted-foreground" : "text-primary-foreground/75")}>{props.title}</span>
-        <div className={cn("text-sm leading-6", !isAgent && "font-medium")}>{props.children}</div>
-      </div>
-    </div>
-  );
-}
-
-function ToolCallBubble(props: { name: string; detail: string }) {
-  return (
-    <div className="ml-9 grid gap-2 rounded-lg border border-dashed bg-muted/30 p-3">
-      <div className="flex items-center gap-2">
-        <span className="grid h-7 w-7 place-items-center rounded-md bg-background text-muted-foreground"><Zap size={14} /></span>
-        <span className="text-xs font-semibold uppercase text-muted-foreground">Tool call</span>
-      </div>
-      <strong className="text-sm font-semibold text-foreground">{props.name}</strong>
-      <p className="whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{props.detail}</p>
-    </div>
   );
 }
 
