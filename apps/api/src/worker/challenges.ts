@@ -576,6 +576,9 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     if (challenge.creatorId !== actor.userId) {
       throw new Error("Only the creator can cancel unmatched stake.");
     }
+    if (challenge.status !== "open") {
+      throw new Error("Only open challenges can release unmatched stake.");
+    }
     const unmatched = availableToMatch(challenge);
     if (unmatched === 0) {
       return c.json({ challenge, unlockedCents: 0 });
@@ -628,6 +631,9 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
       }
       if (challenge.creatorId !== actor.userId) {
         throw new Error("Only the creator can delete this challenge.");
+      }
+      if (challenge.status !== "open") {
+        throw new Error("Only open challenges can be deleted.");
       }
       if (challenge.matchedCents > 0) {
         throw new Error("Only challenges with no matches can be deleted.");

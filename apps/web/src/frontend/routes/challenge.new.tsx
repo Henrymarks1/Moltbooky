@@ -1,7 +1,7 @@
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFrontendClient } from "@pipedream/sdk/browser";
-import { ArrowLeft, ArrowRight, CheckCircle2, CircleDollarSign, Globe2, Link2, Search, Sparkles, TimerReset } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleDollarSign, Globe2, Link2, Search, Sparkles, TimerReset } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -261,6 +261,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
   const canPublish = Boolean(hasBetDetails && hasTerms);
   const resolverToolsForView = resolverTools.slice(0, appSearch.trim() ? visibleToolLimit : 8);
   const exaIconSrc = appIconSrcBySlug.exa;
+  const browserUseIconSrc = appIconSrcBySlug.browser_use ?? appIconSrcBySlug["browser-use"] ?? appIconSrcBySlug.browseruse;
   const steps = [
     { title: "Write the bet", ready: hasBetDetails },
     { title: "Choose resolver tools", ready: true },
@@ -335,16 +336,19 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .listPipedreamApps("exa")
-      .then(({ apps }) => {
+    Promise.allSettled(["exa", "browser use", "browser-use", "browser"].map((query) => api.listPipedreamApps(query)))
+      .then((results) => {
         if (!cancelled) {
-          setAppIconSrcBySlug((current) => ({ ...current, ...iconMapFromApps(apps) }));
+          const apps = results.flatMap((result) => (result.status === "fulfilled" ? result.value.apps : []));
+          const icons = iconMapFromApps(apps);
+          const browserUseApp = apps.find((app) => app.name.toLowerCase() === "browser use" || app.nameSlug === "browser-use" || app.nameSlug === "browser_use");
+          setAppIconSrcBySlug((current) => ({
+            ...current,
+            ...icons,
+            ...(browserUseApp?.imgSrc ? { browser_use: browserUseApp.imgSrc } : {})
+          }));
         }
       })
-      .catch(() => {
-        // Exa search is built in; the Pipedream logo is a visual enhancement when available.
-      });
     return () => {
       cancelled = true;
     };
@@ -584,7 +588,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
 
             {step === 1 && (
               <section className="mx-auto grid w-full max-w-4xl gap-4">
-              <SectionIntro step="02" title="Choose resolver tools" description="Pick the sources the resolver can use to check the bet. Web search is already included; add private apps only when the answer needs account data." />
+              <SectionIntro step="02" title="Choose resolver tools" description="Pick the sources the resolver can use to check the bet. Web search and Browser Use are already included; add private apps only when the answer needs account data." />
               <div className="grid gap-3">
                 <label className="relative block w-full [&_svg]:pointer-events-none [&_svg]:absolute [&_svg]:left-3 [&_svg]:top-1/2 [&_svg]:z-10 [&_svg]:-translate-y-1/2 [&_svg]:text-muted-foreground [&_input]:pl-9">
                   <Search size={16} />
@@ -645,12 +649,16 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
                 <div className="grid gap-2 border-t pt-3">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-sm font-semibold text-foreground">Selected tools</span>
-                    <Badge variant="outline">{selectedConnectionIds.length + 1} total</Badge>
+                    <Badge variant="outline">{selectedConnectionIds.length + 2} total</Badge>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="inline-flex h-7 items-center gap-2 rounded-full border bg-background px-3 text-xs font-semibold text-foreground">
                       {exaIconSrc ? <span className={chipIconClass}><img src={exaIconSrc} alt="" /></span> : <Sparkles size={14} />}
                       <span>Exa web search</span>
+                    </div>
+                    <div className="inline-flex h-7 items-center gap-2 rounded-full border bg-background px-3 text-xs font-semibold text-foreground">
+                      {browserUseIconSrc ? <span className={chipIconClass}><img src={browserUseIconSrc} alt="" /></span> : <Bot size={14} />}
+                      <span>Browser Use</span>
                     </div>
                     {selectedConnections.map((connection) => {
                       const preset = resolverToolPresetsBySlug.get(connection.appSlug);
@@ -677,7 +685,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
                 <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
                   <strong className="text-base font-semibold text-foreground">{claim.trim() || "Untitled bet"}</strong>
                   <span>{stakeCredits ? `${stakeCredits} credits` : "Choose a stake"} · {creatorSide} · {visibility === "public" ? "Public" : "Private"} · runs {expiryTimeOptions.find((option) => option.value === expiryTime)?.label ?? expiryTime}</span>
-                  <span>{selectedConnectionIds.length + 1} resolver tool{selectedConnectionIds.length === 0 ? "" : "s"}</span>
+                  <span>{selectedConnectionIds.length + 2} resolver tools</span>
                 </div>
                 {!canPublish && <p className="text-sm leading-6 text-muted-foreground">Fill out the claim, resolution criteria, stake, and expiry to publish.</p>}
               </div>

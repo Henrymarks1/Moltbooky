@@ -1,8 +1,8 @@
 import { Link, createRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, Copy, ExternalLink, Trash2, UserRound } from "lucide-react";
+import { Bot, CheckCircle, Copy, ExternalLink, Trophy, Trash2, UserRound, XCircle } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
 import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionRun } from "@moltbooky/core/domain/types";
 import { Conversation, ConversationContent, ConversationScrollButton } from "../components/ai-elements/conversation";
@@ -24,6 +24,21 @@ export const Route = createRoute({
   component: ChallengeDetail
 });
 
+type ResolutionNotice = {
+  result: "won" | "lost";
+  outcome: "YES" | "NO";
+  explanation: string;
+};
+
+type OutcomeSummary = {
+  result: "won" | "lost" | "resolved" | "unresolved" | "pending";
+  outcome?: "YES" | "NO" | "UNRESOLVED";
+  title: string;
+  detailValue: string;
+  detailText: string;
+  explanation: string;
+};
+
 function ChallengeDetail() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
@@ -40,6 +55,9 @@ function ChallengeDetail() {
   const [matchCredits, setMatchCredits] = useState("5");
   const [matching, setMatching] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [resolutionNotice, setResolutionNotice] = useState<ResolutionNotice | null>(null);
+  const wasWatchingResolution = useRef(false);
+  const shownResolutionNoticeKey = useRef<string | null>(null);
   const resolverChatTransport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -158,34 +176,83 @@ function ChallengeDetail() {
 
   useEffect(() => {
     let active = true;
-    const uniqueNames = Array.from(new Set(["exa", ...resolverConnections.map((connection) => connection.appName).filter(Boolean)]));
+    const uniqueNames = Array.from(new Set(["exa", "browser use", "browser-use", "browser", ...resolverConnections.map((connection) => connection.appName).filter(Boolean)]));
     Promise.allSettled([api.listPipedreamApps(), ...uniqueNames.map((name) => api.listPipedreamApps(name))]).then((results) => {
       if (!active) {
         return;
       }
-      const icons = Object.fromEntries(
-        results
-          .flatMap((result) => (result.status === "fulfilled" ? result.value.apps : []))
-          .filter((app) => app.imgSrc)
-          .map((app) => [app.nameSlug, app.imgSrc!])
-      );
-      setAppIconSrcBySlug((current) => ({ ...current, ...icons }));
+      const apps = results.flatMap((result) => (result.status === "fulfilled" ? result.value.apps : []));
+      const icons = Object.fromEntries(apps.filter((app) => app.imgSrc).map((app) => [app.nameSlug, app.imgSrc!]));
+      const browserUseApp = apps.find((app) => app.name.toLowerCase() === "browser use" || app.nameSlug === "browser-use" || app.nameSlug === "browser_use");
+      setAppIconSrcBySlug((current) => ({
+        ...current,
+        ...icons,
+        ...(browserUseApp?.imgSrc ? { browser_use: browserUseApp.imgSrc } : {})
+      }));
     });
     return () => {
       active = false;
     };
   }, [resolverConnections]);
 
+  useEffect(() => {
+    if (!challenge || user?.id !== challenge.creatorId) {
+      return;
+    }
+
+    if (challenge.status === "resolving") {
+      wasWatchingResolution.current = true;
+      return;
+    }
+
+    if (challenge.status !== "provisional_resolved" && challenge.status !== "final_resolved") {
+      return;
+    }
+
+    const outcome = challenge.provisionalOutcome;
+    if (outcome !== "YES" && outcome !== "NO") {
+      return;
+    }
+
+    const noticeKey = `${challenge.id}:${outcome}:${resolutionRuns[0]?.id ?? "resolved"}`;
+    if (!wasWatchingResolution.current || shownResolutionNoticeKey.current === noticeKey) {
+      return;
+    }
+
+    shownResolutionNoticeKey.current = noticeKey;
+    const result = outcome === challenge.creatorSide ? "won" : "lost";
+    const explanation =
+      resolutionRuns[0]?.aiRationale ||
+      [...resolutionEvents].reverse().find((event) => event.kind === "run_finished" && event.body)?.body ||
+      `The resolver settled this bet as ${outcome}.`;
+
+    setResolutionNotice({ result, outcome, explanation });
+
+    if (result === "won") {
+      void fireWinConfetti();
+    }
+  }, [
+    challenge?.creatorId,
+    challenge?.creatorSide,
+    challenge?.id,
+    challenge?.provisionalOutcome,
+    challenge?.status,
+    resolutionEvents,
+    resolutionRuns,
+    user?.id
+  ]);
+
   if (!challenge) {
     return <ChallengeDetailSkeleton />;
   }
 
-  const canDelete = user?.id === challenge.creatorId && challenge.matchedCents === 0 && matches.length === 0;
+  const canDelete = user?.id === challenge.creatorId && challenge.status === "open" && challenge.matchedCents === 0 && matches.length === 0;
   const isCreator = user?.id === challenge.creatorId;
   const takerSide = oppositeSide(challenge.creatorSide);
   const creatorName = challenge.creatorName?.trim() || challenge.creatorId;
   const agentRunLabel = formatAgentRun(challenge.expiresAt, now);
   const latestRun = resolutionRuns[0] ?? null;
+  const outcomeSummary = getOutcomeSummary(challenge, isCreator, latestRun, resolutionEvents);
 
   async function deleteChallenge() {
     if (!challenge || !window.confirm("Delete this unmatched bet and return the locked credits?")) {
@@ -222,6 +289,8 @@ function ChallengeDetail() {
   return (
     <div className="mx-auto grid h-[calc(100vh-112px)] max-w-7xl gap-3 overflow-hidden">
       {message && <div className="rounded-lg border bg-card p-4 text-sm text-card-foreground">{message}</div>}
+      {resolutionNotice && <ResolutionOutcomeModal notice={resolutionNotice} onClose={() => setResolutionNotice(null)} />}
+      {outcomeSummary && <PersistentOutcomeBanner summary={outcomeSummary} />}
 
       <section className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_320px] gap-3 max-[980px]:grid-cols-1">
         <div className="grid min-h-0">
@@ -241,6 +310,7 @@ function ChallengeDetail() {
               <CardTitle>Bet details</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2 px-4 pb-4 pt-0 text-sm">
+              {outcomeSummary && <DetailRow label={outcomeSummary.result === "pending" ? "Status" : "Result"} value={outcomeSummary.detailValue} detail={outcomeSummary.detailText} />}
               <DetailRow label="Amount" value={credits(challenge.stakeCents)} detail="Even odds" />
               <DetailRow label="Creator side" value={challenge.creatorSide} detail={`The other side is ${takerSide}`} />
               <DetailRow label="Creator" value={creatorName} detail="Started this bet" icon={<UserRound size={16} />} />
@@ -300,6 +370,143 @@ function ChallengeDetail() {
   );
 }
 
+function ResolutionOutcomeModal(props: { notice: ResolutionNotice; onClose: () => void }) {
+  const won = props.notice.result === "won";
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-background/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="resolution-outcome-title">
+      <div className="w-full max-w-lg rounded-lg border bg-card p-5 text-card-foreground shadow-xl">
+        <div className="flex items-start gap-3">
+          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-md ${won ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+            {won ? <Trophy size={20} /> : <XCircle size={20} />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <span className="text-xs font-semibold uppercase text-muted-foreground">Bet resolved {props.notice.outcome}</span>
+            <h2 id="resolution-outcome-title" className="mt-1 text-2xl font-semibold tracking-tight">
+              {won ? "You won this bet" : "You lost this bet"}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {won ? "The resolver outcome matched the side you created." : "The resolver outcome landed on the opposite side of your bet."}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-md border bg-muted/50 p-3">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            {won ? <CheckCircle size={16} /> : <XCircle size={16} />}
+            Why
+          </div>
+          <p className="max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{props.notice.explanation}</p>
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <Button type="button" onClick={props.onClose}>
+            Got it
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PersistentOutcomeBanner(props: { summary: OutcomeSummary }) {
+  const won = props.summary.result === "won";
+  const lost = props.summary.result === "lost";
+  const pending = props.summary.result === "pending";
+  return (
+    <div className={`rounded-lg border p-4 ${won ? "border-primary/30 bg-primary/10" : lost ? "border-destructive/30 bg-destructive/10" : "bg-card"}`}>
+      <div className="flex items-start gap-3">
+        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md ${won ? "bg-primary text-primary-foreground" : lost ? "bg-destructive text-destructive-foreground" : "bg-muted text-muted-foreground"}`}>
+          {won ? <Trophy size={18} /> : lost ? <XCircle size={18} /> : pending ? <Bot size={18} /> : <CheckCircle size={18} />}
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <strong className="text-base font-semibold leading-6">{props.summary.title}</strong>
+            {props.summary.outcome && <Badge variant="outline">Outcome {props.summary.outcome}</Badge>}
+          </div>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">{props.summary.explanation}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function fireWinConfetti(): Promise<void> {
+  const { confetti } = await import("@tsparticles/confetti");
+  const count = 180;
+  const defaults = {
+    disableForReducedMotion: true,
+    position: { y: 70 },
+    zIndex: 60
+  };
+
+  await Promise.all([
+    confetti({ ...defaults, count: Math.floor(count * 0.25), spread: 26, startVelocity: 55 }),
+    confetti({ ...defaults, count: Math.floor(count * 0.2), spread: 60 }),
+    confetti({ ...defaults, count: Math.floor(count * 0.35), spread: 100, decay: 0.91, scalar: 0.8 }),
+    confetti({ ...defaults, count: Math.floor(count * 0.1), spread: 120, startVelocity: 25, decay: 0.92, scalar: 1.2 }),
+    confetti({ ...defaults, count: Math.floor(count * 0.1), spread: 120, startVelocity: 45 })
+  ]);
+}
+
+function getOutcomeSummary(
+  challenge: Challenge,
+  isCreator: boolean,
+  latestRun: ResolutionRun | null,
+  events: ResolutionEvent[]
+): OutcomeSummary | null {
+  if (challenge.status === "resolving") {
+    return {
+      result: "pending",
+      title: "Resolver is checking this bet",
+      detailValue: "Resolving",
+      detailText: "The agent is gathering evidence now.",
+      explanation: "The outcome will appear here when the resolver finishes."
+    };
+  }
+
+  if (challenge.status !== "provisional_resolved" && challenge.status !== "final_resolved") {
+    return null;
+  }
+
+  const outcome = challenge.provisionalOutcome ?? latestRun?.proposedOutcome ?? undefined;
+  const explanation =
+    latestRun?.aiRationale ||
+    [...events].reverse().find((event) => event.kind === "run_finished" && event.body)?.body ||
+    (outcome ? `The resolver settled this bet as ${outcome}.` : "The resolver finished this bet.");
+
+  if (outcome === "UNRESOLVED" || !outcome) {
+    return {
+      result: "unresolved",
+      outcome: "UNRESOLVED",
+      title: "This bet was not resolved",
+      detailValue: "Unresolved",
+      detailText: "No side won this resolution.",
+      explanation
+    };
+  }
+
+  const creatorWon = outcome === challenge.creatorSide;
+  if (isCreator) {
+    return {
+      result: creatorWon ? "won" : "lost",
+      outcome,
+      title: creatorWon ? "You won this bet" : "You lost this bet",
+      detailValue: creatorWon ? "You won" : "You lost",
+      detailText: `Resolved ${outcome}; your side was ${challenge.creatorSide}.`,
+      explanation
+    };
+  }
+
+  return {
+    result: "resolved",
+    outcome,
+    title: `Resolved ${outcome}`,
+    detailValue: `Resolved ${outcome}`,
+    detailText: `Creator side was ${challenge.creatorSide}.`,
+    explanation
+  };
+}
+
 function AgentChatPanel(props: {
   challenge: Challenge;
   latestRun: ResolutionRun | null;
@@ -317,13 +524,6 @@ function AgentChatPanel(props: {
   return (
     <Card className="flex min-h-0 flex-col overflow-hidden">
       <CardHeader className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle>Resolver chat</CardTitle>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">Tool usage, evidence, and the resolution summary appear here.</p>
-          </div>
-          <span className="grid h-8 w-8 place-items-center rounded-md bg-primary text-primary-foreground"><Bot size={16} /></span>
-        </div>
       </CardHeader>
       <CardContent className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-4 pb-4 pt-0">
         <PromptBubble challenge={props.challenge} connections={props.resolverConnections} iconSrcBySlug={props.iconSrcBySlug} />
@@ -666,6 +866,7 @@ function PromptBubble(props: { challenge: Challenge; connections: ChallengeResol
         <span className="mb-2 block text-sm font-semibold text-foreground">Selected tools</span>
         <div className="flex flex-wrap gap-2">
           <ToolChip label="Exa web search" iconSrc={props.iconSrcBySlug.exa} fallback="EX" />
+          <ToolChip label="Browser Use" iconSrc={props.iconSrcBySlug.browser_use ?? props.iconSrcBySlug["browser-use"] ?? props.iconSrcBySlug.browseruse} fallback="BU" />
           {props.connections.map((connection) => (
             <ToolChip key={connection.id} label={connection.appName} iconSrc={props.iconSrcBySlug[connection.appSlug]} fallback={connection.appName.slice(0, 2).toUpperCase()} />
           ))}
