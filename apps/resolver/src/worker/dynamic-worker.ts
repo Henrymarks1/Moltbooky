@@ -3,10 +3,10 @@ import { createCodeTool } from "@cloudflare/codemode/ai";
 import { tool, type Tool } from "ai";
 import { z } from "zod";
 import {
+  authenticatedFetchInputSchema,
   exaSearchInputSchema,
-  pipedreamRunInputSchema,
   runExaSearch,
-  runScopedPipedreamAction
+  runScopedAuthenticatedFetch
 } from "./code-tools";
 import { formatAvailableConnections } from "./pipedream";
 import type { ResolutionEventEmitter, ResolverPipedreamTool } from "./types";
@@ -66,24 +66,31 @@ export function createResolverCodeTool(
           return result;
         }
       }),
-      pipedreamRun: tool({
+      fetch: tool({
         description:
-          "Run a scoped Pipedream action for a connection selected on this bet. The connectionId must be attached to this challenge.",
-        inputSchema: pipedreamRunInputSchema,
+          "Forward an authenticated HTTP request through a selected Pipedream connection. Use this to call the connected app's real API.",
+        inputSchema: authenticatedFetchInputSchema,
         execute: async (input) => {
-          await emit("tool_call", "Calling Pipedream action", JSON.stringify({ connectionId: input.connectionId, action: input.action ?? null }), {
+          const connection = params.resolutionTools.find((tool) => tool.connectionId === input.connectionId || tool.appSlug === input.app);
+          const appLabel = connection?.appName ?? input.app ?? input.connectionId ?? "connected app";
+          await emit("tool_call", `Calling ${appLabel} API`, input.url, {
             toolName: "executeCode",
-            helper: "codemode.pipedreamRun",
-            connectionId: input.connectionId
+            helper: "codemode.fetch",
+            connectionId: input.connectionId ?? connection?.connectionId ?? null,
+            appSlug: input.app ?? connection?.appSlug ?? null,
+            url: input.url,
+            method: input.method ?? "GET"
           });
-          const result = await runScopedPipedreamAction(env, input, params.resolutionTools, params.externalUserId);
+          const result = await runScopedAuthenticatedFetch(env, input, params.resolutionTools, params.externalUserId);
           for (const url of collectUrls(result)) {
             params.searchedUrls.add(url);
           }
-          await emit("tool_result", "Pipedream returned evidence", summarizeToolOutput(result), {
+          const resultApp = result && typeof result === "object" && "appName" in result ? String((result as { appName?: unknown }).appName ?? appLabel) : appLabel;
+          await emit("tool_result", `${resultApp} API returned evidence`, summarizeToolOutput(result), {
             toolName: "executeCode",
-            helper: "codemode.pipedreamRun",
-            connectionId: input.connectionId,
+            helper: "codemode.fetch",
+            connectionId: input.connectionId ?? connection?.connectionId ?? null,
+            appSlug: input.app ?? connection?.appSlug ?? null,
             urls: collectUrls(result).slice(0, 10)
           });
           return result;
@@ -99,11 +106,12 @@ export function createResolverCodeTool(
       "Write an async arrow function. Do not use TypeScript annotations, interfaces, or markdown fences.",
       "Use codemode.exaSearch({ query, numResults }) for public web evidence.",
       params.resolutionTools.length
-        ? `Use codemode.pipedreamRun({ connectionId, action, props }) for configured account evidence. Available connections: ${formatAvailableConnections(params.resolutionTools)}.`
+        ? `Use codemode.fetch({ app, connectionId, url, method, params, headers, body }) for configured account APIs. Available connections: ${formatAvailableConnections(params.resolutionTools)}. Do not use Pipedream actions; write normal API request logic against the app's HTTP API.`
         : "No private Pipedream connections are configured for this challenge.",
       "Return structured evidence with source URLs and short summaries.",
       "",
-      'Example: async () => { const web = await codemode.exaSearch({ query: "Ben Werner Freestyle.sh current role", numResults: 5 }); return { evidence: web.results }; }'
+      'Example web: async () => { const web = await codemode.exaSearch({ query: "Ben Werner Freestyle.sh current role", numResults: 5 }); return { evidence: web.results }; }',
+      'Example Strava API: async () => { const me = await codemode.fetch({ app: "strava", url: "https://www.strava.com/api/v3/athlete" }); if (!me.ok) throw new Error("athlete fetch failed: " + me.status + " " + me.text); const athlete = me.json; const stats = await codemode.fetch({ app: "strava", url: "https://www.strava.com/api/v3/athletes/" + athlete.id + "/stats" }); if (!stats.ok) throw new Error("stats fetch failed: " + stats.status + " " + stats.text); return { athlete, stats: stats.json }; }'
     ].join("\n")
   });
 }
