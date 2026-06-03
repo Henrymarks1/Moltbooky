@@ -12,7 +12,7 @@ BROWSER_USE_MODEL="claude-sonnet-4.6"
 # Required. API Durable Object alarms use this bearer token to start resolver runs.
 RESOLVER_TEST_TOKEN=""
 
-# Optional. Enables Pipedream actions during resolution for markets that attach a tool.
+# Optional. Enables authenticated Pipedream Connect proxy API fetches during resolution.
 PIPEDREAM_CLIENT_ID=""
 PIPEDREAM_CLIENT_SECRET=""
 PIPEDREAM_PROJECT_ID=""

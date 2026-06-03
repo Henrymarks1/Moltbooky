@@ -1,6 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { z } from "zod";
-import { runPipedreamAction } from "./pipedream";
+import { runPipedreamApiFetch } from "./pipedream";
 import type { ResolverCodeToolProps, ResolverPipedreamTool } from "./types";
 
 export const exaSearchInputSchema = z.object({
@@ -8,10 +8,14 @@ export const exaSearchInputSchema = z.object({
   numResults: z.number().int().min(1).max(10).default(5)
 });
 
-export const pipedreamRunInputSchema = z.object({
-  connectionId: z.string().min(1),
-  action: z.string().min(1).max(180).optional(),
-  props: z.record(z.string(), z.unknown()).default({})
+export const authenticatedFetchInputSchema = z.object({
+  url: z.string().url(),
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
+  headers: z.record(z.string(), z.string()).default({}),
+  params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).default({}),
+  body: z.unknown().optional(),
+  app: z.string().min(1).max(80).optional(),
+  connectionId: z.string().min(1).max(160).optional()
 });
 
 export async function runExaSearch(env: Env, input: unknown): Promise<unknown> {
@@ -50,31 +54,18 @@ export async function runExaSearch(env: Env, input: unknown): Promise<unknown> {
   };
 }
 
-export async function runScopedPipedreamAction(
+export async function runScopedAuthenticatedFetch(
   env: Env,
   input: unknown,
   resolutionTools: ResolverPipedreamTool[],
   externalUserId: string
 ): Promise<unknown> {
-  const parsed = pipedreamRunInputSchema.safeParse(input);
+  const parsed = authenticatedFetchInputSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: "Invalid Pipedream action input." };
+    return { error: "Invalid authenticated fetch input." };
   }
 
-  const resolutionTool = resolutionTools.find((tool) => tool.connectionId === parsed.data.connectionId || tool.appSlug === parsed.data.connectionId);
-  if (!resolutionTool) {
-    return { error: `Pipedream connection ${parsed.data.connectionId} is not attached to this challenge.` };
-  }
-
-  return runPipedreamAction(
-    env,
-    {
-      ...resolutionTool,
-      actionKey: parsed.data.action ?? resolutionTool.actionKey
-    },
-    parsed.data.props,
-    externalUserId
-  );
+  return runPipedreamApiFetch(env, parsed.data, resolutionTools, externalUserId);
 }
 
 export class ResolverCodeTools extends WorkerEntrypoint<Env, ResolverCodeToolProps> {
@@ -82,7 +73,7 @@ export class ResolverCodeTools extends WorkerEntrypoint<Env, ResolverCodeToolPro
     return runExaSearch(this.env, input);
   }
 
-  async pipedreamRun(input: unknown): Promise<unknown> {
-    return runScopedPipedreamAction(this.env, input, this.ctx.props.resolutionTools, this.ctx.props.externalUserId);
+  async apiFetch(input: unknown): Promise<unknown> {
+    return runScopedAuthenticatedFetch(this.env, input, this.ctx.props.resolutionTools, this.ctx.props.externalUserId);
   }
 }
