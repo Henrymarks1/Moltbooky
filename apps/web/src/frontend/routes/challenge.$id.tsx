@@ -15,7 +15,6 @@ import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import { api, type ChallengeResolverConnection } from "../lib/api";
 import { credits, shortDate } from "../lib/format";
-import { getLatestBrowserUseLiveUrl } from "../lib/resolutionEvents";
 import { setSeoMeta } from "../lib/seo";
 import { authChangeEvent, challengeRefreshEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
 
@@ -314,7 +313,6 @@ function AgentChatPanel(props: {
   const hasNoRun = !isWaiting && !isRunning && !props.latestRun;
   const transcriptItems = buildResolverTranscript(props.resolutionEvents);
   const hasTranscript = transcriptItems.length > 0;
-  const browserUseLiveUrl = getLatestBrowserUseLiveUrl(props.resolutionEvents);
 
   return (
     <Card className="flex min-h-0 flex-col overflow-hidden">
@@ -329,7 +327,6 @@ function AgentChatPanel(props: {
       </CardHeader>
       <CardContent className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-4 pb-4 pt-0">
         <PromptBubble challenge={props.challenge} connections={props.resolverConnections} iconSrcBySlug={props.iconSrcBySlug} />
-        {(browserUseLiveUrl || isRunning) && <BrowserUseLiveView isRunning={isRunning} liveUrl={browserUseLiveUrl} />}
 
         <Conversation className="min-h-0">
           <ConversationContent className="gap-3 p-0">
@@ -344,7 +341,7 @@ function AgentChatPanel(props: {
             )}
 
             {transcriptItems.map((item) => (
-              <ResolverTranscriptItem item={item} key={item.id} />
+              <ResolverTranscriptItem isRunning={isRunning} item={item} key={item.id} />
             ))}
 
             {props.latestRun && props.resolutionEvents.length === 0 && <HistoricalRunMessages latestRun={props.latestRun} resolverConnections={props.resolverConnections} />}
@@ -356,44 +353,34 @@ function AgentChatPanel(props: {
   );
 }
 
-function BrowserUseLiveView(props: { isRunning: boolean; liveUrl: string | null }) {
+function BrowserUseLiveView(props: { isRunning: boolean; liveUrl: string }) {
   return (
-    <div className="grid gap-3 rounded-lg border bg-background p-3">
+    <div className="grid gap-3 rounded-md border bg-background p-3">
       <div className="flex items-center justify-between gap-3">
         <div>
           <span className="text-xs font-semibold uppercase text-muted-foreground">Browser view</span>
-          <p className="mt-1 text-sm leading-5 text-muted-foreground">
-            {props.liveUrl ? "Live Browser Use session" : props.isRunning ? "Waiting for Browser Use to start" : "Browser session ended"}
-          </p>
+          <p className="mt-1 text-sm leading-5 text-muted-foreground">{props.isRunning ? "Read-only live preview" : "Read-only browser session"}</p>
         </div>
-        {props.liveUrl && (
-          <Button asChild size="sm" variant="outline">
-            <a href={props.liveUrl} rel="noreferrer" target="_blank">
-              <ExternalLink size={14} />
-              Open
-            </a>
-          </Button>
-        )}
+        <Badge variant="outline">Read-only</Badge>
       </div>
-      {props.liveUrl ? (
+      <div className="relative h-[260px] overflow-hidden rounded-md border bg-muted sm:h-[320px] xl:h-[360px]">
         <iframe
           allow="autoplay"
-          className="aspect-video w-full rounded-md border bg-muted"
+          className="h-full w-full pointer-events-none select-none"
+          sandbox="allow-scripts allow-same-origin"
           src={props.liveUrl}
-          title="Browser Use live view"
+          tabIndex={-1}
+          title="Browser Use read-only live view"
         />
-      ) : (
-        <div className="grid aspect-video place-items-center rounded-md border bg-muted px-4 text-center text-sm leading-6 text-muted-foreground">
-          The live browser will appear here if the resolver needs Browser Use for this challenge.
-        </div>
-      )}
+        <div aria-hidden="true" className="absolute inset-0 cursor-not-allowed" title="This public browser preview is read-only." />
+      </div>
     </div>
   );
 }
 
 type ResolverTranscriptItem =
   | { id: string; type: "message"; title?: string; body: string }
-  | { id: string; type: "tool"; name: string; input: unknown; output?: React.ReactNode; errorText?: string; state: ToolState };
+  | { id: string; type: "tool"; name: string; input: unknown; output?: React.ReactNode; errorText?: string; state: ToolState; browserUseLiveUrl?: string };
 
 function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptItem[] {
   const orderedEvents = [...events].sort((left, right) => getEventSequence(left) - getEventSequence(right));
@@ -426,6 +413,25 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
       return;
     }
 
+    if (isBrowserUseEvent(event)) {
+      if (event.kind === "tool_call" && event.title === "Starting Browser Use") {
+        const result = findBrowserUseResult(orderedEvents, index);
+        if (result.resultEvent) {
+          usedResults.add(result.resultEvent.id);
+        }
+        stepItems.push({
+          id: event.id,
+          type: "tool",
+          name: "Browser Use",
+          input: toolInputFromEvent(event),
+          output: result.resultEvent?.body ?? undefined,
+          browserUseLiveUrl: result.liveUrl ?? undefined,
+          state: result.resultEvent ? "output-available" : "input-available"
+        });
+      }
+      return;
+    }
+
     if (event.kind === "agent_output") {
       stepMessageId ||= event.id;
       stepText += event.body ?? "";
@@ -448,6 +454,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
         name: event.title,
         input: toolInputFromEvent(event),
         output: result?.body ?? undefined,
+        browserUseLiveUrl: result ? getMetadataString(result, "browserUseLiveUrl") ?? undefined : undefined,
         state: result ? "output-available" : "input-available"
       });
       return;
@@ -463,6 +470,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
         name: event.title,
         input: {},
         output: event.body ?? undefined,
+        browserUseLiveUrl: getMetadataString(event, "browserUseLiveUrl") ?? undefined,
         state: "output-available"
       });
       return;
@@ -521,6 +529,31 @@ function findToolResult(events: ResolutionEvent[], startIndex: number, call: Res
   return undefined;
 }
 
+function findBrowserUseResult(events: ResolutionEvent[], startIndex: number): { liveUrl: string | null; resultEvent: ResolutionEvent | null } {
+  let liveUrl: string | null = null;
+  let resultEvent: ResolutionEvent | null = null;
+
+  for (const event of events.slice(startIndex + 1)) {
+    if (event.kind === "tool_call" && event.title === "Starting Browser Use") {
+      break;
+    }
+    if (!isBrowserUseEvent(event)) {
+      continue;
+    }
+
+    liveUrl ||= getMetadataString(event, "browserUseLiveUrl");
+    if (event.kind === "tool_result" && (event.title === "useBrowser completed" || event.title === "Browser Use completed")) {
+      resultEvent = event;
+    }
+  }
+
+  return { liveUrl, resultEvent };
+}
+
+function isBrowserUseEvent(event: ResolutionEvent): boolean {
+  return getMetadataString(event, "toolName") === "useBrowser" || event.title.startsWith("Browser Use");
+}
+
 function getMetadataString(event: ResolutionEvent, key: string): string | null {
   const metadata = event.metadata;
   if (!metadata || typeof metadata !== "object" || !(key in metadata)) {
@@ -541,13 +574,14 @@ function toolInputFromEvent(event: ResolutionEvent): unknown {
   return {};
 }
 
-function ResolverTranscriptItem(props: { item: ResolverTranscriptItem }) {
+function ResolverTranscriptItem(props: { isRunning: boolean; item: ResolverTranscriptItem }) {
   if (props.item.type === "tool") {
     return (
       <Tool defaultOpen={props.item.state === "input-available" || props.item.state === "output-error"} className="max-w-full bg-background">
         <ToolHeader title={props.item.name} type="tool-executeCode" state={props.item.state} />
         <ToolContent>
           <ToolInput input={props.item.input} />
+          {props.item.browserUseLiveUrl && <BrowserUseLiveView isRunning={props.isRunning} liveUrl={props.item.browserUseLiveUrl} />}
           <ToolOutput output={props.item.output} errorText={props.item.errorText} />
         </ToolContent>
       </Tool>
