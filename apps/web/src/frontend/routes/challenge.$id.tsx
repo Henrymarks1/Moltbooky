@@ -12,6 +12,7 @@ import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import { api, type ChallengeResolverConnection } from "../lib/api";
 import { credits, shortDate } from "../lib/format";
+import { getLatestBrowserUseLiveUrl } from "../lib/resolutionEvents";
 import { setSeoMeta } from "../lib/seo";
 import { cn } from "../lib/utils";
 import { authChangeEvent, challengeRefreshEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
@@ -309,6 +310,7 @@ function AgentChatPanel(props: {
   const isWaiting = props.challenge.status === "open" && !props.latestRun;
   const isRunning = props.challenge.status === "resolving";
   const hasNoRun = !isWaiting && !isRunning && !props.latestRun;
+  const browserUseLiveUrl = getLatestBrowserUseLiveUrl(props.resolutionEvents);
 
   return (
     <Card className="flex min-h-0 flex-col overflow-hidden">
@@ -323,6 +325,7 @@ function AgentChatPanel(props: {
       </CardHeader>
       <CardContent className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-4 pb-4 pt-0">
         <PromptBubble challenge={props.challenge} connections={props.resolverConnections} iconSrcBySlug={props.iconSrcBySlug} />
+        {(browserUseLiveUrl || isRunning) && <BrowserUseLiveView isRunning={isRunning} liveUrl={browserUseLiveUrl} />}
 
         {isWaiting && (
           <ChatBubble role="agent" title="Resolver scheduled">
@@ -389,6 +392,41 @@ function AgentChatPanel(props: {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function BrowserUseLiveView(props: { isRunning: boolean; liveUrl: string | null }) {
+  return (
+    <div className="grid gap-3 rounded-lg border bg-background p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <span className="text-xs font-semibold uppercase text-muted-foreground">Browser view</span>
+          <p className="mt-1 text-sm leading-5 text-muted-foreground">
+            {props.liveUrl ? "Live Browser Use session" : props.isRunning ? "Waiting for Browser Use to start" : "Browser session ended"}
+          </p>
+        </div>
+        {props.liveUrl && (
+          <Button asChild size="sm" variant="outline">
+            <a href={props.liveUrl} rel="noreferrer" target="_blank">
+              <ExternalLink size={14} />
+              Open
+            </a>
+          </Button>
+        )}
+      </div>
+      {props.liveUrl ? (
+        <iframe
+          allow="autoplay"
+          className="aspect-video w-full rounded-md border bg-muted"
+          src={props.liveUrl}
+          title="Browser Use live view"
+        />
+      ) : (
+        <div className="grid aspect-video place-items-center rounded-md border bg-muted px-4 text-center text-sm leading-6 text-muted-foreground">
+          The live browser will appear here if the resolver needs Browser Use for this challenge.
+        </div>
+      )}
+    </div>
   );
 }
 
