@@ -1,8 +1,8 @@
-import { provisionalDisputeDeadline } from "@moltbooky/core/domain/challenge";
 import type { Challenge, ResolutionEvent, ResolutionOutcome, ResolutionTool } from "@moltbooky/core/domain/types";
-import { and, challengeMatches, challenges, createDb, eq, ledgerEntries, or, pipedreamConnections, resolutionRuns, creditAccounts } from "@moltbooky/db";
+import { and, challenges, createDb, eq, pipedreamConnections } from "@moltbooky/db";
 import { createOpenAI } from "@ai-sdk/openai";
 import { stepCountIs, streamText, tool } from "ai";
+import { WorkerEntrypoint } from "cloudflare:workers";
 import { z } from "zod";
 
 export interface ResolverResult {
@@ -10,26 +10,22 @@ export interface ResolverResult {
   confidence: number;
   sourceUrls: string[];
   shortRationale: string;
+  finalized?: boolean;
 }
-
-const resolverResultSchema = z.object({
-  outcome: z.enum(["YES", "NO", "UNRESOLVED"]),
-  confidence: z.number().min(0).max(1),
-  sourceUrls: z.array(z.string().url()).default([]),
-  shortRationale: z.string().min(1)
-});
 
 const resolverSystemPrompt = [
   "You are Moltbooky's provisional resolution agent for private-beta 1:1 challenge bets.",
   "Your job is to evaluate a binary claim against its resolution criteria using external evidence.",
-  "Use the exaSearch tool when evidence could be current, factual, or externally verifiable.",
-  "If the challenge includes Pipedream connections, use pipedreamAction only for evidence directly relevant to the stated criteria.",
+  "All tokens you emit are public and visible to end users. Write concise, public-facing progress and rationale only.",
+  "Use executeCode to gather evidence. Write TypeScript that exports `default async function run(ctx)`.",
+  "Inside generated code, use ctx.exa.search(...) for web evidence and ctx.pipedream.run(...) for configured account evidence.",
   "Return YES only when the evidence clearly satisfies the claim and criteria.",
   "Return NO only when the evidence clearly contradicts the claim or criteria.",
-  "Return UNRESOLVED when evidence is missing, ambiguous, inaccessible, conflicting, stale, or below the confidence threshold.",
+  "Use UNKNOWN when evidence is missing, ambiguous, inaccessible, conflicting, stale, or below the confidence threshold.",
   "Be conservative because AI resolution is provisional and users may dispute outcomes.",
   "Do not infer beyond the stated criteria. Do not settle based on popularity, vibes, or predictions.",
-  "The response must be a single JSON object with outcome, confidence, sourceUrls, and shortRationale."
+  "Your final action must be exactly one resolveBet tool call with a clear explanation paragraph.",
+  "After resolveBet succeeds, do not output more content."
 ].join("\n");
 
 type ResolverPipedreamTool = ResolutionTool & { connectionId?: string };
@@ -58,6 +54,7 @@ const resolveRequestSchema = z.object({
     expiresAt: z.string()
   }),
   eventCallbackUrl: z.string().url(),
+  finalizeCallbackUrl: z.string().url(),
   eventCallbackToken: z.string().min(1)
 });
 
@@ -72,6 +69,116 @@ const defaultPipedreamActionKeys: Record<string, string> = {
   google_drive: "google_drive-search-files",
   google_calendar: "google_calendar-list-events"
 };
+
+const exaSearchInputSchema = z.object({
+  query: z.string().min(1).max(1000),
+  numResults: z.number().int().min(1).max(10).default(5)
+});
+
+const pipedreamRunInputSchema = z.object({
+  connectionId: z.string().min(1),
+  action: z.string().min(1).max(180).optional(),
+  props: z.record(z.string(), z.unknown()).default({})
+});
+
+const executeCodeResultSchema = z.object({
+  result: z.unknown().optional(),
+  events: z
+    .array(
+      z.object({
+        kind: z.enum(["tool_call", "tool_result", "agent_output", "error"]),
+        title: z.string(),
+        body: z.string().nullable().optional(),
+        metadata: z.record(z.string(), z.unknown()).optional()
+      })
+    )
+    .default([])
+});
+
+const resolveBetInputSchema = z.object({
+  resolution: z.enum(["YES", "NO", "UNKNOWN"]),
+  explanation: z.string().trim().min(1).max(4000)
+});
+
+const finalizedResultSchema = z.object({
+  ok: z.boolean(),
+  result: z.object({
+    outcome: z.enum(["YES", "NO", "UNRESOLVED"]),
+    explanation: z.string(),
+    sourceUrls: z.array(z.string()).default([])
+  })
+});
+
+type ResolverCodeToolProps = {
+  resolutionTools: ResolverPipedreamTool[];
+  externalUserId: string;
+};
+
+type ResolverExecutionContext = ExecutionContext & {
+  exports: {
+    ResolverCodeTools: (options: { props: ResolverCodeToolProps }) => unknown;
+  };
+};
+
+export class ResolverCodeTools extends WorkerEntrypoint<Env, ResolverCodeToolProps> {
+  async exaSearch(input: unknown): Promise<unknown> {
+    const parsed = exaSearchInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return { error: "Invalid Exa search input." };
+    }
+    if (!this.env.EXA_API_KEY) {
+      return { error: "Exa is not configured for the resolver." };
+    }
+
+    const response = await fetch("https://api.exa.ai/search", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": this.env.EXA_API_KEY
+      },
+      body: JSON.stringify({ query: parsed.data.query, numResults: parsed.data.numResults, type: "auto" })
+    });
+
+    if (!response.ok) {
+      return { error: `Exa search failed with status ${response.status}`, results: [] };
+    }
+
+    const searchJson = (await response.json()) as {
+      results?: Array<{ url?: string; title?: string; text?: string; publishedDate?: string; author?: string }>;
+    };
+    return {
+      results: (searchJson.results ?? []).map((source) => ({
+        url: source.url ?? null,
+        title: source.title ?? null,
+        text: source.text ?? null,
+        publishedDate: source.publishedDate ?? null,
+        author: source.author ?? null
+      }))
+    };
+  }
+
+  async pipedreamRun(input: unknown): Promise<unknown> {
+    const parsed = pipedreamRunInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return { error: "Invalid Pipedream action input." };
+    }
+
+    const resolutionTool = this.ctx.props.resolutionTools.find((tool) => tool.connectionId === parsed.data.connectionId || tool.appSlug === parsed.data.connectionId);
+    if (!resolutionTool) {
+      return { error: `Pipedream connection ${parsed.data.connectionId} is not attached to this challenge.` };
+    }
+
+    return runPipedreamAction(
+      this.env,
+      {
+        ...resolutionTool,
+        actionKey: parsed.data.action ?? resolutionTool.actionKey
+      },
+      parsed.data.props,
+      this.ctx.props.externalUserId
+    );
+  }
+}
 
 function parseResolutionTools(value: string | null): ResolverPipedreamTool[] {
   if (!value) {
@@ -90,9 +197,9 @@ function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
-export async function resolveChallenge(env: Env, request: ResolveRequest): Promise<ResolverResult> {
+export async function resolveChallenge(env: Env, request: ResolveRequest, ctx: ResolverExecutionContext): Promise<ResolverResult> {
   const db = createDb(env.DATABASE_URL);
-  const { challengeId, runId } = request;
+  const { challengeId } = request;
   const emit = (kind: ResolutionEvent["kind"], title: string, body?: string | null, metadata: Record<string, unknown> = {}) =>
     appendResolutionEvent(request, kind, title, body, metadata);
 
@@ -134,129 +241,17 @@ export async function resolveChallenge(env: Env, request: ResolveRequest): Promi
   }
 
   if (challenge.status === "provisional_resolved" && challenge.provisionalOutcome === "UNRESOLVED") {
-    await refundUnresolvedChallenge(env, challengeId);
     return {
       outcome: "UNRESOLVED",
       confidence: 0,
       sourceUrls: [],
-      shortRationale: "Challenge was already unresolved; refunded locked stakes."
+      shortRationale: "Challenge was already marked unresolved."
     };
   }
 
   const exaQuery = `${request.challenge.claim}\nResolution criteria: ${request.challenge.resolutionCriteria}`;
   const resolutionTools = await loadPipedreamResolutionTools(env, challenge.creatorId, challenge.pipedreamConnectionIds ?? [], challenge.resolutionTool);
-  const resolverResult = await runAiResolver(env, emit, exaQuery, resolutionTools, challenge.creatorId);
-
-  await db
-    .insert(resolutionRuns)
-    .values({
-      id: runId,
-      challengeId,
-      exaQuery,
-      sourceUrls: JSON.stringify(resolverResult.sourceUrls),
-      aiRationale: resolverResult.shortRationale,
-      proposedOutcome: resolverResult.outcome,
-      confidence: resolverResult.confidence
-    })
-    .onConflictDoNothing();
-  await emit("run_finished", "Resolver finished", resolverResult.shortRationale, {
-    outcome: resolverResult.outcome,
-    confidence: resolverResult.confidence
-  });
-
-  if (resolverResult.outcome === "UNRESOLVED") {
-    await refundUnresolvedChallenge(env, challengeId);
-    return resolverResult;
-  }
-
-  await db
-    .update(challenges)
-    .set({
-      status: "provisional_resolved",
-      provisionalOutcome: resolverResult.outcome,
-      disputeDeadlineAt: new Date(provisionalDisputeDeadline()),
-      updatedAt: new Date()
-    })
-    .where(and(eq(challenges.id, challengeId), or(eq(challenges.status, "open"), eq(challenges.status, "resolving"))));
-
-  return resolverResult;
-}
-
-async function applyCreditDelta(tx: any, userId: string, availableDeltaCents: number, lockedDeltaCents: number): Promise<void> {
-  const creditAccount = await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).for("update").limit(1);
-  if (!creditAccount[0]) {
-    throw new Error("Credit account not found.");
-  }
-
-  await tx
-    .update(creditAccounts)
-    .set({
-      availableCents: creditAccount[0].availableCents + availableDeltaCents,
-      lockedCents: creditAccount[0].lockedCents + lockedDeltaCents,
-      updatedAt: new Date()
-    })
-    .where(eq(creditAccounts.userId, userId));
-}
-
-async function refundUnresolvedChallenge(env: Env, challengeId: string): Promise<void> {
-  const db = createDb(env.DATABASE_URL);
-  await db.transaction(async (tx) => {
-    const current = await tx.select().from(challenges).where(eq(challenges.id, challengeId)).for("update").limit(1);
-    const challenge = current[0];
-
-    if (!challenge) {
-      throw new Error("Challenge not found.");
-    }
-    if (challenge.status === "voided" || challenge.status === "final_resolved") {
-      return;
-    }
-
-    const matches = await tx.select().from(challengeMatches).where(eq(challengeMatches.challengeId, challengeId)).for("update");
-
-    if (challenge.stakeCents > 0) {
-      await applyCreditDelta(tx, challenge.creatorId, challenge.stakeCents, -challenge.stakeCents);
-      await tx
-        .insert(ledgerEntries)
-        .values({
-          id: newId("led"),
-          userId: challenge.creatorId,
-          type: "unlock",
-          amountCents: challenge.stakeCents,
-          challengeId,
-          idempotencyKey: `unresolved-refund:${challengeId}:creator`,
-          description: "Refund unresolved challenge stake"
-        })
-        .onConflictDoNothing();
-    }
-
-    for (const match of matches) {
-      await applyCreditDelta(tx, match.matcherId, match.amountCents, -match.amountCents);
-      await tx
-        .insert(ledgerEntries)
-        .values({
-          id: newId("led"),
-          userId: match.matcherId,
-          type: "unlock",
-          amountCents: match.amountCents,
-          challengeId,
-          matchId: match.id,
-          idempotencyKey: `unresolved-refund:${challengeId}:match:${match.id}`,
-          description: "Refund unresolved match stake"
-        })
-        .onConflictDoNothing();
-    }
-
-    await tx.update(challengeMatches).set({ status: "cancelled" }).where(eq(challengeMatches.challengeId, challengeId));
-    await tx
-      .update(challenges)
-      .set({
-        status: "voided",
-        provisionalOutcome: "UNRESOLVED",
-        disputeDeadlineAt: null,
-        updatedAt: new Date()
-      })
-      .where(eq(challenges.id, challengeId));
-  });
+  return runAiResolver(env, ctx, request, emit, exaQuery, resolutionTools, challenge.creatorId);
 }
 
 async function loadPipedreamResolutionTools(env: Env, creatorId: string, connectionIds: string[], legacyResolutionTool: string | null): Promise<ResolverPipedreamTool[]> {
@@ -288,7 +283,15 @@ async function loadPipedreamResolutionTools(env: Env, creatorId: string, connect
   return tools;
 }
 
-async function runAiResolver(env: Env, emit: ResolutionEventEmitter, query: string, resolutionTools: ResolverPipedreamTool[] = [], externalUserId = ""): Promise<ResolverResult> {
+async function runAiResolver(
+  env: Env,
+  ctx: ResolverExecutionContext,
+  request: ResolveRequest,
+  emit: ResolutionEventEmitter,
+  query: string,
+  resolutionTools: ResolverPipedreamTool[] = [],
+  externalUserId = ""
+): Promise<ResolverResult> {
   await emit("run_started", "Resolver started", "Building evidence plan and preparing tools.");
 
   if (!env.EXA_API_KEY || !env.OPENAI_API_KEY) {
@@ -302,114 +305,101 @@ async function runAiResolver(env: Env, emit: ResolutionEventEmitter, query: stri
   }
 
   const searchedUrls = new Set<string>();
+  let finalResult: ResolverResult | null = null;
   const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
   const tools: Parameters<typeof streamText>[0]["tools"] = {
-    exaSearch: tool({
-      description: "Search the web with Exa for evidence relevant to resolving the challenge.",
+    executeCode: tool({
+      description: [
+        "Write TypeScript evidence-gathering code and run it inside a sandboxed Cloudflare Dynamic Worker.",
+        "The code must export `default async function run(ctx)`.",
+        "Use ctx.exa.search({ query, numResults }) for web evidence.",
+        resolutionTools.length
+          ? `Use ctx.pipedream.run({ connectionId, action, props }) for configured account evidence. Available connections: ${formatAvailableConnections(resolutionTools)}.`
+          : "No private Pipedream connections are configured for this challenge.",
+        "Return structured evidence that helps decide YES, NO, or UNKNOWN."
+      ].join(" "),
       inputSchema: z.object({
-        query: z.string().min(1),
-        numResults: z.number().int().min(1).max(10).default(5)
+        purpose: z.string().min(1).max(500),
+        code: z.string().min(1).max(20_000)
       }),
-      execute: async ({ query: searchQuery, numResults }) => {
-        await emit("tool_call", "Calling Exa web search", searchQuery, { toolName: "exaSearch", numResults });
-        const searchResponse = await fetch("https://api.exa.ai/search", {
+      execute: async ({ purpose, code }) => {
+        await emit("tool_call", "Executing resolver code", purpose, { toolName: "executeCode" });
+        const output = await executeResolverCode(env, ctx, {
+          code,
+          resolutionTools,
+          externalUserId
+        });
+        for (const event of output.events) {
+          await emit(event.kind, event.title, event.body, {
+            ...(event.metadata ?? {}),
+            toolName: "executeCode"
+          });
+        }
+        for (const url of collectUrls(output.result)) {
+          searchedUrls.add(url);
+        }
+        await emit("tool_result", "Resolver code returned evidence", summarizeToolOutput(output.result), { toolName: "executeCode" });
+        return output.result;
+      }
+    }),
+    resolveBet: tool({
+      description: "Terminal tool. Finalize the bet as YES, NO, or UNKNOWN with a public explanation paragraph. This must be the last action.",
+      inputSchema: z.object({
+        resolution: z.enum(["YES", "NO", "UNKNOWN"]),
+        explanation: z.string().trim().min(1).max(4000)
+      }),
+      execute: async (input) => {
+        const parsed = resolveBetInputSchema.parse(input);
+        await emit("tool_call", "Finalizing bet", parsed.explanation, { toolName: "resolveBet", resolution: parsed.resolution });
+        const sourceUrls = Array.from(searchedUrls);
+        const response = await fetch(request.finalizeCallbackUrl, {
           method: "POST",
           headers: {
-            "content-type": "application/json",
-            "x-api-key": env.EXA_API_KEY!
+            authorization: `Bearer ${request.eventCallbackToken}`,
+            "content-type": "application/json"
           },
-          body: JSON.stringify({ query: searchQuery, numResults, type: "auto" })
+          body: JSON.stringify({
+            runId: request.runId,
+            resolution: parsed.resolution,
+            explanation: parsed.explanation,
+            confidence: parsed.resolution === "UNKNOWN" ? 0 : 1,
+            sourceUrls
+          })
         });
 
-        if (!searchResponse.ok) {
-          await emit("error", "Exa search failed", `Exa search failed with status ${searchResponse.status}.`, { toolName: "exaSearch" });
-          return {
-            error: `Exa search failed with status ${searchResponse.status}`,
-            results: []
-          };
+        const json = (await response.json().catch(() => ({}))) as unknown;
+        if (!response.ok) {
+          const message = json && typeof json === "object" && "error" in json ? String((json as { error: unknown }).error) : `Finalization failed with status ${response.status}.`;
+          await emit("error", "Bet finalization failed", message, { toolName: "resolveBet" });
+          return { error: message };
         }
 
-        const searchJson = (await searchResponse.json()) as {
-          results?: Array<{ url?: string; title?: string; text?: string; publishedDate?: string; author?: string }>;
+        const finalized = finalizedResultSchema.safeParse(json);
+        const outcome = finalized.success ? finalized.data.result.outcome : parsed.resolution === "UNKNOWN" ? "UNRESOLVED" : parsed.resolution;
+        finalResult = {
+          outcome,
+          confidence: parsed.resolution === "UNKNOWN" ? 0 : 1,
+          sourceUrls,
+          shortRationale: parsed.explanation,
+          finalized: true
         };
-        const results = (searchJson.results ?? []).map((source) => {
-          if (source.url) {
-            searchedUrls.add(source.url);
-          }
-
-          return {
-            url: source.url ?? null,
-            title: source.title ?? null,
-            text: source.text ?? null,
-            publishedDate: source.publishedDate ?? null,
-            author: source.author ?? null
-          };
-        });
-
-        await emit("tool_result", "Exa returned evidence", `${results.length} results returned.`, {
-          toolName: "exaSearch",
-          urls: results.map((result) => result.url).filter(Boolean).slice(0, 5)
-        });
-        return { results };
+        await emit("tool_result", "Bet finalized", parsed.explanation, { toolName: "resolveBet", outcome });
+        return { ok: true, outcome };
       }
     })
-  };
-
-  if (resolutionTools.length > 0) {
-    const availableConnections = resolutionTools
-      .map((resolutionTool) => `${resolutionTool.connectionId ?? resolutionTool.appSlug}: ${resolutionTool.appName ?? resolutionTool.appSlug} (${resolutionTool.actionKey})`)
-      .join("; ");
-    tools.pipedreamAction = tool({
-      description: [
-        `Run one of the market's configured Pipedream connections for authenticated evidence. Available connections: ${availableConnections}.`,
-        "Only request props needed to evaluate the resolution criteria. Do not use this tool for unrelated exploration."
-      ].filter(Boolean).join(" "),
-      inputSchema: z.object({
-        connectionId: z.string().min(1).describe("The configured connection id to use."),
-        props: z.record(z.string(), z.unknown()).default({})
-      }),
-      execute: async ({ connectionId, props }) => {
-        const resolutionTool = resolutionTools.find((tool) => tool.connectionId === connectionId || tool.appSlug === connectionId);
-        if (!resolutionTool) {
-          await emit("error", "Pipedream connection unavailable", `Pipedream connection ${connectionId} is not attached to this challenge.`, { toolName: "pipedreamAction" });
-          return { error: `Pipedream connection ${connectionId} is not attached to this challenge.` };
-        }
-        await emit("tool_call", `Calling ${resolutionTool.appName ?? resolutionTool.appSlug}`, JSON.stringify(props, null, 2), {
-          toolName: "pipedreamAction",
-          connectionId
-        });
-        const output = await runPipedreamAction(env, resolutionTool, props, externalUserId);
-        await emit("tool_result", `${resolutionTool.appName ?? resolutionTool.appSlug} returned evidence`, summarizeToolOutput(output), {
-          toolName: "pipedreamAction",
-          connectionId
-        });
-        return output;
-      }
-    });
-  }
-
-  let streamedText = "";
-  const outputBuffer: string[] = [];
-  const emitOutput = async (force = false) => {
-    if (outputBuffer.length === 0) {
-      return;
-    }
-    const body = outputBuffer.join("");
-    if (!force && body.length < 80) {
-      return;
-    }
-    outputBuffer.length = 0;
-    await emit("agent_output", "Drafting resolution", body);
   };
 
   const result = streamText({
     model: openai("gpt-4o-mini"),
     temperature: 0,
-    stopWhen: stepCountIs(4),
+    stopWhen: stepCountIs(8),
     system: resolverSystemPrompt,
     prompt: [
       "Resolve this Moltbooky challenge.",
-      resolutionTools.length ? "Use Exa and the configured Pipedream connections when they can supply relevant evidence, then return only the required JSON object." : "Use Exa for evidence, then return only the required JSON object.",
+      "All text you write is public and visible to users.",
+      "Use executeCode to gather evidence. Then call resolveBet exactly once.",
+      "Do not return JSON as text. The final answer must be the resolveBet tool call.",
+      resolutionTools.length ? `Configured Pipedream connections: ${formatAvailableConnections(resolutionTools)}.` : "Configured Pipedream connections: none.",
       "",
       query
     ].join("\n"),
@@ -431,31 +421,191 @@ async function runAiResolver(env: Env, emit: ResolutionEventEmitter, query: stri
     } else if (part.type === "tool-result") {
       await emit("tool_result", `${part.toolName} completed`, summarizeToolOutput(part.output), { toolName: part.toolName });
     } else if (part.type === "text-delta") {
-      streamedText += part.text;
-      outputBuffer.push(part.text);
-      await emitOutput();
+      await emit("agent_output", "Resolver note", part.text);
     } else if (part.type === "error") {
       await emit("error", "Resolver stream error", part.error instanceof Error ? part.error.message : String(part.error));
     }
   }
-  await emitOutput(true);
 
-  const finalText = streamedText || (await result.text);
-  const parsed = parseResolverJson(finalText);
-  const validated = resolverResultSchema.safeParse(parsed);
-  if (!validated.success) {
+  if (!finalResult) {
+    const rationale = "Resolver agent stopped before calling the final resolution tool. The bet was not settled.";
+    await emit("error", "Resolver did not finalize", rationale);
     return {
-      outcome: "UNRESOLVED",
-      confidence: 0,
-      sourceUrls: Array.from(searchedUrls),
-      shortRationale: "Resolver agent did not return a valid resolution object."
+    outcome: "UNRESOLVED",
+    confidence: 0,
+    sourceUrls: Array.from(searchedUrls),
+    shortRationale: rationale,
+    finalized: false
+  };
+}
+
+  return finalResult;
+}
+
+function formatAvailableConnections(resolutionTools: ResolverPipedreamTool[]): string {
+  return resolutionTools
+    .map((resolutionTool) => `${resolutionTool.connectionId ?? resolutionTool.appSlug}: ${resolutionTool.appName ?? resolutionTool.appSlug} (${resolutionTool.actionKey})`)
+    .join("; ");
+}
+
+function dynamicWorkerHostSource(): string {
+  return `
+import run from "./agent";
+
+function summarize(value) {
+  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return text && text.length > 500 ? text.slice(0, 500) + "..." : text;
+}
+
+function urlsFrom(value, urls = []) {
+  if (!value) return urls;
+  if (typeof value === "string") {
+    for (const match of value.matchAll(/https?:\\/\\/[^\\s"'<>]+/g)) urls.push(match[0]);
+    return urls;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) urlsFrom(item, urls);
+    return urls;
+  }
+  if (typeof value === "object") {
+    for (const item of Object.values(value)) urlsFrom(item, urls);
+  }
+  return urls;
+}
+
+export default {
+  async fetch(_request, env) {
+    const events = [];
+    const ctx = {
+      exa: {
+        search: async (input) => {
+          events.push({ kind: "tool_call", title: "Calling Exa web search", body: input?.query ?? null, metadata: { helper: "ctx.exa.search" } });
+          const result = await env.RESOLVER_TOOLS.exaSearch(input);
+          events.push({ kind: "tool_result", title: "Exa returned evidence", body: summarize(result), metadata: { helper: "ctx.exa.search", urls: urlsFrom(result).slice(0, 10) } });
+          return result;
+        }
+      },
+      pipedream: {
+        run: async (input) => {
+          events.push({ kind: "tool_call", title: "Calling Pipedream action", body: JSON.stringify({ connectionId: input?.connectionId, action: input?.action ?? null }), metadata: { helper: "ctx.pipedream.run", connectionId: input?.connectionId } });
+          const result = await env.RESOLVER_TOOLS.pipedreamRun(input);
+          events.push({ kind: "tool_result", title: "Pipedream returned evidence", body: summarize(result), metadata: { helper: "ctx.pipedream.run", connectionId: input?.connectionId, urls: urlsFrom(result).slice(0, 10) } });
+          return result;
+        }
+      },
+      log: (message, data) => {
+        events.push({ kind: "agent_output", title: String(message), body: data === undefined ? null : summarize(data), metadata: { helper: "ctx.log" } });
+      }
+    };
+
+    try {
+      const result = await run(ctx);
+      return Response.json({ result, events });
+    } catch (error) {
+      events.push({ kind: "error", title: "Resolver code failed", body: error instanceof Error ? error.message : String(error), metadata: { helper: "executeCode" } });
+      return Response.json({ result: { error: error instanceof Error ? error.message : String(error) }, events }, { status: 500 });
+    }
+  }
+};
+`;
+}
+
+async function executeResolverCode(
+  env: Env,
+  ctx: ResolverExecutionContext,
+  params: {
+    code: string;
+    resolutionTools: ResolverPipedreamTool[];
+    externalUserId: string;
+  }
+): Promise<z.infer<typeof executeCodeResultSchema>> {
+  if (!env.LOADER) {
+    return {
+      result: { error: "Dynamic Worker Loader is not configured." },
+      events: [{ kind: "error", title: "Dynamic Worker Loader missing", body: "Configure the resolver worker LOADER binding before running generated code." }]
     };
   }
 
-  return {
-    ...validated.data,
-    sourceUrls: validated.data.sourceUrls.length > 0 ? validated.data.sourceUrls : Array.from(searchedUrls)
-  };
+  const { createWorker } = await import("@cloudflare/worker-bundler");
+  const bundled = await createWorker({
+    files: {
+      "src/index.ts": dynamicWorkerHostSource(),
+      "src/agent.ts": params.code,
+      "package.json": JSON.stringify({ dependencies: {} })
+    },
+    entryPoint: "src/index.ts",
+    bundle: true,
+    minify: false,
+    target: "es2022"
+  });
+
+  const worker = env.LOADER.load({
+    mainModule: bundled.mainModule,
+    modules: bundled.modules,
+    compatibilityDate: "2026-05-30",
+    globalOutbound: null,
+    env: {
+      RESOLVER_TOOLS: ctx.exports.ResolverCodeTools({
+        props: {
+          resolutionTools: params.resolutionTools,
+          externalUserId: params.externalUserId
+        }
+      })
+    }
+  });
+
+  const response = await withTimeout(
+    worker.getEntrypoint().fetch(new Request("https://resolver-code.local/run", { method: "POST" })),
+    20_000,
+    "Generated resolver code timed out."
+  );
+  const json = (await response.json().catch(() => ({}))) as unknown;
+  const parsed = executeCodeResultSchema.safeParse(json);
+  if (!parsed.success) {
+    return {
+      result: { error: "Generated resolver code returned an invalid response." },
+      events: [{ kind: "error", title: "Invalid resolver code response", body: "The Dynamic Worker did not return the expected result envelope." }]
+    };
+  }
+  return parsed.data;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+function collectUrls(value: unknown, urls = new Set<string>()): string[] {
+  if (!value) {
+    return Array.from(urls);
+  }
+  if (typeof value === "string") {
+    for (const match of value.matchAll(/https?:\/\/[^\s"'<>]+/g)) {
+      urls.add(match[0]);
+    }
+    return Array.from(urls);
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectUrls(item, urls);
+    }
+    return Array.from(urls);
+  }
+  if (typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      collectUrls(item, urls);
+    }
+  }
+  return Array.from(urls);
 }
 
 async function appendResolutionEvent(
@@ -547,16 +697,6 @@ async function runPipedreamAction(env: Env, resolutionTool: ResolverPipedreamToo
   return data;
 }
 
-function parseResolverJson(text: string): unknown {
-  const trimmed = text.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const match = trimmed.match(/\{[\s\S]*\}/);
-    return match ? JSON.parse(match[0]) : {};
-  }
-}
-
 function isManualResolverRequestAllowed(request: Request, env: Env): boolean {
   const configuredToken = env.RESOLVER_TEST_TOKEN?.trim();
   const authHeader = request.headers.get("authorization") ?? "";
@@ -564,7 +704,7 @@ function isManualResolverRequestAllowed(request: Request, env: Env): boolean {
   return Boolean(configuredToken && bearerToken === configuredToken);
 }
 
-async function handleFetch(request: Request, env: Env): Promise<Response> {
+async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
 
   if (request.method === "GET" && url.pathname === "/") {
@@ -579,8 +719,8 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (!parsed.success) {
       return Response.json({ error: "Invalid resolver request." }, { status: 400 });
     }
-    const result = await resolveChallenge(env, parsed.data as ResolveRequest);
-    return Response.json({ ok: true, challengeId: parsed.data.challengeId, runId: parsed.data.runId, result });
+    const result = await resolveChallenge(env, parsed.data as ResolveRequest, ctx as ResolverExecutionContext);
+    return Response.json({ ok: true, challengeId: parsed.data.challengeId, runId: parsed.data.runId, finalized: result.finalized === true, result });
   }
 
   return Response.json({ error: "Not found." }, { status: 404 });

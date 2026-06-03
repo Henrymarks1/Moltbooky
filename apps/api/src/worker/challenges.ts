@@ -1,8 +1,8 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
-import { availableToMatch, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
+import { availableToMatch, settleChallenge, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
 import { creditsToCents } from "@moltbooky/core/domain/money";
-import type { Challenge, ResolutionEvent } from "@moltbooky/core/domain/types";
-import { challengeMatches, challenges, createDb, eq, ledgerEntries, pipedreamConnections } from "@moltbooky/db";
+import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionOutcome, Side } from "@moltbooky/core/domain/types";
+import { challengeMatches, challenges, createDb, eq, ledgerEntries, pipedreamConnections, resolutionRuns } from "@moltbooky/db";
 import {
   actorFromRequest,
   getChallenge,
@@ -72,6 +72,14 @@ const resolverConnectionSchema = z.object({
   appName: z.string()
 });
 
+const finalizeResolutionRequestSchema = z.object({
+  runId: z.string().min(1),
+  resolution: z.enum(["YES", "NO", "UNKNOWN"]),
+  explanation: z.string().trim().min(1),
+  confidence: z.number().min(0).max(1).optional(),
+  sourceUrls: z.array(z.string().url()).default([])
+});
+
 async function listChallengeResolverConnections(env: Env, creatorId: string, connectionIds: string[] = []) {
   if (connectionIds.length === 0) {
     return [];
@@ -118,6 +126,157 @@ async function challengeObjectSnapshot(env: Env, challengeId: string): Promise<{
     resolutionEvents: body.resolutionEvents ?? [],
     currentRunId: body.currentRunId ?? null
   };
+}
+
+function isInternalResolverRequest(request: Request, env: Env): boolean {
+  const token = env.RESOLVER_TEST_TOKEN?.trim();
+  const bearerToken = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  return Boolean(token && bearerToken === token);
+}
+
+function toSettlementChallenge(row: typeof challenges.$inferSelect): Challenge {
+  return {
+    id: row.id,
+    creatorId: row.creatorId,
+    creatorName: row.creatorId,
+    claim: row.claim,
+    resolutionCriteria: row.resolutionCriteria,
+    resolutionTool: null,
+    pipedreamConnectionIds: row.pipedreamConnectionIds ?? [],
+    creatorSide: row.creatorSide as Side,
+    visibility: row.visibility as Challenge["visibility"],
+    stakeCents: row.stakeCents,
+    matchedCents: row.matchedCents,
+    status: row.status as Challenge["status"],
+    expiresAt: row.expiresAt instanceof Date ? row.expiresAt.toISOString() : row.expiresAt,
+    disputeDeadlineAt: row.disputeDeadlineAt instanceof Date ? row.disputeDeadlineAt.toISOString() : row.disputeDeadlineAt,
+    provisionalOutcome: row.provisionalOutcome as ResolutionOutcome | null,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt
+  };
+}
+
+function toSettlementMatch(row: typeof challengeMatches.$inferSelect): ChallengeMatch {
+  return {
+    id: row.id,
+    challengeId: row.challengeId,
+    matcherId: row.matcherId,
+    matcherName: row.matcherId,
+    amountCents: row.amountCents,
+    side: row.side as Side,
+    status: row.status as ChallengeMatch["status"],
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt
+  };
+}
+
+async function appendInternalResolverEvent(env: Env, event: Omit<ResolutionEvent, "id" | "createdAt">): Promise<void> {
+  const token = env.RESOLVER_TEST_TOKEN?.trim();
+  if (!token) {
+    return;
+  }
+  await challengeObject(env, event.challengeId).fetch(
+    new Request("https://challenge-object/resolver-event", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        ...event,
+        id: newId("rev"),
+        createdAt: new Date().toISOString()
+      })
+    })
+  );
+}
+
+async function finalizeUnknownResolution(tx: any, challenge: Challenge, matches: ChallengeMatch[]): Promise<void> {
+  if (challenge.stakeCents > 0) {
+    await applyCreditDelta(tx, challenge.creatorId, challenge.stakeCents, -challenge.stakeCents);
+    await tx
+      .insert(ledgerEntries)
+      .values({
+        id: newId("led"),
+        userId: challenge.creatorId,
+        type: "unlock",
+        amountCents: challenge.stakeCents,
+        challengeId: challenge.id,
+        idempotencyKey: `resolve:${challenge.id}:unknown:creator`,
+        description: "Refund unresolved challenge stake"
+      })
+      .onConflictDoNothing();
+  }
+
+  for (const match of matches) {
+    await applyCreditDelta(tx, match.matcherId, match.amountCents, -match.amountCents);
+    await tx
+      .insert(ledgerEntries)
+      .values({
+        id: newId("led"),
+        userId: match.matcherId,
+        type: "unlock",
+        amountCents: match.amountCents,
+        challengeId: challenge.id,
+        matchId: match.id,
+        idempotencyKey: `resolve:${challenge.id}:unknown:match:${match.id}`,
+        description: "Refund unresolved match stake"
+      })
+      .onConflictDoNothing();
+  }
+
+  await tx.update(challengeMatches).set({ status: "cancelled" }).where(eq(challengeMatches.challengeId, challenge.id));
+  await tx
+    .update(challenges)
+    .set({
+      status: "voided",
+      provisionalOutcome: "UNRESOLVED",
+      disputeDeadlineAt: null,
+      updatedAt: new Date()
+    })
+    .where(eq(challenges.id, challenge.id));
+}
+
+async function finalizeResolvedChallenge(tx: any, challenge: Challenge, matches: ChallengeMatch[], outcome: Side): Promise<void> {
+  const lockedExposure = new Map<string, number>();
+  if (challenge.creatorSide === outcome) {
+    lockedExposure.set(
+      challenge.creatorId,
+      matches.reduce((sum, match) => sum + match.amountCents, 0)
+    );
+  } else {
+    for (const match of matches) {
+      lockedExposure.set(match.matcherId, (lockedExposure.get(match.matcherId) ?? 0) + match.amountCents);
+    }
+  }
+
+  for (const [index, transfer] of settleChallenge({ challenge, matches, outcome }).entries()) {
+    if (transfer.type === "unlock") {
+      await applyCreditDelta(tx, transfer.userId, transfer.amountCents, -transfer.amountCents);
+    } else if (transfer.type === "settlement_win") {
+      const lockedStake = lockedExposure.get(transfer.userId) ?? 0;
+      await applyCreditDelta(tx, transfer.userId, transfer.amountCents, -lockedStake);
+    } else if (transfer.type === "settlement_loss") {
+      await applyCreditDelta(tx, transfer.userId, 0, -transfer.amountCents);
+    }
+
+    await tx
+      .insert(ledgerEntries)
+      .values({
+        id: newId("led"),
+        userId: transfer.userId,
+        type: transfer.type,
+        amountCents: transfer.amountCents,
+        challengeId: challenge.id,
+        idempotencyKey: `resolve:${challenge.id}:${outcome}:${index}:${transfer.userId}:${transfer.type}`,
+        description: transfer.description
+      })
+      .onConflictDoNothing();
+  }
+
+  await tx.update(challengeMatches).set({ status: "settled" }).where(eq(challengeMatches.challengeId, challenge.id));
+  await tx
+    .update(challenges)
+    .set({ status: "final_resolved", provisionalOutcome: outcome, updatedAt: new Date() })
+    .where(eq(challenges.id, challenge.id));
 }
 
 export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): void {
@@ -268,9 +427,7 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
   });
 
   app.post("/api/internal/challenges/:id/resolver-events", async (c) => {
-    const token = c.env.RESOLVER_TEST_TOKEN?.trim();
-    const bearerToken = c.req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
-    if (!token || bearerToken !== token) {
+    if (!isInternalResolverRequest(c.req.raw, c.env)) {
       return errorJson(c, "Resolver event access is not allowed.", 403);
     }
 
@@ -280,11 +437,93 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${token}`
+          authorization: `Bearer ${c.env.RESOLVER_TEST_TOKEN?.trim()}`
         },
         body: await c.req.text()
       })
     ) as any;
+  });
+
+  app.post("/api/internal/challenges/:id/finalize-resolution", async (c) => {
+    if (!isInternalResolverRequest(c.req.raw, c.env)) {
+      return errorJson(c, "Resolver finalization access is not allowed.", 403);
+    }
+
+    const id = c.req.param("id");
+    const parsed = finalizeResolutionRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return errorJson(c, "Invalid resolver finalization payload.", 400);
+    }
+
+    const body = parsed.data;
+    const db = createDb(c.env.DATABASE_URL);
+    const outcome: ResolutionOutcome = body.resolution === "UNKNOWN" ? "UNRESOLVED" : body.resolution;
+    const snapshot = await challengeObjectSnapshot(c.env, id);
+    if (snapshot.currentRunId && snapshot.currentRunId !== body.runId) {
+      return errorJson(c, "Resolver run is no longer current for this challenge.", 400);
+    }
+    let didFinalize = false;
+
+    await db.transaction(async (tx) => {
+      const currentRows = await tx.select().from(challenges).where(eq(challenges.id, id)).for("update").limit(1);
+      const current = currentRows[0];
+      if (!current) {
+        throw new Error("Challenge not found.");
+      }
+
+      const challenge = toSettlementChallenge(current);
+      if (challenge.status === "final_resolved" || challenge.status === "voided" || challenge.status === "cancelled") {
+        return;
+      }
+
+      if (challenge.status !== "open" && challenge.status !== "resolving" && challenge.status !== "provisional_resolved") {
+        throw new Error("Challenge is not eligible for resolver finalization.");
+      }
+
+      const matches = (await tx.select().from(challengeMatches).where(eq(challengeMatches.challengeId, id)).for("update")).map(toSettlementMatch);
+      const exaQuery = `${challenge.claim}\nResolution criteria: ${challenge.resolutionCriteria}`;
+      await tx
+        .insert(resolutionRuns)
+        .values({
+          id: body.runId,
+          challengeId: id,
+          exaQuery,
+          sourceUrls: JSON.stringify(body.sourceUrls),
+          aiRationale: body.explanation,
+          proposedOutcome: outcome,
+          confidence: body.confidence ?? (outcome === "UNRESOLVED" ? 0 : 1)
+        })
+        .onConflictDoNothing();
+
+      if (outcome === "UNRESOLVED") {
+        await finalizeUnknownResolution(tx, challenge, matches);
+      } else {
+        await finalizeResolvedChallenge(tx, challenge, matches, outcome);
+      }
+      didFinalize = true;
+    });
+
+    const finalizedChallenge = await getChallenge(c.env, id);
+    if (!finalizedChallenge) {
+      return errorJson(c, "Challenge not found.", 404);
+    }
+
+    if (didFinalize) {
+      await appendInternalResolverEvent(c.env, {
+        challengeId: id,
+        runId: body.runId,
+        kind: "run_finished",
+        title: "Resolver finished",
+        body: body.explanation,
+        metadata: {
+          outcome,
+          confidence: body.confidence ?? (outcome === "UNRESOLVED" ? 0 : 1),
+          sourceUrls: body.sourceUrls
+        }
+      });
+    }
+
+    return c.json({ ok: true, challenge: finalizedChallenge, result: { outcome, explanation: body.explanation, sourceUrls: body.sourceUrls } });
   });
 
   const createMatchRoute = createRoute({

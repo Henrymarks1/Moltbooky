@@ -171,6 +171,7 @@ export class ChallengeObject {
         runId,
         challenge: objectState.challenge,
         eventCallbackUrl: `${apiInternalBaseUrl(this.env)}/api/internal/challenges/${encodeURIComponent(objectState.challenge.id)}/resolver-events`,
+        finalizeCallbackUrl: `${apiInternalBaseUrl(this.env)}/api/internal/challenges/${encodeURIComponent(objectState.challenge.id)}/finalize-resolution`,
         eventCallbackToken: token
       })
     });
@@ -188,8 +189,12 @@ export class ChallengeObject {
       throw new Error(`Resolver alarm failed with status ${response.status}. Retrying at ${new Date(retryAt).toISOString()}.`);
     }
 
-    const body = (await response.json().catch(() => ({}))) as { result?: { outcome?: ResolutionOutcome } };
-    const resultStatus: Challenge["status"] = body.result?.outcome === "UNRESOLVED" ? "voided" : "provisional_resolved";
+    const body = (await response.json().catch(() => ({}))) as { finalized?: boolean; result?: { outcome?: ResolutionOutcome } };
+    if (!body.finalized) {
+      return;
+    }
+
+    const resultStatus: Challenge["status"] = body.result?.outcome === "UNRESOLVED" ? "voided" : "final_resolved";
     const latestState = (await this.readState()) ?? objectState;
     await this.writeState({
       ...latestState,

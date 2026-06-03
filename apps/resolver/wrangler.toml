@@ -2,6 +2,9 @@ name = "moltbooky-resolver"
 main = "src/worker/index.ts"
 compatibility_date = "2024-12-05"
 
+[[worker_loaders]]
+binding = "LOADER"
+
 [vars]
 PIPEDREAM_CLIENT_ID = "uym23nvsV3XiOobTGZOCcRovHMNcBLvkR4gVkUbfYt4"
 PIPEDREAM_PROJECT_ID = "proj_YRsMxDE"
