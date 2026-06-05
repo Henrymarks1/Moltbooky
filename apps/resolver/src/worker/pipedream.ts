@@ -154,21 +154,21 @@ export async function runPipedreamApiFetch(
   externalUserId: string
 ): Promise<PipedreamApiFetchResult | { error: string; details?: unknown }> {
   if (!env.PIPEDREAM_CLIENT_ID || !env.PIPEDREAM_CLIENT_SECRET || !env.PIPEDREAM_PROJECT_ID) {
-    return { error: "Pipedream is not configured for the resolver." };
+    return { error: "Connected-account API auth is not configured for the resolver." };
   }
 
   const resolutionTool = resolvePipedreamTool(input, resolutionTools);
   if (!resolutionTool) {
-    return { error: `No selected Pipedream connection can authenticate ${input.url}. Pass app or connectionId for one of: ${formatAvailableConnections(resolutionTools)}.` };
+    return { error: `No selected connected-account API can authenticate ${input.url}. Available connected-account APIs: ${formatAvailableConnections(resolutionTools)}.` };
   }
   if (!resolutionTool.accountId) {
-    return { error: `${resolutionTool.appName ?? resolutionTool.appSlug} is missing a Pipedream account id.` };
+    return { error: `${resolutionTool.appName ?? resolutionTool.appSlug} is not fully connected.` };
   }
 
   const method = input.method ?? "GET";
   const token = await createPipedreamAccessToken(env, "connect:*");
   if (!token) {
-    return { error: "Could not authenticate with Pipedream." };
+    return { error: "Could not authenticate connected-account API requests." };
   }
 
   const targetUrl = appendParams(input.url, input.params);
@@ -220,6 +220,6 @@ export async function runPipedreamApiFetch(
 
 export function formatAvailableConnections(resolutionTools: ResolverPipedreamTool[]): string {
   return resolutionTools
-    .map((resolutionTool) => `${resolutionTool.connectionId ?? resolutionTool.appSlug}: ${resolutionTool.appName ?? resolutionTool.appSlug} (app: ${resolutionTool.appSlug})`)
+    .map((resolutionTool) => `${resolutionTool.appName ?? resolutionTool.appSlug} (app: ${resolutionTool.appSlug})`)
     .join("; ");
 }

@@ -639,7 +639,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
     }
 
     if (event.kind === "tool_call") {
-      if (event.title.startsWith("Preparing ") || (event.title.startsWith("Requested ") && event.title !== "Requested executeCode")) {
+      if (event.title.startsWith("Preparing ") || shouldHideRequestedToolEvent(event)) {
         return;
       }
 
@@ -651,11 +651,12 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
       stepItems.push({
         id: event.id,
         type: "tool",
-        name: event.title === "Requested executeCode" ? "Generated TypeScript" : event.title,
+        name: toolTitleFromEvent(event),
         input: toolInputFromEvent(event),
-        output: result?.body ?? undefined,
+        output: isToolErrorResult(result) ? undefined : result?.body ?? undefined,
+        errorText: isToolErrorResult(result) ? result?.body ?? result?.title : undefined,
         browserUseLiveUrl: result ? getMetadataString(result, "browserUseLiveUrl") ?? undefined : undefined,
-        state: result ? "output-available" : "input-available"
+        state: result ? (isToolErrorResult(result) ? "output-error" : "output-available") : "input-available"
       });
       return;
     }
@@ -669,9 +670,10 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
         type: "tool",
         name: event.title,
         input: {},
-        output: event.body ?? undefined,
+        output: isToolErrorResult(event) ? undefined : event.body ?? undefined,
+        errorText: isToolErrorResult(event) ? event.body ?? event.title : undefined,
         browserUseLiveUrl: getMetadataString(event, "browserUseLiveUrl") ?? undefined,
-        state: "output-available"
+        state: isToolErrorResult(event) ? "output-error" : "output-available"
       });
       return;
     }
@@ -704,6 +706,28 @@ function getEventSequence(event: ResolutionEvent): number {
   return new Date(event.createdAt).getTime();
 }
 
+function shouldHideRequestedToolEvent(event: ResolutionEvent): boolean {
+  if (!event.title.startsWith("Requested ")) {
+    return false;
+  }
+  const toolName = getMetadataString(event, "toolName");
+  if (toolName === "executeCode") {
+    return true;
+  }
+  return !["executeCode", "webSearch", "resolveBet"].includes(toolName ?? "");
+}
+
+function isToolErrorResult(event: ResolutionEvent | undefined): boolean {
+  if (!event) {
+    return false;
+  }
+  if (event.kind === "error" || event.title.toLowerCase().includes("failed")) {
+    return true;
+  }
+  const metadata = event.metadata;
+  return !!(metadata && typeof metadata === "object" && "error" in metadata);
+}
+
 function normalizeAgentText(text: string): string {
   return text.replace(/([.!?]["'”’)]?)(?=\S)/g, "$1 ").trim();
 }
@@ -722,7 +746,13 @@ function findToolResult(events: ResolutionEvent[], startIndex: number, call: Res
 
     const resultHelper = getMetadataString(event, "helper");
     const resultToolName = getMetadataString(event, "toolName");
-    if ((callHelper && callHelper === resultHelper) || (callToolName && callToolName === resultToolName)) {
+    if (callHelper) {
+      if (callHelper === resultHelper) {
+        return event;
+      }
+      continue;
+    }
+    if (callToolName && callToolName === resultToolName) {
       return event;
     }
   }
@@ -742,7 +772,7 @@ function findBrowserUseResult(events: ResolutionEvent[], startIndex: number): { 
     }
 
     liveUrl ||= getMetadataString(event, "browserUseLiveUrl");
-    if (event.kind === "tool_result" && (event.title === "useBrowser completed" || event.title === "Browser Use completed")) {
+    if (event.kind === "tool_result" && (event.title === "useBrowser completed" || event.title === "browserUse completed" || event.title === "Browser Use completed")) {
       resultEvent = event;
     }
   }
@@ -751,7 +781,8 @@ function findBrowserUseResult(events: ResolutionEvent[], startIndex: number): { 
 }
 
 function isBrowserUseEvent(event: ResolutionEvent): boolean {
-  return getMetadataString(event, "toolName") === "useBrowser" || event.title.startsWith("Browser Use");
+  const toolName = getMetadataString(event, "toolName");
+  return toolName === "useBrowser" || toolName === "browserUse" || event.title.startsWith("Browser Use");
 }
 
 function getMetadataString(event: ResolutionEvent, key: string): string | null {
@@ -779,6 +810,26 @@ function toolInputFromEvent(event: ResolutionEvent): unknown {
     return { input: event.body };
   }
   return {};
+}
+
+function toolTitleFromEvent(event: ResolutionEvent): string {
+  const toolName = getMetadataString(event, "toolName");
+  if (event.title === "Requested executeCode" || toolName === "executeCode") {
+    return "Generated TypeScript";
+  }
+  if (event.title === "Running generated TypeScript") {
+    return "Generated TypeScript";
+  }
+  if (event.title === "Requested webSearch" || toolName === "webSearch") {
+    return "Web search";
+  }
+  if (event.title === "Requested browserUse" || toolName === "browserUse" || toolName === "useBrowser") {
+    return "Browser Use";
+  }
+  if (event.title === "Requested resolveBet" || toolName === "resolveBet") {
+    return "Final resolution";
+  }
+  return event.title;
 }
 
 function ResolverTranscriptItem(props: { isRunning: boolean; item: ResolverTranscriptItem }) {
@@ -823,7 +874,7 @@ function HistoricalRunMessages(props: { latestRun: ResolutionRun; resolverConnec
   return (
     <>
       <Tool defaultOpen={false} className="max-w-full bg-background">
-        <ToolHeader title="Exa web search" type="tool-executeCode" state="output-available" />
+        <ToolHeader title="Web search" type="tool-executeCode" state="output-available" />
         <ToolContent>
           <ToolInput input={{ query: props.latestRun.exaQuery }} />
         </ToolContent>
@@ -872,7 +923,7 @@ function PromptBubble(props: { challenge: Challenge; connections: ChallengeResol
       <div className="mt-1 border-t pt-3">
         <span className="mb-2 block text-sm font-semibold text-foreground">Selected tools</span>
         <div className="flex flex-wrap gap-2">
-          <ToolChip label="Exa web search" iconSrc={props.iconSrcBySlug.exa} fallback="EX" />
+          <ToolChip label="Web search" iconSrc={props.iconSrcBySlug.exa} fallback="WS" />
           <ToolChip label="Browser Use" iconSrc={props.iconSrcBySlug.browser_use ?? props.iconSrcBySlug["browser-use"] ?? props.iconSrcBySlug.browseruse} fallback="BU" />
           {props.connections.map((connection) => (
             <ToolChip key={connection.id} label={connection.appName} iconSrc={props.iconSrcBySlug[connection.appSlug]} fallback={connection.appName.slice(0, 2).toUpperCase()} />

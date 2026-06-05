@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createBrowserUseTool } from "./browser-use";
 import { createResolverCodeTool } from "./dynamic-worker";
 import { formatAvailableConnections } from "./pipedream";
+import { createWebSearchTool } from "./web-search";
 import type {
   ResolutionEventEmitter,
   ResolveRequest,
@@ -16,10 +17,11 @@ const resolverSystemPrompt = [
   "You are Moltbooky's provisional resolution agent for private-beta 1:1 challenge bets.",
   "Your job is to evaluate a binary claim against its resolution criteria using external evidence.",
   "All tokens you emit are public and visible to end users. Write concise, public-facing progress and rationale only.",
-  "Use executeCode to gather evidence. Write a JavaScript async arrow function for Cloudflare Code Mode.",
-  "Inside generated code, use codemode.exaSearch(...) for web evidence and normal global fetch(...) for selected connected-account API requests.",
-  "Generated fetch(...) calls authenticate through the selected Pipedream connection and forward to the app API. Do not call Pipedream actions or codemode.fetch.",
-  "Use useBrowser when evidence requires a real browser, JavaScript-rendered pages, page interaction, login-backed pages, or browser-visible state.",
+  "Use webSearch for normal public web evidence.",
+  "Use browserUse only when evidence requires a real browser, JavaScript-rendered pages, page interaction, login-backed pages, or browser-visible state.",
+  "Use executeCode only for selected connected-account APIs. Write a JavaScript async arrow function for Cloudflare Code Mode.",
+  "Inside generated code, call the real selected app API URL with normal global fetch(url, init). Do not add auth headers.",
+  "Generated code must not mention or know about proxying, Pipedream, credentials, tokens, or internal endpoints.",
   "Do not use imports, exports, or markdown fences in generated code.",
   "Return YES only when the evidence clearly satisfies the claim and criteria.",
   "Return NO only when the evidence clearly contradicts the claim or criteria.",
@@ -58,18 +60,18 @@ export async function runAiResolver(
     "Building evidence plan and preparing tools.",
   );
 
-  if (!env.EXA_API_KEY || !env.OPENAI_API_KEY) {
+  if (!env.OPENAI_API_KEY) {
     await emit(
       "error",
-      "Resolver keys missing",
-      "Resolver keys are not configured; leaving challenge unresolved.",
+      "Resolver model key missing",
+      "The resolver model key is not configured; leaving challenge unresolved.",
     );
     return {
       outcome: "UNRESOLVED",
       confidence: 0,
       sourceUrls: [],
       shortRationale:
-        "Resolver keys are not configured; leaving challenge unresolved.",
+        "The resolver model key is not configured; leaving challenge unresolved.",
     };
   }
 
@@ -77,12 +79,15 @@ export async function runAiResolver(
   let finalResult: ResolverResult | null = null;
   const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
   const tools: Parameters<typeof streamText>[0]["tools"] = {
+    webSearch: createWebSearchTool(env, emit, {
+      searchedUrls,
+    }),
     executeCode: createResolverCodeTool(env, emit, {
       resolutionTools,
       externalUserId,
       searchedUrls,
     }),
-    useBrowser: createBrowserUseTool(env, emit, { searchedUrls }),
+    browserUse: createBrowserUseTool(env, emit, { searchedUrls }),
     resolveBet: tool({
       description:
         "Terminal tool. Finalize the bet as YES, NO, or UNKNOWN with a public explanation paragraph. This must be the last action.",
@@ -153,12 +158,15 @@ export async function runAiResolver(
     prompt: [
       "Resolve this Moltbooky challenge.",
       "All text you write is public and visible to users.",
-      "Use executeCode for normal web or account evidence. For account evidence, write TypeScript code against the app API and call normal fetch(url, init). Use useBrowser only when a real browser is needed. Then call resolveBet exactly once.",
-      "Do not stop after executeCode. Once you have enough evidence or know evidence is inconclusive, call resolveBet.",
+      "Use webSearch for public internet evidence.",
+      "Use browserUse only when webSearch is insufficient because a page needs browser rendering or interaction.",
+      "Use executeCode only for selected connected-account APIs. In generated code, write TypeScript against the real app API and call normal fetch(url, init).",
+      "Do not add Authorization headers in generated code. Do not mention proxying, Pipedream, credentials, tokens, or internal endpoints.",
+      "Once you have enough evidence or know evidence is inconclusive, call resolveBet exactly once.",
       "Do not return JSON as text. The final answer must be the resolveBet tool call.",
       resolutionTools.length
         ? `Configured connected-account APIs: ${formatAvailableConnections(resolutionTools)}.`
-        : "Configured Pipedream connections: none.",
+        : "Configured connected-account APIs: none.",
       "",
       query,
     ].join("\n"),

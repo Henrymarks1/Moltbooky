@@ -73,7 +73,7 @@ export function createBrowserUseTool(
       inputSchema: browserUseInputSchema,
       execute: async () => {
         const error = env.BROWSER_USE_ENABLED === "false" ? "Browser Use is disabled for this resolver." : "Browser Use API key is not configured.";
-        await emit("error", "Browser Use unavailable", error, { toolName: "useBrowser" });
+        await emit("error", "Browser Use unavailable", error, { toolName: "browserUse" });
         return { ok: false, error, sourceUrls: [], recordingUrls: [] };
       }
     });
@@ -131,7 +131,7 @@ export async function runBrowserUseEvidence(
 
   try {
     await emit("tool_call", "Starting Browser Use", parsed.data.task, {
-      toolName: "useBrowser",
+      toolName: "browserUse",
       startUrl: parsed.data.startUrl ?? null
     });
 
@@ -158,7 +158,7 @@ export async function runBrowserUseEvidence(
 
     if (parsedSession.liveUrl) {
       await emit("tool_result", "Browser live view ready", "The Browser Use live view is available.", {
-        toolName: "useBrowser",
+        toolName: "browserUse",
         browserUseSessionId: parsedSession.id,
         browserUseLiveUrl: parsedSession.liveUrl,
         browserUseScreenshotUrl: parsedSession.screenshotUrl ?? undefined
@@ -190,7 +190,7 @@ export async function runBrowserUseEvidence(
     };
 
     await emit("tool_result", "Browser Use completed", summarizeToolOutput(result), {
-      toolName: "useBrowser",
+      toolName: "browserUse",
       browserUseSessionId: current.id,
       browserUseLiveUrl: current.liveUrl ?? undefined,
       browserUseScreenshotUrl: current.screenshotUrl ?? undefined,
@@ -200,7 +200,7 @@ export async function runBrowserUseEvidence(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await emit("error", "Browser Use failed", message, {
-      toolName: "useBrowser",
+      toolName: "browserUse",
       browserUseSessionId: sessionId || undefined
     });
     return { ok: false, sessionId: sessionId || undefined, error: message, sourceUrls: [], recordingUrls: [] };
@@ -208,7 +208,7 @@ export async function runBrowserUseEvidence(
     if (sessionId) {
       await stopBrowserUseSession(fetchImpl, env, sessionId).catch((error) =>
         emit("error", "Browser Use stop failed", error instanceof Error ? error.message : String(error), {
-          toolName: "useBrowser",
+          toolName: "browserUse",
           browserUseSessionId: sessionId
         })
       );
@@ -237,7 +237,7 @@ async function emitBrowserUseMessages(
       emittedMessageIds.add(message.id);
       const summary = message.summary || message.data || "";
       await emit(message.role === "assistant" ? "agent_output" : "tool_result", browserUseMessageTitle(message), summary, {
-        toolName: "useBrowser",
+        toolName: "browserUse",
         browserUseSessionId: sessionId,
         browserUseMessageId: message.id,
         browserUseScreenshotUrl: message.screenshotUrl ?? undefined

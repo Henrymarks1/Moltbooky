@@ -1,7 +1,6 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
 import { z } from "zod";
 import { runPipedreamApiFetch } from "./pipedream";
-import type { ResolverCodeToolProps, ResolverPipedreamTool } from "./types";
+import type { ResolverPipedreamTool } from "./types";
 
 export const exaSearchInputSchema = z.object({
   query: z.string().min(1).max(1000),
@@ -66,14 +65,4 @@ export async function runScopedAuthenticatedFetch(
   }
 
   return runPipedreamApiFetch(env, parsed.data, resolutionTools, externalUserId);
-}
-
-export class ResolverCodeTools extends WorkerEntrypoint<Env, ResolverCodeToolProps> {
-  async exaSearch(input: unknown): Promise<unknown> {
-    return runExaSearch(this.env, input);
-  }
-
-  async apiFetch(input: unknown): Promise<unknown> {
-    return runScopedAuthenticatedFetch(this.env, input, this.ctx.props.resolutionTools, this.ctx.props.externalUserId);
-  }
 }

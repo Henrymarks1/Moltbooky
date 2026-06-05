@@ -1,44 +1,140 @@
-import { DynamicWorkerExecutor } from "@cloudflare/codemode";
-import { createCodeTool } from "@cloudflare/codemode/ai";
-import { tool, type Tool } from "ai";
+import { DynamicWorkerExecutor, normalizeCode, resolveProvider, type ExecuteResult, type Executor, type ResolvedProvider } from "@cloudflare/codemode";
+import { type Tool, tool } from "ai";
 import { z } from "zod";
-import { exaSearchInputSchema, runExaSearch } from "./code-tools";
 import { formatAvailableConnections } from "./pipedream";
 import { runPipedreamApiFetch } from "./pipedream";
 import type { ResolutionEventEmitter, ResolverPipedreamTool } from "./types";
 import { collectUrls, summarizeToolOutput } from "./utils";
 
-function headersToRecord(headers: Headers): Record<string, string> {
-  const output: Record<string, string> = {};
-  for (const [key, value] of headers.entries()) {
-    const normalized = key.toLowerCase();
-    if (normalized === "host" || normalized === "authorization" || normalized.includes("token")) {
-      continue;
-    }
-    output[key] = value;
-  }
-  return output;
+type ExecuteProviders = Parameters<Executor["execute"]>[1];
+
+const codeModeFetchInputSchema = z.object({
+  url: z.string().url(),
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
+  headers: z.record(z.string(), z.string()).default({}),
+  body: z.unknown().optional()
+});
+
+type CodeModeToolResponse = {
+  ok: boolean;
+  error?: string;
+  logs: string[];
+  result: unknown;
+};
+
+function codeModeToolResponse(execution: ExecuteResult): CodeModeToolResponse {
+  return {
+    ok: !execution.error,
+    ...(execution.error ? { error: execution.error } : {}),
+    logs: execution.logs ?? [],
+    result: execution.result
+  };
 }
 
-async function requestBody(request: Request): Promise<unknown> {
-  if (request.method === "GET" || request.method === "HEAD") {
-    return undefined;
-  }
-  const text = await request.text();
+function summarizeCodeModeExecution(response: CodeModeToolResponse): string {
+  const text = JSON.stringify(response, null, 2);
   if (!text) {
-    return undefined;
-  }
-  if (request.headers.get("content-type")?.toLowerCase().includes("json")) {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
+    return "Generated TypeScript returned no output.";
   }
   return text;
 }
 
-function createPipedreamOutboundFetcher(
+function codeWithInjectedFetch(code: string): string {
+  return `async () => {
+  const fetch = async (input, init = {}) => {
+    const request = new Request(input, init);
+    const text = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
+    const response = await codemode.fetch({
+      url: request.url,
+      method: request.method,
+      headers: Object.fromEntries(request.headers.entries()),
+      ...(text === undefined ? {} : { body: text })
+    });
+    return new Response(response.text ?? "", {
+      status: response.status ?? (response.ok ? 200 : 500),
+      statusText: response.statusText ?? "",
+      headers: response.headers ?? {}
+    });
+  };
+  return await (${code})();
+}`;
+}
+
+class ObservableCodeModeExecutor implements Executor {
+  constructor(
+    private readonly inner: Executor,
+    private readonly emit: ResolutionEventEmitter,
+    private readonly searchedUrls: Set<string>
+  ) {}
+
+  async execute(code: string, providersOrFns: ExecuteProviders): Promise<ExecuteResult> {
+    const codeRunId = crypto.randomUUID();
+    const startedAt = Date.now();
+    await this.emit("tool_call", "Running generated TypeScript", code, {
+      toolName: "executeCode",
+      helper: "codemode.run",
+      codeRunId,
+      codeLength: code.length
+    });
+
+    let execution: ExecuteResult;
+    try {
+      execution = await this.inner.execute(codeWithInjectedFetch(code), providersOrFns);
+    } catch (error) {
+      execution = {
+        result: undefined,
+        error: error instanceof Error ? error.message : String(error),
+        logs: []
+      };
+    }
+
+    const response = codeModeToolResponse(execution);
+
+    for (const foundUrl of collectUrls(response)) {
+      this.searchedUrls.add(foundUrl);
+    }
+
+    const durationMs = Date.now() - startedAt;
+    const metadata = {
+      toolName: "executeCode",
+      helper: "codemode.run",
+      codeRunId,
+      durationMs,
+      logCount: response.logs.length,
+      urls: collectUrls(response).slice(0, 10)
+    };
+    const body = summarizeCodeModeExecution(response);
+
+    if (execution.error) {
+      await this.emit("tool_result", "Generated TypeScript failed", body, {
+        ...metadata,
+        error: execution.error
+      });
+      return {
+        result: response,
+        logs: response.logs
+      };
+    }
+
+    await this.emit("tool_result", "Generated TypeScript completed", body, metadata);
+    return {
+      result: response,
+      logs: response.logs
+    };
+  }
+}
+
+function selectedConnectionLabel(url: string, resolutionTools: ResolverPipedreamTool[]): string {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    const connection = resolutionTools.find((tool) => hostname.includes(tool.appSlug.replaceAll("_", "")));
+    return connection?.appName ?? "connected app";
+  } catch {
+    return "connected app";
+  }
+}
+
+function createCodeModeFetchTool(
   env: Env,
   emit: ResolutionEventEmitter,
   params: {
@@ -46,41 +142,28 @@ function createPipedreamOutboundFetcher(
     externalUserId: string;
     searchedUrls: Set<string>;
   }
-): Fetcher {
-  return {
-    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = new Request(input, init);
-      const url = request.url;
-      const method = request.method.toUpperCase() as "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-      if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-        return Response.json({ error: `HTTP method ${method} is not allowed for resolver API fetches.` }, { status: 405 });
-      }
-      const matchedConnection = params.resolutionTools.find((connection) => {
-        try {
-          const hostname = new URL(url).hostname.toLowerCase();
-          return hostname.includes(connection.appSlug.replaceAll("_", ""));
-        } catch {
-          return false;
-        }
-      });
-      const appLabel = matchedConnection?.appName ?? "connected app";
+): Tool {
+  return tool({
+    description: "Internal generated-code fetch bridge. Not for direct model use.",
+    inputSchema: codeModeFetchInputSchema,
+    execute: async (input) => {
+      const parsed = codeModeFetchInputSchema.parse(input);
+      const appLabel = selectedConnectionLabel(parsed.url, params.resolutionTools);
 
-      await emit("tool_call", `Calling ${appLabel} API`, `${method} ${url}`, {
+      await emit("tool_call", `Calling ${appLabel} API`, `${parsed.method} ${parsed.url}`, {
         toolName: "executeCode",
         helper: "global.fetch",
-        connectionId: matchedConnection?.connectionId ?? null,
-        appSlug: matchedConnection?.appSlug ?? null,
-        url,
-        method
+        url: parsed.url,
+        method: parsed.method
       });
 
       const result = await runPipedreamApiFetch(
         env,
         {
-          url,
-          method,
-          headers: headersToRecord(request.headers),
-          body: await requestBody(request)
+          url: parsed.url,
+          method: parsed.method,
+          headers: parsed.headers,
+          body: parsed.body
         },
         params.resolutionTools,
         params.externalUserId
@@ -91,33 +174,54 @@ function createPipedreamOutboundFetcher(
       }
 
       if ("error" in result) {
-        await emit("error", "Connected API request failed", result.error, {
+        const response = {
+          ok: false,
+          status: 403,
+          statusText: "Forbidden",
+          headers: { "content-type": "application/json" },
+          text: JSON.stringify(result),
+          error: result.error
+        };
+        await emit("tool_result", "Connected API request failed", summarizeToolOutput(response), {
           toolName: "executeCode",
           helper: "global.fetch",
-          url,
-          method
+          url: parsed.url,
+          method: parsed.method,
+          error: result.error
         });
-        return Response.json(result, { status: 403 });
+        return response;
       }
 
       await emit("tool_result", `${result.appName ?? appLabel} API returned evidence`, summarizeToolOutput(result), {
         toolName: "executeCode",
         helper: "global.fetch",
-        connectionId: matchedConnection?.connectionId ?? null,
         appSlug: result.appSlug,
         urls: collectUrls(result).slice(0, 10)
       });
 
-      return new Response(result.text, {
-        status: result.status,
-        statusText: result.statusText,
-        headers: result.headers
-      });
-    },
-    connect: () => {
-      throw new Error("TCP sockets are not allowed in resolver generated code.");
+      return result;
     }
-  };
+  });
+}
+
+function createCodeModeProviders(
+  env: Env,
+  emit: ResolutionEventEmitter,
+  params: {
+    resolutionTools: ResolverPipedreamTool[];
+    externalUserId: string;
+    searchedUrls: Set<string>;
+  }
+): ResolvedProvider[] {
+  return [
+    resolveProvider({
+      name: "codemode",
+      tools: {
+        fetch: createCodeModeFetchTool(env, emit, params)
+      },
+      types: ""
+    })
+  ];
 }
 
 export function createResolverCodeTool(
@@ -135,61 +239,54 @@ export function createResolverCodeTool(
       inputSchema: z.object({
         code: z.string().min(1)
       }),
-      execute: async () => {
-        const result = { error: "Dynamic Worker Loader is not configured." };
-        await emit("error", "Dynamic Worker Loader missing", "Configure the resolver worker LOADER binding before running generated code.", {
-          toolName: "executeCode"
+      execute: async ({ code }) => {
+        const result = {
+          ok: false,
+          error: "Dynamic Worker Loader is not configured.",
+          logs: [],
+          result: undefined
+        };
+        await emit("tool_call", "Running generated TypeScript", code, {
+          toolName: "executeCode",
+          helper: "codemode.run",
+          codeLength: code.length
         });
-        return { result, logs: [] };
+        await emit("tool_result", "Generated TypeScript failed", JSON.stringify(result, null, 2), {
+          toolName: "executeCode",
+          helper: "codemode.run",
+          error: result.error
+        });
+        return result;
       }
     });
   }
 
-  const executor = new DynamicWorkerExecutor({
+  const executor = new ObservableCodeModeExecutor(new DynamicWorkerExecutor({
     loader: env.LOADER,
-    timeout: 30_000,
-    globalOutbound: params.resolutionTools.length ? createPipedreamOutboundFetcher(env, emit, params) : null
-  });
+    timeout: 30_000
+  }), emit, params.searchedUrls);
 
-  return createCodeTool({
-    executor,
-    tools: {
-      exaSearch: tool({
-        description: "Search the public web through Exa. Use this for public evidence and source URLs.",
-        inputSchema: exaSearchInputSchema,
-        execute: async (input) => {
-          await emit("tool_call", "Calling Exa web search", input.query, {
-            toolName: "executeCode",
-            helper: "codemode.exaSearch"
-          });
-          const result = await runExaSearch(env, input);
-          for (const url of collectUrls(result)) {
-            params.searchedUrls.add(url);
-          }
-          await emit("tool_result", "Exa returned evidence", summarizeToolOutput(result), {
-            toolName: "executeCode",
-            helper: "codemode.exaSearch",
-            urls: collectUrls(result).slice(0, 10)
-          });
-          return result;
-        }
-      })
-    },
+  const providers = createCodeModeProviders(env, emit, params);
+  return tool({
     description: [
-      "Write TypeScript evidence-gathering code and run it inside a sandboxed Cloudflare Dynamic Worker.",
-      "",
-      "Available:",
-      "{{types}}",
+      "Write TypeScript evidence-gathering code for selected connected-account APIs and run it inside a sandboxed Cloudflare Dynamic Worker.",
       "",
       "The tool input must be a single async arrow function in the code field. Do not use markdown fences.",
-      "Use codemode.exaSearch({ query, numResults }) for public web evidence.",
+      "Use normal global fetch(url, init) against the real public API host for a selected connected account.",
+      "Do not add Authorization headers. Do not mention proxying, Pipedream, credentials, or internal endpoints.",
       params.resolutionTools.length
-        ? `Use normal global fetch(url, init) for configured account APIs. That fetch is automatically authenticated through the selected Pipedream connection and proxied to the app API. Available connections: ${formatAvailableConnections(params.resolutionTools)}. Do not call Pipedream actions or codemode.fetch; write normal API request logic against the app's HTTP API.`
-        : "No private Pipedream connections are configured for this challenge.",
+        ? `Available connected-account APIs: ${formatAvailableConnections(params.resolutionTools)}. Requests to those API hosts are authenticated automatically.`
+        : "No connected-account APIs are configured for this challenge.",
       "Return structured evidence with source URLs and short summaries.",
       "",
-      'Example web: async () => { const web = await codemode.exaSearch({ query: "Ben Werner Freestyle.sh current role", numResults: 5 }); return { evidence: web.results }; }',
       'Example Strava API: async () => { const me = await fetch("https://www.strava.com/api/v3/athlete"); const meText = await me.text(); if (!me.ok) throw new Error("athlete fetch failed: " + me.status + " " + meText); const athlete = JSON.parse(meText); const stats = await fetch("https://www.strava.com/api/v3/athletes/" + athlete.id + "/stats"); const statsText = await stats.text(); if (!stats.ok) throw new Error("stats fetch failed: " + stats.status + " " + statsText); const s = JSON.parse(statsText); return { athlete, ytdRunTotals: s.ytd_run_totals }; }'
-    ].join("\n")
+    ].join("\n"),
+    inputSchema: z.object({
+      code: z.string().min(1)
+    }),
+    execute: async ({ code }) => {
+      const execution = await executor.execute(normalizeCode(code), providers);
+      return execution.result;
+    }
   });
 }

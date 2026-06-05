@@ -97,7 +97,7 @@ describe("runScopedAuthenticatedFetch", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      error: expect.stringContaining("No selected Pipedream connection")
+      error: expect.stringContaining("No selected connected-account API")
     });
   });
 });

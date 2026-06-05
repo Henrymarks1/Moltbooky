@@ -41,8 +41,3 @@ export const resolveRequestSchema = z.object({
 });
 
 export type ResolveRequest = z.infer<typeof resolveRequestSchema> & { challenge: Challenge };
-
-export type ResolverCodeToolProps = {
-  resolutionTools: ResolverPipedreamTool[];
-  externalUserId: string;
-};
