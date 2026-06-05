@@ -639,7 +639,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
     }
 
     if (event.kind === "tool_call") {
-      if (event.title.startsWith("Preparing ") || event.title.startsWith("Requested ")) {
+      if (event.title.startsWith("Preparing ") || (event.title.startsWith("Requested ") && event.title !== "Requested executeCode")) {
         return;
       }
 
@@ -651,7 +651,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
       stepItems.push({
         id: event.id,
         type: "tool",
-        name: event.title,
+        name: event.title === "Requested executeCode" ? "Generated TypeScript" : event.title,
         input: toolInputFromEvent(event),
         output: result?.body ?? undefined,
         browserUseLiveUrl: result ? getMetadataString(result, "browserUseLiveUrl") ?? undefined : undefined,
@@ -767,6 +767,13 @@ function toolInputFromEvent(event: ResolutionEvent): unknown {
   const helper = getMetadataString(event, "helper");
   if (helper === "codemode.exaSearch" && event.body) {
     return { query: event.body };
+  }
+  if (event.body) {
+    try {
+      return JSON.parse(event.body) as unknown;
+    } catch {
+      // Fall through to the plain text shape below.
+    }
   }
   if (event.body) {
     return { input: event.body };

@@ -17,10 +17,10 @@ const resolverSystemPrompt = [
   "Your job is to evaluate a binary claim against its resolution criteria using external evidence.",
   "All tokens you emit are public and visible to end users. Write concise, public-facing progress and rationale only.",
   "Use executeCode to gather evidence. Write a JavaScript async arrow function for Cloudflare Code Mode.",
-  "Inside generated code, use codemode.exaSearch(...) for web evidence and codemode.fetch(...) for selected connected-account API requests.",
-  "codemode.fetch authenticates through the selected Pipedream connection and forwards the request to the app API. Do not call Pipedream actions.",
+  "Inside generated code, use codemode.exaSearch(...) for web evidence and normal global fetch(...) for selected connected-account API requests.",
+  "Generated fetch(...) calls authenticate through the selected Pipedream connection and forward to the app API. Do not call Pipedream actions or codemode.fetch.",
   "Use useBrowser when evidence requires a real browser, JavaScript-rendered pages, page interaction, login-backed pages, or browser-visible state.",
-  "Do not use TypeScript annotations, interfaces, imports, exports, or markdown fences in generated code.",
+  "Do not use imports, exports, or markdown fences in generated code.",
   "Return YES only when the evidence clearly satisfies the claim and criteria.",
   "Return NO only when the evidence clearly contradicts the claim or criteria.",
   "Use UNKNOWN when evidence is missing, ambiguous, inaccessible, conflicting, stale, or below the confidence threshold.",
@@ -153,7 +153,7 @@ export async function runAiResolver(
     prompt: [
       "Resolve this Moltbooky challenge.",
       "All text you write is public and visible to users.",
-      "Use executeCode for normal web or account evidence. For account evidence, write code against the app API and call codemode.fetch({ app, url, method, params, headers, body }). Use useBrowser only when a real browser is needed. Then call resolveBet exactly once.",
+      "Use executeCode for normal web or account evidence. For account evidence, write TypeScript code against the app API and call normal fetch(url, init). Use useBrowser only when a real browser is needed. Then call resolveBet exactly once.",
       "Do not stop after executeCode. Once you have enough evidence or know evidence is inconclusive, call resolveBet.",
       "Do not return JSON as text. The final answer must be the resolveBet tool call.",
       resolutionTools.length
