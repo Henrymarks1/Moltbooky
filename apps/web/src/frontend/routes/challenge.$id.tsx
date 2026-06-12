@@ -5,8 +5,10 @@ import { DefaultChatTransport } from "ai";
 import { Bot, CheckCircle, Copy, ExternalLink, Trophy, Trash2, UserRound, XCircle } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
 import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionRun } from "@moltbooky/core/domain/types";
+import { CodeBlock, CodeBlockCopyButton } from "../components/ai-elements/code-block";
 import { Conversation, ConversationContent, ConversationScrollButton } from "../components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "../components/ai-elements/message";
+import { Sandbox, SandboxContent, SandboxHeader, SandboxTabContent, SandboxTabs, SandboxTabsBar, SandboxTabsList, SandboxTabsTrigger } from "../components/ai-elements/sandbox";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, type ToolState } from "../components/ai-elements/tool";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -580,7 +582,7 @@ function BrowserUseLiveView(props: { isRunning: boolean; liveUrl: string }) {
 
 type ResolverTranscriptItem =
   | { id: string; type: "message"; title?: string; body: string }
-  | { id: string; type: "tool"; name: string; input: unknown; output?: React.ReactNode; errorText?: string; state: ToolState; browserUseLiveUrl?: string };
+  | { id: string; type: "tool"; name: string; input: unknown; code?: string; output?: React.ReactNode; errorText?: string; state: ToolState; browserUseLiveUrl?: string };
 
 function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptItem[] {
   const orderedEvents = [...events].sort((left, right) => getEventSequence(left) - getEventSequence(right));
@@ -639,7 +641,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
     }
 
     if (event.kind === "tool_call") {
-      if (event.title.startsWith("Preparing ") || shouldHideRequestedToolEvent(event)) {
+      if (event.title.startsWith("Preparing ") || shouldHideRequestedToolEvent(event) || isCodeModeFetchEvent(event)) {
         return;
       }
 
@@ -648,11 +650,13 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
         usedResults.add(result.id);
       }
 
+      const code = getMetadataString(event, "helper") === "codemode.run" ? event.body ?? undefined : undefined;
       stepItems.push({
         id: event.id,
         type: "tool",
         name: toolTitleFromEvent(event),
-        input: toolInputFromEvent(event),
+        input: code ? {} : toolInputFromEvent(event),
+        code,
         output: isToolErrorResult(result) ? undefined : result?.body ?? undefined,
         errorText: isToolErrorResult(result) ? result?.body ?? result?.title : undefined,
         browserUseLiveUrl: result ? getMetadataString(result, "browserUseLiveUrl") ?? undefined : undefined,
@@ -662,7 +666,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
     }
 
     if (event.kind === "tool_result") {
-      if (usedResults.has(event.id) || event.title === "executeCode completed" || event.title === "resolveBet completed") {
+      if (usedResults.has(event.id) || event.title === "executeCode completed" || event.title === "resolveBet completed" || isCodeModeFetchEvent(event)) {
         return;
       }
       stepItems.push({
@@ -704,6 +708,10 @@ function getEventSequence(event: ResolutionEvent): number {
     }
   }
   return new Date(event.createdAt).getTime();
+}
+
+function isCodeModeFetchEvent(event: ResolutionEvent): boolean {
+  return getMetadataString(event, "helper") === "global.fetch";
 }
 
 function shouldHideRequestedToolEvent(event: ResolutionEvent): boolean {
@@ -832,8 +840,46 @@ function toolTitleFromEvent(event: ResolutionEvent): string {
   return event.title;
 }
 
+function GeneratedCodeSandbox(props: { item: Extract<ResolverTranscriptItem, { type: "tool" }> }) {
+  const output = typeof props.item.output === "string" ? props.item.output : undefined;
+  const hasOutputTab = !!(output || props.item.errorText);
+
+  return (
+    <Sandbox className="mb-0 max-w-full bg-background" defaultOpen={props.item.state === "input-available" || props.item.state === "output-error"}>
+      <SandboxHeader state={props.item.state} title={props.item.name} />
+      <SandboxContent>
+        <SandboxTabs defaultValue="code">
+          <SandboxTabsBar>
+            <SandboxTabsList>
+              <SandboxTabsTrigger value="code">Code</SandboxTabsTrigger>
+              {hasOutputTab && <SandboxTabsTrigger value="output">Output</SandboxTabsTrigger>}
+            </SandboxTabsList>
+          </SandboxTabsBar>
+          <SandboxTabContent value="code">
+            <CodeBlock className="rounded-none border-0" code={props.item.code ?? ""} language="typescript">
+              <CodeBlockCopyButton />
+            </CodeBlock>
+          </SandboxTabContent>
+          {hasOutputTab && (
+            <SandboxTabContent value="output">
+              {props.item.errorText ? (
+                <pre className="overflow-x-auto bg-destructive/10 p-4 text-xs leading-5 text-destructive">{props.item.errorText}</pre>
+              ) : (
+                <pre className="overflow-x-auto p-4 text-xs leading-5">{output}</pre>
+              )}
+            </SandboxTabContent>
+          )}
+        </SandboxTabs>
+      </SandboxContent>
+    </Sandbox>
+  );
+}
+
 function ResolverTranscriptItem(props: { isRunning: boolean; item: ResolverTranscriptItem }) {
   if (props.item.type === "tool") {
+    if (props.item.code) {
+      return <GeneratedCodeSandbox item={props.item} />;
+    }
     return (
       <Tool defaultOpen={props.item.state === "input-available" || props.item.state === "output-error"} className="max-w-full bg-background">
         <ToolHeader title={props.item.name} type="tool-executeCode" state={props.item.state} />
