@@ -2,7 +2,7 @@ import { Link, createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, CheckCircle, Copy, ExternalLink, Trophy, Trash2, UserRound, XCircle } from "lucide-react";
+import { CheckCircle, Copy, ExternalLink, Trophy, Trash2, UserRound, XCircle } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
 import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionRun } from "@moltbooky/core/domain/types";
 import { CodeBlock, CodeBlockCopyButton } from "../components/ai-elements/code-block";
@@ -292,7 +292,6 @@ function ChallengeDetail() {
     <div className="mx-auto grid h-[calc(100vh-112px)] max-w-7xl gap-3 overflow-hidden">
       {message && <div className="rounded-lg border bg-card p-4 text-sm text-card-foreground">{message}</div>}
       {resolutionNotice && <ResolutionOutcomeModal notice={resolutionNotice} onClose={() => setResolutionNotice(null)} />}
-      {outcomeSummary && <PersistentOutcomeBanner summary={outcomeSummary} />}
 
       <section className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_320px] gap-3 max-[980px]:grid-cols-1">
         <div className="grid min-h-0">
@@ -303,6 +302,7 @@ function ChallengeDetail() {
             resolverConnections={resolverConnections}
             iconSrcBySlug={appIconSrcBySlug}
             agentRunLabel={agentRunLabel}
+            outcomeSummary={outcomeSummary}
           />
         </div>
 
@@ -410,23 +410,18 @@ function ResolutionOutcomeModal(props: { notice: ResolutionNotice; onClose: () =
   );
 }
 
-function PersistentOutcomeBanner(props: { summary: OutcomeSummary }) {
+function PromptOutcomeStrip(props: { summary: OutcomeSummary }) {
   const won = props.summary.result === "won";
   const lost = props.summary.result === "lost";
-  const pending = props.summary.result === "pending";
   return (
-    <div className={`rounded-lg border p-4 ${won ? "border-primary/30 bg-primary/10" : lost ? "border-destructive/30 bg-destructive/10" : "bg-card"}`}>
-      <div className="flex items-start gap-3">
-        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md ${won ? "bg-primary text-primary-foreground" : lost ? "bg-destructive text-destructive-foreground" : "bg-muted text-muted-foreground"}`}>
-          {won ? <Trophy size={18} /> : lost ? <XCircle size={18} /> : pending ? <Bot size={18} /> : <CheckCircle size={18} />}
-        </span>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <strong className="text-base font-semibold leading-6">{props.summary.title}</strong>
-            {props.summary.outcome && <Badge variant="outline">Outcome {props.summary.outcome}</Badge>}
-          </div>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">{props.summary.explanation}</p>
-        </div>
+    <div className={`flex items-start gap-2.5 rounded-md border px-3 py-2 ${won ? "border-primary/30 bg-primary/10" : lost ? "border-destructive/30 bg-destructive/10" : "bg-muted/50"}`}>
+      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${won ? "bg-primary text-primary-foreground" : lost ? "bg-destructive text-destructive-foreground" : "bg-muted text-muted-foreground"}`}>
+        {won ? <Trophy size={15} /> : lost ? <XCircle size={15} /> : <CheckCircle size={15} />}
+      </span>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <strong className="text-sm font-semibold leading-5">{props.summary.title}</strong>
+        {props.summary.outcome && <Badge variant="outline">Outcome {props.summary.outcome}</Badge>}
+        <p className="w-full break-words text-xs leading-5 text-muted-foreground">{props.summary.explanation}</p>
       </div>
     </div>
   );
@@ -516,6 +511,7 @@ function AgentChatPanel(props: {
   resolverConnections: ChallengeResolverConnection[];
   iconSrcBySlug: Record<string, string>;
   agentRunLabel: { primary: string; secondary: string };
+  outcomeSummary: OutcomeSummary | null;
 }) {
   const isWaiting = props.challenge.status === "open" && !props.latestRun;
   const isRunning = props.challenge.status === "resolving";
@@ -525,10 +521,8 @@ function AgentChatPanel(props: {
 
   return (
     <Card className="flex min-h-0 flex-col overflow-hidden">
-      <CardHeader className="p-4">
-      </CardHeader>
-      <CardContent className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-4 pb-4 pt-0">
-        <PromptBubble challenge={props.challenge} connections={props.resolverConnections} iconSrcBySlug={props.iconSrcBySlug} />
+      <CardContent className="grid min-h-0 flex-1 grid-cols-1 content-start gap-3 overflow-y-auto overflow-x-hidden p-4">
+        <PromptBubble challenge={props.challenge} connections={props.resolverConnections} iconSrcBySlug={props.iconSrcBySlug} outcomeSummary={props.outcomeSummary} />
 
         <Conversation className="min-h-0">
           <ConversationContent className="gap-3 p-0">
@@ -957,24 +951,23 @@ function HistoricalRunMessages(props: { latestRun: ResolutionRun; resolverConnec
   );
 }
 
-function PromptBubble(props: { challenge: Challenge; connections: ChallengeResolverConnection[]; iconSrcBySlug: Record<string, string> }) {
+function PromptBubble(props: { challenge: Challenge; connections: ChallengeResolverConnection[]; iconSrcBySlug: Record<string, string>; outcomeSummary: OutcomeSummary | null }) {
+  const summary = props.outcomeSummary && props.outcomeSummary.result !== "pending" ? props.outcomeSummary : null;
   return (
-    <div className="sticky top-0 z-10 grid gap-3 rounded-lg border bg-background p-3 shadow-sm">
+    <div className="sticky top-0 z-10 grid gap-2.5 rounded-lg border bg-background p-3 shadow-sm">
+      {summary && <PromptOutcomeStrip summary={summary} />}
       <span className="text-xs font-semibold uppercase text-muted-foreground">Prompt</span>
-      <h1 className="text-2xl font-bold leading-tight tracking-tight max-[720px]:text-xl">{props.challenge.claim}</h1>
-      <div className="rounded-md bg-muted/50 p-3 text-sm leading-5 text-muted-foreground">
-        <strong className="mb-1 block text-xs uppercase text-muted-foreground">Resolution criteria</strong>
+      <h1 className="text-xl font-bold leading-tight tracking-tight">{props.challenge.claim}</h1>
+      <div className="rounded-md bg-muted/50 px-3 py-2 text-sm leading-5 text-muted-foreground">
+        <strong className="mb-0.5 block text-xs uppercase text-muted-foreground">Resolution criteria</strong>
         {props.challenge.resolutionCriteria}
       </div>
-      <div className="mt-1 border-t pt-3">
-        <span className="mb-2 block text-sm font-semibold text-foreground">Selected tools</span>
-        <div className="flex flex-wrap gap-2">
-          <ToolChip label="Web search" iconSrc={props.iconSrcBySlug.exa} fallback="WS" />
-          <ToolChip label="Browser Use" iconSrc={props.iconSrcBySlug.browser_use ?? props.iconSrcBySlug["browser-use"] ?? props.iconSrcBySlug.browseruse} fallback="BU" />
-          {props.connections.map((connection) => (
-            <ToolChip key={connection.id} label={connection.appName} iconSrc={props.iconSrcBySlug[connection.appSlug]} fallback={connection.appName.slice(0, 2).toUpperCase()} />
-          ))}
-        </div>
+      <div className="flex flex-wrap gap-2">
+        <ToolChip label="Web search" iconSrc={props.iconSrcBySlug.exa} fallback="WS" />
+        <ToolChip label="Browser Use" iconSrc={props.iconSrcBySlug.browser_use ?? props.iconSrcBySlug["browser-use"] ?? props.iconSrcBySlug.browseruse} fallback="BU" />
+        {props.connections.map((connection) => (
+          <ToolChip key={connection.id} label={connection.appName} iconSrc={props.iconSrcBySlug[connection.appSlug]} fallback={connection.appName.slice(0, 2).toUpperCase()} />
+        ))}
       </div>
     </div>
   );
