@@ -224,7 +224,7 @@ async function emitBrowserUseMessages(
   emit: ResolutionEventEmitter
 ): Promise<void> {
   let cursor: string | undefined;
-  let hasMore = false;
+  let hasMore: boolean;
   do {
     const path = `/sessions/${encodeURIComponent(sessionId)}/messages?limit=100${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`;
     const page = browserUseMessagesSchema.parse(await browserUseRequest(fetchImpl, env, path, { method: "GET" }));
