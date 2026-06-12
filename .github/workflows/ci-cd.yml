@@ -92,11 +92,9 @@ jobs:
       - name: Deploy API worker
         run: pnpm exec wrangler deploy --config apps/api/wrangler.toml
 
-      - name: Deploy payments worker
-        run: pnpm exec wrangler deploy --config apps/payments/wrangler.toml
-
       - name: Deploy resolver worker
         run: pnpm exec wrangler deploy --config apps/resolver/wrangler.toml
 
       - name: Deploy web to Cloudflare Pages
-        run: pnpm exec wrangler pages deploy dist --project-name=moltbooky --branch production --cwd apps/web
+        working-directory: apps/web
+        run: pnpm exec wrangler pages deploy dist --project-name=moltbooky --branch production
