@@ -641,7 +641,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
     }
 
     if (event.kind === "tool_call") {
-      if (event.title.startsWith("Preparing ") || shouldHideRequestedToolEvent(event) || isCodeModeFetchEvent(event)) {
+      if (event.title.startsWith("Preparing ") || event.title === "Finalizing bet" || shouldHideRequestedToolEvent(event) || isCodeModeFetchEvent(event)) {
         return;
       }
 
@@ -666,7 +666,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
     }
 
     if (event.kind === "tool_result") {
-      if (usedResults.has(event.id) || event.title === "executeCode completed" || event.title === "resolveBet completed" || isCodeModeFetchEvent(event)) {
+      if (usedResults.has(event.id) || event.title === "executeCode completed" || event.title === "resolveBet completed" || event.title === "Bet finalized" || isCodeModeFetchEvent(event)) {
         return;
       }
       stepItems.push({
@@ -748,7 +748,7 @@ function findToolResult(events: ResolutionEvent[], startIndex: number, call: Res
     if (event.kind !== "tool_result" || usedResults.has(event.id)) {
       continue;
     }
-    if (event.title === "executeCode completed") {
+    if (event.title === "executeCode completed" || event.title === "Bet finalized") {
       continue;
     }
 

@@ -97,10 +97,6 @@ export async function runAiResolver(
       }),
       execute: async (input) => {
         const parsed = resolveBetInputSchema.parse(input);
-        await emit("tool_call", "Finalizing bet", parsed.explanation, {
-          toolName: "resolveBet",
-          resolution: parsed.resolution,
-        });
         const sourceUrls = Array.from(searchedUrls);
         const response = await fetch(request.finalizeCallbackUrl, {
           method: "POST",
@@ -142,10 +138,6 @@ export async function runAiResolver(
           shortRationale: parsed.explanation,
           finalized: true,
         };
-        await emit("tool_result", "Bet finalized", parsed.explanation, {
-          toolName: "resolveBet",
-          outcome,
-        });
         return { ok: true, outcome };
       },
     }),
