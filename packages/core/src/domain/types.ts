@@ -55,6 +55,7 @@ export interface Challenge {
   pipedreamConnectionIds: string[];
   creatorSide: Side;
   kind: ChallengeKind;
+  invitedOpponentEmail?: string | null;
   invitedOpponentId?: string | null;
   acceptedAt?: string | null;
   requiredApps?: RequiredApp[];

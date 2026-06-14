@@ -1,7 +1,7 @@
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFrontendClient } from "@pipedream/sdk/browser";
-import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleDollarSign, Globe2, Link2, Search, Sparkles, TimerReset } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleDollarSign, Globe2, Link2, Search, Sparkles, TimerReset, Trophy } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -215,6 +215,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
   const [expiryTime, setExpiryTime] = useState(() => defaultExpiryParts().time);
   const [creatorSide, setCreatorSide] = useState<"YES" | "NO">("YES");
   const [mode, setMode] = useState<"open_match" | "head_to_head">("open_match");
+  const [opponentEmail, setOpponentEmail] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
   const [connectingPipedream, setConnectingPipedream] = useState(false);
@@ -235,6 +236,13 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
   useEffect(() => {
     setClaim(initialClaim);
   }, [initialClaim]);
+
+  // Head-to-head challenges are always "creator predicts they win", so lock the side to YES.
+  useEffect(() => {
+    if (mode === "head_to_head") {
+      setCreatorSide("YES");
+    }
+  }, [mode]);
 
   const resolverTools = useMemo(() => {
     if (!pipedreamApps.length) {
@@ -260,8 +268,10 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
   const isHeadToHead = mode === "head_to_head";
   const hasBetDetails = Boolean(claim.trim() && resolutionCriteria.trim());
   const hasTerms = Boolean(Number.isFinite(stakeAmount) && stakeAmount >= 5 && expiryDate && expiryTime && expiresAt);
-  // Head-to-head needs at least one required app so both people can connect the same account.
-  const hasRequiredApps = !isHeadToHead || selectedConnections.length > 0;
+  // Head-to-head needs at least one required app so both people can connect the same account,
+  // plus a valid opponent email to send the invite to and lock acceptance.
+  const hasValidOpponentEmail = !isHeadToHead || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(opponentEmail.trim());
+  const hasRequiredApps = (!isHeadToHead || selectedConnections.length > 0) && hasValidOpponentEmail;
   const canPublish = Boolean(hasBetDetails && hasTerms && hasRequiredApps);
   const resolverToolsForView = resolverTools.slice(0, appSearch.trim() ? visibleToolLimit : 8);
   const exaIconSrc = appIconSrcBySlug.exa;
@@ -455,6 +465,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
         requiredApps: isHeadToHead
           ? selectedConnections.map((connection) => ({ appSlug: connection.appSlug, appName: connection.appName, creatorConnectionId: connection.id }))
           : undefined,
+        opponentEmail: isHeadToHead ? opponentEmail.trim() : undefined,
         visibility,
         stakeCredits,
         expiresAt
@@ -478,8 +489,8 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
     <div className="mx-auto grid max-w-7xl gap-4">
       <header className="flex items-start justify-between gap-4 [&_h1]:max-w-[850px] [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:tracking-tight max-[720px]:[&_h1]:text-xl [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground">
         <div>
-          <h1>Launch a bet in under a minute.</h1>
-          <p>Post a claim, choose your side, and lock platform credits for matching.</p>
+          <h1>{isHeadToHead ? "Challenge someone head-to-head." : "Launch a bet in under a minute."}</h1>
+          <p>{isHeadToHead ? "Write the comparison, invite your opponent by email, and the resolver decides the winner at expiry." : "Post a claim, choose your side, and lock platform credits for matching."}</p>
         </div>
       </header>
 
@@ -508,22 +519,27 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
                   </p>
                 </div>
                 <Label>
-                  Claim
+                  {isHeadToHead ? "The challenge" : "Claim"}
                   <Textarea
                     className="min-h-20"
                     name="claim"
-                    placeholder="Will OpenAI launch a new model by June 30?"
+                    placeholder={isHeadToHead ? "I'll run more miles than my opponent this week." : "Will OpenAI launch a new model by June 30?"}
                     value={claim}
                     onChange={(event) => setClaim(event.target.value)}
                     required
                   />
+                  {isHeadToHead && <span className="text-xs leading-5 text-muted-foreground">Write it as a comparison from your side, e.g. "I'll make more sales than my opponent." You win if it's true.</span>}
                 </Label>
                 <Label>
-                  Resolution criteria
+                  {isHeadToHead ? "How to decide the winner" : "Resolution criteria"}
                   <Textarea
                     className="min-h-20"
                     name="resolutionCriteria"
-                    placeholder="Resolve YES only if OpenAI announces general availability on its official site or API docs before the expiry."
+                    placeholder={
+                      isHeadToHead
+                        ? "Compare total miles in each person's Strava over the challenge window; most miles wins."
+                        : "Resolve YES only if OpenAI announces general availability on its official site or API docs before the expiry."
+                    }
                     value={resolutionCriteria}
                     onChange={(event) => setResolutionCriteria(event.target.value)}
                     required
@@ -534,7 +550,15 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
 
             {step === 2 && (
               <section className={wizardStepClass}>
-                <SectionIntro step="03" title="Set the terms" description="Choose the money, your side, visibility, and when the resolver runs." />
+                <SectionIntro
+                  step="03"
+                  title="Set the terms"
+                  description={
+                    isHeadToHead
+                      ? "Set what each of you stakes and when you'll be compared. You're betting you win."
+                      : "Choose the money, your side, visibility, and when the resolver runs."
+                  }
+                />
                 <div className="grid gap-2">
                   <div className="flex items-end justify-between gap-3">
                     <div>
@@ -561,19 +585,30 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
                     onValueChange={([value]) => setStakeCredits(String(value))}
                     aria-label="Stake credits"
                   />
+                  {isHeadToHead && <span className="text-xs leading-5 text-muted-foreground">Your opponent stakes their own amount when they accept. Winner takes the pool.</span>}
                 </div>
 
-                <div className="grid gap-2">
-                  <span className="text-sm font-semibold text-muted-foreground">Your side</span>
-                  <div className={segmentedClass} role="group" aria-label="Creator side">
-                    <button type="button" className={creatorSide === "YES" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setCreatorSide("YES")}>
-                      YES
-                    </button>
-                    <button type="button" className={creatorSide === "NO" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setCreatorSide("NO")}>
-                      NO
-                    </button>
+                {isHeadToHead ? (
+                  <div className="grid gap-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Your prediction</span>
+                    <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
+                      <Trophy size={16} className="text-primary" />
+                      <span>You're betting <strong className="text-foreground">you win</strong>. Your opponent takes the other side when they accept.</span>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="grid gap-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Your side</span>
+                    <div className={segmentedClass} role="group" aria-label="Creator side">
+                      <button type="button" className={creatorSide === "YES" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setCreatorSide("YES")}>
+                        YES
+                      </button>
+                      <button type="button" className={creatorSide === "NO" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setCreatorSide("NO")}>
+                        NO
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {!isHeadToHead && (
                   <div className="grid gap-2">
@@ -623,6 +658,20 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
                     : "Pick the sources the resolver can use to check the bet. Web search and Browser Use are already included; add private apps only when the answer needs account data."
                 }
               />
+              {isHeadToHead && (
+                <Label>
+                  Opponent's email
+                  <Input
+                    type="email"
+                    name="opponentEmail"
+                    placeholder="ben@example.com"
+                    value={opponentEmail}
+                    onChange={(event) => setOpponentEmail(event.target.value)}
+                    required
+                  />
+                  <span className="text-xs leading-5 text-muted-foreground">We'll email them the invite. They must sign in with this exact email to accept.</span>
+                </Label>
+              )}
               <div className="grid gap-3">
                 <label className="relative block w-full [&_svg]:pointer-events-none [&_svg]:absolute [&_svg]:left-3 [&_svg]:top-1/2 [&_svg]:z-10 [&_svg]:-translate-y-1/2 [&_svg]:text-muted-foreground [&_input]:pl-9">
                   <Search size={16} />
@@ -717,11 +766,26 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
               <SectionIntro step="04" title="Review and publish" description="Quick check, then launch." />
               <div className="grid gap-3">
                 <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                  <strong className="text-base font-semibold text-foreground">{claim.trim() || "Untitled bet"}</strong>
-                  <span>{stakeCredits ? `${stakeCredits} credits` : "Choose a stake"} · {creatorSide} · {visibility === "public" ? "Public" : "Private"} · runs {expiryTimeOptions.find((option) => option.value === expiryTime)?.label ?? expiryTime}</span>
-                  <span>{selectedConnectionIds.length + 2} resolver tools</span>
+                  <strong className="text-base font-semibold text-foreground">{claim.trim() || (isHeadToHead ? "Untitled challenge" : "Untitled bet")}</strong>
+                  {isHeadToHead ? (
+                    <>
+                      <span>{stakeCredits ? `${stakeCredits} credits` : "Choose a stake"} · you win · runs {expiryTimeOptions.find((option) => option.value === expiryTime)?.label ?? expiryTime}</span>
+                      <span>vs {opponentEmail.trim() || "your opponent"} · {selectedConnections.length} required {selectedConnections.length === 1 ? "connection" : "connections"}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{stakeCredits ? `${stakeCredits} credits` : "Choose a stake"} · {creatorSide} · {visibility === "public" ? "Public" : "Private"} · runs {expiryTimeOptions.find((option) => option.value === expiryTime)?.label ?? expiryTime}</span>
+                      <span>{selectedConnectionIds.length + 2} resolver tools</span>
+                    </>
+                  )}
                 </div>
-                {!canPublish && <p className="text-sm leading-6 text-muted-foreground">Fill out the claim, resolution criteria, stake, and expiry to publish.</p>}
+                {!canPublish && (
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {isHeadToHead
+                      ? "Write the challenge, add the opponent's email, connect the required accounts, set a stake and expiry to publish."
+                      : "Fill out the claim, resolution criteria, stake, and expiry to publish."}
+                  </p>
+                )}
               </div>
               </section>
             )}
@@ -757,7 +821,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
                 </Button>
               ) : (
                 <Button type="submit" disabled={loading || !canPublish} onClick={() => { publishRequestedRef.current = true; }}>
-                  <CheckCircle2 size={18} /> {loading ? "Publishing..." : "Publish bet"}
+                  <CheckCircle2 size={18} /> {loading ? "Publishing..." : isHeadToHead ? "Send challenge" : "Publish bet"}
                 </Button>
               )}
             </div>

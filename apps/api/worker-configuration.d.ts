@@ -19,4 +19,7 @@ interface Env {
   API_INTERNAL_URL?: string;
   RESOLVER_URL?: string;
   RESOLVER_TEST_TOKEN?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
+  APP_PUBLIC_URL?: string;
 }

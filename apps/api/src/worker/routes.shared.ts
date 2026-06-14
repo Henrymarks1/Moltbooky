@@ -53,6 +53,7 @@ export const challengeSchema = z.object({
   pipedreamConnectionIds: z.array(z.string()),
   creatorSide: sideSchema,
   kind: challengeKindSchema,
+  invitedOpponentEmail: z.string().nullable().optional(),
   invitedOpponentId: z.string().nullable().optional(),
   acceptedAt: dateTimeSchema.nullable().optional(),
   requiredApps: z.array(requiredAppSchema).optional(),

@@ -330,7 +330,11 @@ function ChallengeDetail() {
               </CardHeader>
               <CardContent className="grid gap-3 px-4 pb-4 pt-0">
                 <p className="text-sm leading-6 text-muted-foreground">
-                  Send this link to your opponent. They connect the required {(challenge.requiredApps ?? []).map((app) => app.appName).join(", ") || "accounts"} and accept, then the resolver compares you both at expiry.
+                  {challenge.invitedOpponentEmail ? (
+                    <>We emailed the invite to <strong className="text-foreground">{challenge.invitedOpponentEmail}</strong>. They sign in with that email, connect {(challenge.requiredApps ?? []).map((app) => app.appName).join(", ") || "the required accounts"}, and accept — then the resolver compares you both at expiry.</>
+                  ) : (
+                    <>Send this link to your opponent. They connect the required {(challenge.requiredApps ?? []).map((app) => app.appName).join(", ") || "accounts"} and accept, then the resolver compares you both at expiry.</>
+                  )}
                 </p>
                 <Button variant="outline" type="button" onClick={() => navigator.clipboard.writeText(window.location.href)}>
                   <Copy size={18} /> Copy link
@@ -339,7 +343,7 @@ function ChallengeDetail() {
             </Card>
           ) : isPendingAcceptance ? (
             user ? (
-              <HeadToHeadAcceptPanel challenge={challenge} onAccepted={() => refresh().catch((err: Error) => setMessage(err.message))} />
+              <HeadToHeadAcceptPanel challenge={challenge} userEmail={user.email} onAccepted={() => refresh().catch((err: Error) => setMessage(err.message))} />
             ) : (
               <Card>
                 <CardHeader className="p-4">
@@ -412,9 +416,11 @@ function ChallengeDetail() {
   );
 }
 
-function HeadToHeadAcceptPanel(props: { challenge: Challenge; onAccepted: () => void }) {
+function HeadToHeadAcceptPanel(props: { challenge: Challenge; userEmail: string; onAccepted: () => void }) {
   const navigate = useNavigate();
   const requiredApps = props.challenge.requiredApps ?? [];
+  const invitedEmail = props.challenge.invitedOpponentEmail?.trim() ?? "";
+  const emailMatches = !invitedEmail || invitedEmail.toLowerCase() === props.userEmail.trim().toLowerCase();
   const [connections, setConnections] = useState<PipedreamConnection[]>([]);
   const [stakeCredits, setStakeCredits] = useState(() => String(props.challenge.stakeCents / 100));
   const [connectingApp, setConnectingApp] = useState<string | null>(null);
@@ -503,6 +509,22 @@ function HeadToHeadAcceptPanel(props: { challenge: Challenge; onAccepted: () => 
     } finally {
       setAccepting(false);
     }
+  }
+
+  if (!emailMatches) {
+    return (
+      <Card>
+        <CardHeader className="p-4">
+          <CardTitle>Wrong account</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 px-4 pb-4 pt-0">
+          <p className="text-sm leading-6 text-muted-foreground">
+            This challenge was sent to <strong className="text-foreground">{invitedEmail}</strong>, but you're signed in as <strong className="text-foreground">{props.userEmail}</strong>. Sign in with the invited email to accept.
+          </p>
+          <Button type="button" variant="outline" onClick={() => navigate({ to: "/login" })}>Switch account</Button>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

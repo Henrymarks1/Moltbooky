@@ -91,5 +91,5 @@ export async function resolveChallenge(env: Env, request: ResolveRequest): Promi
     resolutionTools = await loadPipedreamResolutionTools(env, challenge.creatorId, challenge.pipedreamConnectionIds ?? [], challenge.resolutionTool);
   }
 
-  return runAiResolver(env, request, emit, exaQuery, resolutionTools);
+  return runAiResolver(env, request, emit, exaQuery, resolutionTools, challenge.kind === "head_to_head" ? "head_to_head" : "open_match");
 }

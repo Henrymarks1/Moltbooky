@@ -29,6 +29,13 @@
       "when": 1781459006695,
       "tag": "0003_minor_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781460621339,
+      "tag": "0004_silent_warhawk",
+      "breakpoints": true
     }
   ]
 }

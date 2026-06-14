@@ -1,0 +1,1 @@
+ALTER TABLE "challenges" ADD COLUMN "invited_opponent_email" text;

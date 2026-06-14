@@ -206,9 +206,17 @@ export const api = {
       const state = readFakeState();
       const matches = state.matches.filter((match) => match.matcherId === testingUser.id);
       const matchedChallengeIds = new Set(matches.map((match) => match.challengeId));
+      const invitedEmail = testingUser.email.trim().toLowerCase();
       return {
         challenges: [...state.challenges]
-          .filter((challenge) => challenge.creatorId === testingUser.id || matchedChallengeIds.has(challenge.id))
+          .filter(
+            (challenge) =>
+              challenge.creatorId === testingUser.id ||
+              matchedChallengeIds.has(challenge.id) ||
+              (challenge.kind === "head_to_head" &&
+                challenge.status === "pending_acceptance" &&
+                challenge.invitedOpponentEmail?.trim().toLowerCase() === invitedEmail)
+          )
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         matches
       };
@@ -257,6 +265,7 @@ export const api = {
     creatorSide: "YES" | "NO";
     kind?: "open_match" | "head_to_head";
     requiredApps?: { appSlug: string; appName: string; creatorConnectionId: string }[];
+    opponentEmail?: string;
     visibility: "public" | "private";
     stakeCredits: string;
     expiresAt: string;
@@ -277,6 +286,7 @@ export const api = {
         pipedreamConnectionIds: body.pipedreamConnectionIds ?? [],
         creatorSide: body.creatorSide,
         kind: body.kind ?? "open_match",
+        invitedOpponentEmail: isHeadToHead ? body.opponentEmail ?? null : null,
         requiredApps: body.requiredApps?.map((app) => ({ appSlug: app.appSlug, appName: app.appName, creatorConnectionId: app.creatorConnectionId })),
         visibility: isHeadToHead ? "private" : body.visibility,
         stakeCents,

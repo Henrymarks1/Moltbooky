@@ -34,6 +34,7 @@ function toChallenge(row: typeof challenges.$inferSelect, creator?: { displayNam
     pipedreamConnectionIds: row.pipedreamConnectionIds ?? [],
     creatorSide: row.creatorSide as Challenge["creatorSide"],
     kind: (row.kind ?? "open_match") as Challenge["kind"],
+    invitedOpponentEmail: row.invitedOpponentEmail ?? null,
     invitedOpponentId: row.invitedOpponentId ?? null,
     acceptedAt: serializeTimestamp(row.acceptedAt),
     visibility: row.visibility as Challenge["visibility"],
@@ -256,8 +257,20 @@ export async function listUserChallenges(env: Env, userId: string): Promise<Chal
     .orderBy(desc(challengeMatches.createdAt))
     .limit(100);
 
+  // Head-to-head challenges the user was invited to (by email) but hasn't accepted yet have no
+  // match row, so surface them here too. Invited emails are stored normalized (lowercased).
+  const { email } = await getUserContact(env, userId);
+  const invitedRows = email
+    ? await db
+        .select()
+        .from(challenges)
+        .where(and(eq(challenges.invitedOpponentEmail, email.trim().toLowerCase()), eq(challenges.status, "pending_acceptance")))
+        .orderBy(desc(challenges.createdAt))
+        .limit(100)
+    : [];
+
   const uniqueChallenges = new Map<string, Challenge>();
-  for (const row of [...createdRows, ...matchedRows.map((row) => row.challenge)]) {
+  for (const row of [...createdRows, ...matchedRows.map((row) => row.challenge), ...invitedRows]) {
     if (!uniqueChallenges.has(row.id)) {
       uniqueChallenges.set(row.id, toChallenge(row));
     }
@@ -274,6 +287,24 @@ export async function listUserMatches(env: Env, userId: string): Promise<Challen
     .orderBy(desc(challengeMatches.createdAt))
     .limit(100);
   return result.map((row) => toChallengeMatch(row));
+}
+
+export async function getUserContact(env: Env, userId: string): Promise<{ email: string | null; displayName: string | null }> {
+  const db = createDb(env.DATABASE_URL);
+  const rows = await db
+    .select({ appEmail: appUsers.email, appName: appUsers.displayName, authEmail: authUser.email, authName: authUser.name })
+    .from(appUsers)
+    .leftJoin(authUser, eq(appUsers.id, authUser.id))
+    .where(eq(appUsers.id, userId))
+    .limit(1);
+  const row = rows[0];
+  if (!row) {
+    return { email: null, displayName: null };
+  }
+  return {
+    email: (row.authEmail ?? row.appEmail)?.trim() || null,
+    displayName: (row.appName ?? row.authName)?.trim() || null
+  };
 }
 
 export async function getChallengeRequiredApps(env: Env, challengeId: string): Promise<RequiredApp[]> {

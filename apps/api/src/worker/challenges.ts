@@ -7,6 +7,7 @@ import {
   actorFromRequest,
   getChallenge,
   getChallengeRequiredApps,
+  getUserContact,
   listResolutionEvents,
   listChallenges,
   listMatches,
@@ -18,6 +19,7 @@ import {
   parseSide,
   requireScope
 } from "./db";
+import { appBaseUrl, buildChallengeInviteEmail, sendEmail } from "./email";
 import {
   applyCreditDelta,
   betaStakeCentsSchema,
@@ -56,6 +58,7 @@ const createChallengeRequestSchema = z
     creatorSide: sideSchema,
     kind: challengeKindSchema.default("open_match"),
     requiredApps: z.array(requiredAppInputSchema).max(8).optional(),
+    opponentEmail: z.string().trim().email().max(320).optional(),
     visibility: challengeVisibilitySchema.default("public"),
     stakeCredits: creditValueSchema.optional(),
     stakeDollars: creditValueSchema.optional(),
@@ -67,6 +70,9 @@ const createChallengeRequestSchema = z
   })
   .refine((value) => value.kind !== "head_to_head" || (value.requiredApps && value.requiredApps.length > 0), {
     message: "Head-to-head challenges require at least one required app connection."
+  })
+  .refine((value) => value.kind !== "head_to_head" || Boolean(value.opponentEmail), {
+    message: "Head-to-head challenges require the opponent's email."
   });
 
 const acceptChallengeRequestSchema = z
@@ -151,6 +157,11 @@ async function validateRequiredAppConnections(
   return result;
 }
 
+/** Trim + lowercase for case-insensitive email equality (no alias stripping). */
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 function challengeObject(env: Env, challengeId: string): DurableObjectStub {
   const durableId = env.CHALLENGE_OBJECT.idFromName(challengeId);
   return env.CHALLENGE_OBJECT.get(durableId);
@@ -199,6 +210,7 @@ function toSettlementChallenge(row: typeof challenges.$inferSelect): Challenge {
     pipedreamConnectionIds: row.pipedreamConnectionIds ?? [],
     creatorSide: row.creatorSide as Side,
     kind: (row.kind ?? "open_match") as Challenge["kind"],
+    invitedOpponentEmail: row.invitedOpponentEmail ?? null,
     invitedOpponentId: row.invitedOpponentId ?? null,
     acceptedAt: row.acceptedAt instanceof Date ? row.acceptedAt.toISOString() : row.acceptedAt,
     visibility: row.visibility as Challenge["visibility"],
@@ -402,6 +414,7 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     const requiredApps = isHeadToHead ? body.requiredApps ?? [] : [];
     let creatorConnectionByApp = new Map<string, string>();
     let pipedreamConnectionIds: string[];
+    const invitedOpponentEmail = isHeadToHead ? normalizeEmail(body.opponentEmail ?? "") : null;
     if (isHeadToHead) {
       creatorConnectionByApp = await validateRequiredAppConnections(
         c.env,
@@ -409,6 +422,12 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
         requiredApps.map((app) => ({ appSlug: app.appSlug, connectionId: app.creatorConnectionId }))
       );
       pipedreamConnectionIds = [...creatorConnectionByApp.values()];
+
+      // You can't challenge your own email address.
+      const creatorContact = await getUserContact(c.env, actor.userId);
+      if (creatorContact.email && normalizeEmail(creatorContact.email) === invitedOpponentEmail) {
+        return errorJson(c, "You cannot challenge your own email address.", 400);
+      }
     } else {
       pipedreamConnectionIds = await validateUserPipedreamConnectionIds(c.env, actor.userId, body.pipedreamConnectionIds);
     }
@@ -430,6 +449,7 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
       pipedreamConnectionIds,
       creatorSide,
       kind: body.kind,
+      invitedOpponentEmail,
       // Head-to-head stays out of the public feed and waits for the invited opponent to accept.
       visibility: isHeadToHead ? ("private" as const) : body.visibility,
       stakeCents,
@@ -458,6 +478,26 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
       // The DO only schedules the resolver alarm for "open" challenges, so head-to-head
       // (pending_acceptance) defers scheduling until the opponent accepts.
       await initializeChallengeObject(c.env, challenge);
+    }
+
+    // Email the invited opponent the link. Best-effort: a send failure must not fail challenge
+    // creation, since the link also works via copy/paste.
+    if (challenge && isHeadToHead && invitedOpponentEmail) {
+      const inviter = await getUserContact(c.env, actor.userId);
+      const challengeUrl = `${appBaseUrl(c.env, c.req.raw)}/challenge/${encodeURIComponent(challenge.id)}`;
+      const email = buildChallengeInviteEmail({
+        inviterName: inviter.displayName || "Someone",
+        claim: challenge.claim,
+        challengeUrl,
+        requiredAppNames: requiredApps.map((app) => app.appName)
+      });
+      c.executionCtx.waitUntil(
+        sendEmail(c.env, { to: invitedOpponentEmail, subject: email.subject, html: email.html, text: email.text }).then((result) => {
+          if (!result.sent) {
+            console.warn(`Invite email to ${invitedOpponentEmail} for ${challenge.id} not sent: ${result.skipped ?? result.error}`);
+          }
+        })
+      );
     }
 
     return c.json({ challenge }, 201);
@@ -678,6 +718,14 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     }
     if (new Date(challenge.expiresAt).getTime() <= Date.now()) {
       return errorJson(c, "This challenge has already expired.", 400);
+    }
+
+    // Only the invited email may accept: the signed-in account's email must match the invite.
+    if (challenge.invitedOpponentEmail) {
+      const accepter = await getUserContact(c.env, actor.userId);
+      if (!accepter.email || normalizeEmail(accepter.email) !== normalizeEmail(challenge.invitedOpponentEmail)) {
+        return errorJson(c, `This challenge was sent to ${challenge.invitedOpponentEmail}. Sign in with that email to accept.`, 403);
+      }
     }
 
     const stakeCents = body.stakeCents ?? creditsToCents(body.stakeCredits ?? body.stakeDollars ?? "");

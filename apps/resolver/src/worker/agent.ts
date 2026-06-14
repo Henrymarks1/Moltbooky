@@ -1,4 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import type { ChallengeKind } from "@moltbooky/core/domain/types";
 import { stepCountIs, streamText, tool, hasToolCall } from "ai";
 import { z } from "zod";
 import { createBrowserUseTool } from "./browser-use";
@@ -13,25 +14,48 @@ import type {
 } from "./types";
 import { summarizeToolOutput } from "./utils";
 
-const resolverSystemPrompt = [
-  "You are Moltbooky's provisional resolution agent for private-beta 1:1 challenge bets.",
-  "Your job is to evaluate a binary claim against its resolution criteria using external evidence.",
+// Shared tool/output rules that apply to every challenge type.
+const sharedResolverRules = [
   "All tokens you emit are public and visible to end users. Write concise, public-facing progress and rationale only.",
   "Use webSearch for normal public web evidence.",
   "Use browserUse only when evidence requires a real browser, JavaScript-rendered pages, page interaction, login-backed pages, or browser-visible state.",
   "Use executeCode only for selected connected-account APIs. Write a JavaScript async arrow function for Cloudflare Code Mode.",
   "Inside generated code, call the real selected app API URL with normal global fetch(url, init). Do not add auth headers.",
-  "Some challenges are head-to-head between two people who each connected the same app (e.g. both GitHub). When two connected accounts share an API host, you MUST pick whose account to call by setting the request header \"x-moltbooky-connection\" to that connection's connectionId. Fetch each person's data separately, then compare to decide the winner.",
   "Generated code must not mention or know about proxying, Pipedream, credentials, tokens, or internal endpoints.",
   "Do not use imports, exports, or markdown fences in generated code.",
+  "Be conservative because AI resolution is provisional and users may dispute outcomes.",
+  "Your final action must be exactly one resolveBet tool call with a clear explanation paragraph.",
+  "After resolveBet succeeds, do not output more content.",
+];
+
+// Open prediction-market bets: a binary YES/NO claim judged against its criteria.
+const openMatchSystemPrompt = [
+  "You are Moltbooky's provisional resolution agent for private-beta prediction bets.",
+  "Your job is to evaluate a binary claim against its resolution criteria using external evidence.",
+  ...sharedResolverRules,
   "Return YES only when the evidence clearly satisfies the claim and criteria.",
   "Return NO only when the evidence clearly contradicts the claim or criteria.",
   "Use UNKNOWN when evidence is missing, ambiguous, inaccessible, conflicting, stale, or below the confidence threshold.",
-  "Be conservative because AI resolution is provisional and users may dispute outcomes.",
   "Do not infer beyond the stated criteria. Do not settle based on popularity, vibes, or predictions.",
-  "Your final action must be exactly one resolveBet tool call with a clear explanation paragraph.",
-  "After resolveBet succeeds, do not output more content.",
 ].join("\n");
+
+// Head-to-head challenges: a comparison between two people. The claim is written from the
+// creator's point of view; YES means the creator wins, NO means the opponent wins.
+const headToHeadSystemPrompt = [
+  "You are Moltbooky's provisional resolution agent for private-beta head-to-head challenges between two people: the creator and their opponent.",
+  "The claim is a comparison written from the creator's point of view (e.g. \"I will run more miles than my opponent this week\"). YES means the CREATOR wins; NO means the OPPONENT wins.",
+  "Your job is to measure the relevant metric for BOTH people, then decide who wins under the resolution criteria.",
+  ...sharedResolverRules,
+  "Each person connected their own account. When two connected accounts share an API host (e.g. both GitHub), you MUST pick whose account to call by setting the request header \"x-moltbooky-connection\" to that connection's connectionId. The available connections are labeled with whose they are (creator vs opponent).",
+  "Always fetch the creator's data and the opponent's data in SEPARATE calls, compute each person's value, and compare them explicitly in your explanation (state both numbers).",
+  "Return YES if the creator wins the comparison, NO if the opponent wins.",
+  "Use UNKNOWN only when you cannot measure one or both people (missing/inaccessible data, or a genuine tie that the criteria don't break).",
+  "Do not infer beyond the stated criteria. Decide strictly on the measured comparison, not on reputation or guesses.",
+].join("\n");
+
+function resolverSystemPromptFor(kind: ChallengeKind): string {
+  return kind === "head_to_head" ? headToHeadSystemPrompt : openMatchSystemPrompt;
+}
 
 const resolveBetInputSchema = z.object({
   resolution: z.enum(["YES", "NO", "UNKNOWN"]),
@@ -53,6 +77,7 @@ export async function runAiResolver(
   emit: ResolutionEventEmitter,
   query: string,
   resolutionTools: ResolverPipedreamTool[] = [],
+  kind: ChallengeKind = "open_match",
 ): Promise<ResolverResult> {
   await emit(
     "run_started",
@@ -142,18 +167,21 @@ export async function runAiResolver(
     }),
   };
 
+  const isHeadToHead = kind === "head_to_head";
   const result = streamText({
     model: openai("gpt-5.5"),
     temperature: 0,
-    system: resolverSystemPrompt,
+    system: resolverSystemPromptFor(kind),
     prompt: [
-      "Resolve this Moltbooky challenge.",
+      isHeadToHead ? "Resolve this Moltbooky head-to-head challenge between the creator and their opponent." : "Resolve this Moltbooky prediction bet.",
       "All text you write is public and visible to users.",
       "Use webSearch for public internet evidence.",
       "Use browserUse only when webSearch is insufficient because a page needs browser rendering or interaction.",
       "Use executeCode only for selected connected-account APIs. In generated code, write TypeScript against the real app API and call normal fetch(url, init).",
       "Do not add Authorization headers in generated code. Do not mention proxying, Pipedream, credentials, tokens, or internal endpoints.",
-      "Once you have enough evidence or know evidence is inconclusive, call resolveBet exactly once.",
+      isHeadToHead
+        ? "Measure the relevant metric for BOTH the creator and the opponent in separate calls, then call resolveBet once: YES if the creator wins, NO if the opponent wins. State both measured values in your explanation."
+        : "Once you have enough evidence or know evidence is inconclusive, call resolveBet exactly once.",
       "Do not return JSON as text. The final answer must be the resolveBet tool call.",
       resolutionTools.length
         ? `Configured connected-account APIs: ${formatAvailableConnections(resolutionTools)}.`

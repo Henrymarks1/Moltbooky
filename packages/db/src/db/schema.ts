@@ -125,6 +125,7 @@ export const challenges = pgTable(
     pipedreamConnectionIds: text("pipedream_connection_ids").array().notNull().default(sql`ARRAY[]::text[]`),
     creatorSide: text("creator_side").notNull(),
     kind: text("kind").notNull().default("open_match"),
+    invitedOpponentEmail: text("invited_opponent_email"),
     invitedOpponentId: text("invited_opponent_id").references(() => appUsers.id),
     acceptedAt: timestamp("accepted_at"),
     visibility: text("visibility").notNull().default("public"),

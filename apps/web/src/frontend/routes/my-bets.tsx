@@ -65,9 +65,25 @@ function MyBetsPage() {
     };
   }, []);
 
+  const isInvitedOpponent = useMemo(
+    () => (challenge: Challenge) =>
+      Boolean(
+        user &&
+          challenge.creatorId !== user.id &&
+          challenge.kind === "head_to_head" &&
+          challenge.status === "pending_acceptance" &&
+          challenge.invitedOpponentEmail?.trim().toLowerCase() === user.email.trim().toLowerCase()
+      ),
+    [user]
+  );
   const bets = useMemo(
-    () => (user ? challenges.filter((challenge) => challenge.creatorId === user.id || matches.some((match) => match.challengeId === challenge.id)) : []),
-    [challenges, matches, user]
+    () =>
+      user
+        ? challenges.filter(
+            (challenge) => challenge.creatorId === user.id || matches.some((match) => match.challengeId === challenge.id) || isInvitedOpponent(challenge)
+          )
+        : [],
+    [challenges, matches, user, isInvitedOpponent]
   );
   const createdBets = useMemo(
     () => (user ? bets.filter((challenge) => challenge.creatorId === user.id) : []),
@@ -166,6 +182,8 @@ function MyBetsPage() {
         )}
         {bets.map((challenge) => {
           const isCreator = challenge.creatorId === user?.id;
+          const invited = isInvitedOpponent(challenge);
+          const isHeadToHead = challenge.kind === "head_to_head";
           const userMatchedCents = matchedAmountByChallenge[challenge.id] ?? 0;
           const userSide = isCreator ? challenge.creatorSide : oppositeSide(challenge.creatorSide);
           return (
@@ -173,23 +191,38 @@ function MyBetsPage() {
               <div>
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <StatusPill status={challenge.status} />
-                  <Badge variant="outline">{challenge.visibility === "private" ? "Private" : "Public"}</Badge>
-                  <Badge variant="outline">{isCreator ? "Created" : "Matched"}</Badge>
-                  <Badge variant="outline">You bet {userSide}</Badge>
-                  <span>Expires {shortDate(challenge.expiresAt)}</span>
+                  {isHeadToHead ? <Badge variant="outline">Head-to-head</Badge> : <Badge variant="outline">{challenge.visibility === "private" ? "Private" : "Public"}</Badge>}
+                  <Badge variant="outline">{isCreator ? "Created" : invited ? "Invited" : "Matched"}</Badge>
+                  {isHeadToHead ? <Badge variant="outline">{invited ? "You vs creator" : "You win"}</Badge> : <Badge variant="outline">You bet {userSide}</Badge>}
+                  <span>{invited ? "Accept by" : "Expires"} {shortDate(challenge.expiresAt)}</span>
                 </div>
                 <h2>{challenge.claim}</h2>
                 <p>{challenge.resolutionCriteria}</p>
               </div>
               <div className="grid gap-2">
-                <span className="text-xs font-medium text-muted-foreground">{credits(challenge.matchedCents)} matched</span>
-                <div className="h-2 w-full min-w-[140px] overflow-hidden rounded-full bg-secondary">
-                  <span className="block h-full rounded-full bg-primary" style={{ width: `${matchProgress(challenge)}%` }} />
-                </div>
+                {isHeadToHead && challenge.status === "pending_acceptance" ? (
+                  <span className="text-xs font-medium text-muted-foreground">{invited ? "Waiting on you to accept" : "Waiting on opponent"}</span>
+                ) : (
+                  <>
+                    <span className="text-xs font-medium text-muted-foreground">{credits(challenge.matchedCents)} matched</span>
+                    <div className="h-2 w-full min-w-[140px] overflow-hidden rounded-full bg-secondary">
+                      <span className="block h-full rounded-full bg-primary" style={{ width: `${matchProgress(challenge)}%` }} />
+                    </div>
+                  </>
+                )}
               </div>
               <div className="grid justify-items-end gap-2 max-[900px]:justify-items-start [&_strong]:text-2xl [&_strong]:font-semibold [&_strong]:leading-none [&_span]:text-xs [&_span]:font-semibold [&_span]:text-muted-foreground">
-                <strong>{credits(isCreator ? challenge.stakeCents : userMatchedCents)}</strong>
-                <span>{isCreator ? "creator stake" : "your match"}</span>
+                {invited ? (
+                  <>
+                    <strong className="!text-base text-primary">Accept →</strong>
+                    <span>{credits(challenge.stakeCents)} to match</span>
+                  </>
+                ) : (
+                  <>
+                    <strong>{credits(isCreator ? challenge.stakeCents : userMatchedCents)}</strong>
+                    <span>{isCreator ? "creator stake" : "your match"}</span>
+                  </>
+                )}
               </div>
             </Link>
           );
