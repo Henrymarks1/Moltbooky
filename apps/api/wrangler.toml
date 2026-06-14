@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 BETTER_AUTH_URL = "https://moltbooky.com"
+RESOLVER_URL = "https://moltbooky-resolver.henryesmarks.workers.dev"
 STRIPE_SUCCESS_URL = "https://moltbooky.com/credits"
 STRIPE_CANCEL_URL = "https://moltbooky.com/credits"
 PIPEDREAM_CLIENT_ID = "uym23nvsV3XiOobTGZOCcRovHMNcBLvkR4gVkUbfYt4"
