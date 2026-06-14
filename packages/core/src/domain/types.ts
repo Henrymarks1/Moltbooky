@@ -1,8 +1,10 @@
 export type Side = "YES" | "NO";
 export type ChallengeVisibility = "public" | "private";
+export type ChallengeKind = "open_match" | "head_to_head";
 
 export type ChallengeStatus =
   | "open"
+  | "pending_acceptance"
   | "resolving"
   | "provisional_resolved"
   | "final_resolved"
@@ -10,6 +12,13 @@ export type ChallengeStatus =
   | "expired_unmatched"
   | "voided"
   | "disputed";
+
+export interface RequiredApp {
+  appSlug: string;
+  appName: string;
+  creatorConnectionId?: string | null;
+  opponentConnectionId?: string | null;
+}
 
 export type LedgerEntryType =
   | "credit_purchase"
@@ -45,6 +54,10 @@ export interface Challenge {
   resolutionTool?: ResolutionTool | ResolutionTools | null;
   pipedreamConnectionIds: string[];
   creatorSide: Side;
+  kind: ChallengeKind;
+  invitedOpponentId?: string | null;
+  acceptedAt?: string | null;
+  requiredApps?: RequiredApp[];
   visibility: ChallengeVisibility;
   stakeCents: number;
   matchedCents: number;

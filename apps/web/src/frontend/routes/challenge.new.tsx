@@ -214,6 +214,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
   const [expiryDate, setExpiryDate] = useState(() => defaultExpiryParts().date);
   const [expiryTime, setExpiryTime] = useState(() => defaultExpiryParts().time);
   const [creatorSide, setCreatorSide] = useState<"YES" | "NO">("YES");
+  const [mode, setMode] = useState<"open_match" | "head_to_head">("open_match");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
   const [connectingPipedream, setConnectingPipedream] = useState(false);
@@ -256,15 +257,18 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
   const selectedConnections = selectedConnectionIds.map((id) => connectionsById.get(id)).filter((connection): connection is PipedreamConnection => Boolean(connection));
   const expiresAt = useMemo(() => expiryPartsToIso(expiryDate, expiryTime), [expiryDate, expiryTime]);
   const stakeAmount = Number(stakeCredits);
+  const isHeadToHead = mode === "head_to_head";
   const hasBetDetails = Boolean(claim.trim() && resolutionCriteria.trim());
   const hasTerms = Boolean(Number.isFinite(stakeAmount) && stakeAmount >= 5 && expiryDate && expiryTime && expiresAt);
-  const canPublish = Boolean(hasBetDetails && hasTerms);
+  // Head-to-head needs at least one required app so both people can connect the same account.
+  const hasRequiredApps = !isHeadToHead || selectedConnections.length > 0;
+  const canPublish = Boolean(hasBetDetails && hasTerms && hasRequiredApps);
   const resolverToolsForView = resolverTools.slice(0, appSearch.trim() ? visibleToolLimit : 8);
   const exaIconSrc = appIconSrcBySlug.exa;
   const browserUseIconSrc = appIconSrcBySlug.browser_use ?? appIconSrcBySlug["browser-use"] ?? appIconSrcBySlug.browseruse;
   const steps = [
     { title: "Write the bet", ready: hasBetDetails },
-    { title: "Choose resolver tools", ready: true },
+    { title: isHeadToHead ? "Required connections" : "Choose resolver tools", ready: hasRequiredApps },
     { title: "Set the terms", ready: hasTerms },
     { title: "Review", ready: canPublish }
   ];
@@ -277,7 +281,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
       return hasBetDetails;
     }
     if (index === 2) {
-      return hasBetDetails;
+      return hasBetDetails && hasRequiredApps;
     }
     return canPublish;
   }
@@ -447,6 +451,10 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
         resolutionCriteria,
         pipedreamConnectionIds: selectedConnectionIds,
         creatorSide,
+        kind: mode,
+        requiredApps: isHeadToHead
+          ? selectedConnections.map((connection) => ({ appSlug: connection.appSlug, appName: connection.appName, creatorConnectionId: connection.id }))
+          : undefined,
         visibility,
         stakeCredits,
         expiresAt
@@ -483,6 +491,22 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
             {step === 0 && (
               <section className={wizardStepClass}>
                 <SectionIntro step="01" title="Write the bet" description="Two fields. The claim is what people see; the criteria tell the resolver how to decide." />
+                <div className="grid gap-2">
+                  <span className="text-sm font-semibold text-muted-foreground">Bet type</span>
+                  <div className={segmentedClass} role="group" aria-label="Bet type">
+                    <button type="button" className={mode === "open_match" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setMode("open_match")}>
+                      <Globe2 size={16} /> Open bet
+                    </button>
+                    <button type="button" className={mode === "head_to_head" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setMode("head_to_head")}>
+                      <Link2 size={16} /> Head-to-head
+                    </button>
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {isHeadToHead
+                      ? "Challenge one specific person. You both connect the required accounts, then the resolver compares you at expiry. Share the link after publishing."
+                      : "Anyone can match the opposite side of your claim."}
+                  </p>
+                </div>
                 <Label>
                   Claim
                   <Textarea
@@ -551,17 +575,19 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
                   </div>
                 </div>
 
-                <div className="grid gap-2">
-                  <span className="text-sm font-semibold text-muted-foreground">Access</span>
-                  <div className={segmentedClass} role="group" aria-label="Bet visibility">
-                    <button type="button" className={visibility === "public" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setVisibility("public")}>
-                      <Globe2 size={16} /> Public
-                    </button>
-                    <button type="button" className={visibility === "private" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setVisibility("private")}>
-                      <Link2 size={16} /> Private
-                    </button>
+                {!isHeadToHead && (
+                  <div className="grid gap-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Access</span>
+                    <div className={segmentedClass} role="group" aria-label="Bet visibility">
+                      <button type="button" className={visibility === "public" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setVisibility("public")}>
+                        <Globe2 size={16} /> Public
+                      </button>
+                      <button type="button" className={visibility === "private" ? "!bg-primary !text-primary-foreground shadow-sm" : ""} onClick={() => setVisibility("private")}>
+                        <Link2 size={16} /> Private
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <Label>
                   <span className="inline-flex items-center gap-1.5"><TimerReset size={15} /> Expiry</span>
@@ -588,7 +614,15 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
 
             {step === 1 && (
               <section className="mx-auto grid w-full max-w-4xl gap-4">
-              <SectionIntro step="02" title="Choose resolver tools" description="Pick the sources the resolver can use to check the bet. Web search and Browser Use are already included; add private apps only when the answer needs account data." />
+              <SectionIntro
+                step="02"
+                title={isHeadToHead ? "Required connections" : "Choose resolver tools"}
+                description={
+                  isHeadToHead
+                    ? "Connect the accounts this challenge compares (e.g. your GitHub). Your opponent must connect the same apps before they can accept, and the resolver reads both of you."
+                    : "Pick the sources the resolver can use to check the bet. Web search and Browser Use are already included; add private apps only when the answer needs account data."
+                }
+              />
               <div className="grid gap-3">
                 <label className="relative block w-full [&_svg]:pointer-events-none [&_svg]:absolute [&_svg]:left-3 [&_svg]:top-1/2 [&_svg]:z-10 [&_svg]:-translate-y-1/2 [&_svg]:text-muted-foreground [&_input]:pl-9">
                   <Search size={16} />
@@ -717,7 +751,7 @@ export function NewChallenge({ initialClaim = "" }: NewChallengeProps = {}) {
                 <Button
                   type="button"
                   onClick={nextStep}
-                  disabled={(step === 0 && !hasBetDetails) || (step === 2 && !hasTerms)}
+                  disabled={(step === 0 && !hasBetDetails) || (step === 1 && !hasRequiredApps) || (step === 2 && !hasTerms)}
                 >
                   {step === 2 ? "Review" : "Next"} <ArrowRight size={16} />
                 </Button>

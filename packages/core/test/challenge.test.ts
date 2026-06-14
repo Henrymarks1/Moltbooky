@@ -16,6 +16,7 @@ const baseChallenge: Challenge = {
   resolutionCriteria: "Resolve from official OpenAI announcements or API documentation before the expiry.",
   pipedreamConnectionIds: [],
   creatorSide: "YES",
+  kind: "open_match",
   visibility: "public",
   stakeCents: 10_000,
   matchedCents: 0,

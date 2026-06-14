@@ -8,6 +8,10 @@ import { collectUrls, summarizeToolOutput } from "./utils";
 
 type ExecuteProviders = Parameters<Executor["execute"]>[1];
 
+// Generated code selects which connected account authenticates a call via the
+// `x-moltbooky-connection` request header (a connectionId). The bridge strips it before proxying.
+const CONNECTION_HEADER = "x-moltbooky-connection";
+
 const codeModeFetchInputSchema = z.object({
   url: z.string().url(),
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
@@ -124,14 +128,21 @@ class ObservableCodeModeExecutor implements Executor {
   }
 }
 
-function selectedConnectionLabel(url: string, resolutionTools: ResolverPipedreamTool[]): string {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    const connection = resolutionTools.find((tool) => hostname.includes(tool.appSlug.replaceAll("_", "")));
-    return connection?.appName ?? "connected app";
-  } catch {
+function selectedConnectionLabel(connectionId: string | undefined, url: string, resolutionTools: ResolverPipedreamTool[]): string {
+  const byId = connectionId ? resolutionTools.find((tool) => tool.connectionId === connectionId) : undefined;
+  const connection = byId ?? (() => {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      return resolutionTools.find((tool) => hostname.includes(tool.appSlug.replaceAll("_", "")));
+    } catch {
+      return undefined;
+    }
+  })();
+  if (!connection) {
     return "connected app";
   }
+  const owner = connection.participantLabel ? `${connection.participantLabel}'s ` : "";
+  return `${owner}${connection.appName ?? "connected app"}`;
 }
 
 function createCodeModeFetchTool(
@@ -139,7 +150,6 @@ function createCodeModeFetchTool(
   emit: ResolutionEventEmitter,
   params: {
     resolutionTools: ResolverPipedreamTool[];
-    externalUserId: string;
     searchedUrls: Set<string>;
   }
 ): Tool {
@@ -148,13 +158,25 @@ function createCodeModeFetchTool(
     inputSchema: codeModeFetchInputSchema,
     execute: async (input) => {
       const parsed = codeModeFetchInputSchema.parse(input);
-      const appLabel = selectedConnectionLabel(parsed.url, params.resolutionTools);
+      // Extract the connection selector header (case-insensitive) so generated code can target a
+      // specific participant's account; the rest of the headers proxy through unchanged.
+      const headers: Record<string, string> = {};
+      let connectionId: string | undefined;
+      for (const [key, value] of Object.entries(parsed.headers)) {
+        if (key.toLowerCase() === CONNECTION_HEADER) {
+          connectionId = value;
+        } else {
+          headers[key] = value;
+        }
+      }
+      const appLabel = selectedConnectionLabel(connectionId, parsed.url, params.resolutionTools);
 
       await emit("tool_call", `Calling ${appLabel} API`, `${parsed.method} ${parsed.url}`, {
         toolName: "executeCode",
         helper: "global.fetch",
         url: parsed.url,
-        method: parsed.method
+        method: parsed.method,
+        connectionId: connectionId ?? null
       });
 
       const result = await runPipedreamApiFetch(
@@ -162,11 +184,11 @@ function createCodeModeFetchTool(
         {
           url: parsed.url,
           method: parsed.method,
-          headers: parsed.headers,
-          body: parsed.body
+          headers,
+          body: parsed.body,
+          connectionId
         },
-        params.resolutionTools,
-        params.externalUserId
+        params.resolutionTools
       );
 
       for (const foundUrl of collectUrls(result)) {
@@ -209,7 +231,6 @@ function createCodeModeProviders(
   emit: ResolutionEventEmitter,
   params: {
     resolutionTools: ResolverPipedreamTool[];
-    externalUserId: string;
     searchedUrls: Set<string>;
   }
 ): ResolvedProvider[] {
@@ -229,7 +250,6 @@ export function createResolverCodeTool(
   emit: ResolutionEventEmitter,
   params: {
     resolutionTools: ResolverPipedreamTool[];
-    externalUserId: string;
     searchedUrls: Set<string>;
   }
 ): Tool {
@@ -277,6 +297,7 @@ export function createResolverCodeTool(
       params.resolutionTools.length
         ? `Available connected-account APIs: ${formatAvailableConnections(params.resolutionTools)}. Requests to those API hosts are authenticated automatically.`
         : "No connected-account APIs are configured for this challenge.",
+      "When two accounts share the same API host (e.g. two different people's GitHub), you MUST choose whose account to use by adding the header \"x-moltbooky-connection\" set to that connection's connectionId, e.g. fetch(url, { headers: { \"x-moltbooky-connection\": \"<connectionId>\" } }). Fetch each person's data in separate calls, then compare.",
       "Return structured evidence with source URLs and short summaries.",
       "",
       'Example Strava API: async () => { const me = await fetch("https://www.strava.com/api/v3/athlete"); const meText = await me.text(); if (!me.ok) throw new Error("athlete fetch failed: " + me.status + " " + meText); const athlete = JSON.parse(meText); const stats = await fetch("https://www.strava.com/api/v3/athletes/" + athlete.id + "/stats"); const statsText = await stats.text(); if (!stats.ok) throw new Error("stats fetch failed: " + stats.status + " " + statsText); const s = JSON.parse(statsText); return { athlete, ytdRunTotals: s.ytd_run_totals }; }'

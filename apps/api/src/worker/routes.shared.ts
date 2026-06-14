@@ -34,6 +34,15 @@ export const requestDateTimeSchema = z.string().trim().transform((value, ctx) =>
   return date.toISOString();
 });
 
+export const challengeKindSchema = z.enum(["open_match", "head_to_head"]);
+
+export const requiredAppSchema = z.object({
+  appSlug: z.string(),
+  appName: z.string(),
+  creatorConnectionId: z.string().nullable().optional(),
+  opponentConnectionId: z.string().nullable().optional()
+});
+
 export const challengeSchema = z.object({
   id: z.string(),
   creatorId: z.string(),
@@ -43,10 +52,14 @@ export const challengeSchema = z.object({
   resolutionTool: z.union([resolutionToolSchema, resolutionToolsSchema]).nullable().optional(),
   pipedreamConnectionIds: z.array(z.string()),
   creatorSide: sideSchema,
+  kind: challengeKindSchema,
+  invitedOpponentId: z.string().nullable().optional(),
+  acceptedAt: dateTimeSchema.nullable().optional(),
+  requiredApps: z.array(requiredAppSchema).optional(),
   visibility: challengeVisibilitySchema,
   stakeCents: centsSchema,
   matchedCents: centsSchema,
-  status: z.enum(["open", "resolving", "provisional_resolved", "final_resolved", "cancelled", "expired_unmatched", "voided", "disputed"]),
+  status: z.enum(["open", "pending_acceptance", "resolving", "provisional_resolved", "final_resolved", "cancelled", "expired_unmatched", "voided", "disputed"]),
   expiresAt: dateTimeSchema,
   disputeDeadlineAt: dateTimeSchema.nullable().optional(),
   provisionalOutcome: z.enum(["YES", "NO", "UNRESOLVED"]).nullable().optional(),

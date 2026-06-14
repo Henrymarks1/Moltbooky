@@ -21,6 +21,7 @@ const resolverSystemPrompt = [
   "Use browserUse only when evidence requires a real browser, JavaScript-rendered pages, page interaction, login-backed pages, or browser-visible state.",
   "Use executeCode only for selected connected-account APIs. Write a JavaScript async arrow function for Cloudflare Code Mode.",
   "Inside generated code, call the real selected app API URL with normal global fetch(url, init). Do not add auth headers.",
+  "Some challenges are head-to-head between two people who each connected the same app (e.g. both GitHub). When two connected accounts share an API host, you MUST pick whose account to call by setting the request header \"x-moltbooky-connection\" to that connection's connectionId. Fetch each person's data separately, then compare to decide the winner.",
   "Generated code must not mention or know about proxying, Pipedream, credentials, tokens, or internal endpoints.",
   "Do not use imports, exports, or markdown fences in generated code.",
   "Return YES only when the evidence clearly satisfies the claim and criteria.",
@@ -52,7 +53,6 @@ export async function runAiResolver(
   emit: ResolutionEventEmitter,
   query: string,
   resolutionTools: ResolverPipedreamTool[] = [],
-  externalUserId = "",
 ): Promise<ResolverResult> {
   await emit(
     "run_started",
@@ -84,7 +84,6 @@ export async function runAiResolver(
     }),
     executeCode: createResolverCodeTool(env, emit, {
       resolutionTools,
-      externalUserId,
       searchedUrls,
     }),
     browserUse: createBrowserUseTool(env, emit, { searchedUrls }),

@@ -5,6 +5,7 @@ import type { ResolverPipedreamTool } from "./types";
 const stravaTool: ResolverPipedreamTool = {
   type: "pipedream_action",
   connectionId: "pdc_strava",
+  externalUserId: "user_123",
   appSlug: "strava",
   appName: "Strava",
   authPropName: "strava",
@@ -46,8 +47,7 @@ describe("runScopedAuthenticatedFetch", () => {
         url: "https://www.strava.com/api/v3/athlete",
         method: "GET"
       },
-      [stravaTool],
-      "user_123"
+      [stravaTool]
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -91,13 +91,12 @@ describe("runScopedAuthenticatedFetch", () => {
         url: "https://api.github.com/user/repos",
         method: "GET"
       },
-      [stravaTool],
-      "user_123"
+      [stravaTool]
     );
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      error: expect.stringContaining("No selected connected-account API")
+      error: expect.stringContaining('No connected account uses app "github"')
     });
   });
 });

@@ -82,6 +82,7 @@ function readFakeState(): FakeState {
       challenges: (parsed.challenges ?? []).map((challenge) => ({
         ...challenge,
         visibility: challenge.visibility ?? "public",
+        kind: challenge.kind ?? "open_match",
         resolutionTool: challenge.resolutionTool ?? null,
         pipedreamConnectionIds: challenge.pipedreamConnectionIds ?? []
       })),
@@ -254,6 +255,8 @@ export const api = {
     resolutionCriteria: string;
     pipedreamConnectionIds?: string[];
     creatorSide: "YES" | "NO";
+    kind?: "open_match" | "head_to_head";
+    requiredApps?: { appSlug: string; appName: string; creatorConnectionId: string }[];
     visibility: "public" | "private";
     stakeCredits: string;
     expiresAt: string;
@@ -263,6 +266,7 @@ export const api = {
       const stakeCents = creditsToCents(body.stakeCredits);
       validateChallengeInput({ ...body, stakeCents });
       requireFakeFunds(state, stakeCents);
+      const isHeadToHead = body.kind === "head_to_head";
 
       const challenge: Challenge = {
         id: newId("play_ch"),
@@ -272,10 +276,12 @@ export const api = {
         resolutionTool: null,
         pipedreamConnectionIds: body.pipedreamConnectionIds ?? [],
         creatorSide: body.creatorSide,
-        visibility: body.visibility,
+        kind: body.kind ?? "open_match",
+        requiredApps: body.requiredApps?.map((app) => ({ appSlug: app.appSlug, appName: app.appName, creatorConnectionId: app.creatorConnectionId })),
+        visibility: isHeadToHead ? "private" : body.visibility,
         stakeCents,
         matchedCents: 0,
-        status: "open",
+        status: isHeadToHead ? "pending_acceptance" : "open",
         expiresAt: body.expiresAt,
         createdAt: nowIso()
       };
@@ -326,6 +332,8 @@ export const api = {
       body: JSON.stringify({ amountCredits })
     });
   },
+  acceptChallenge: (id: string, body: { opponentConnections: { appSlug: string; connectionId: string }[]; stakeCredits: string }) =>
+    request<{ challenge: Challenge | null }>(`/api/challenges/${id}/accept`, { method: "POST", body: JSON.stringify(body) }),
   cancelUnmatched: (id: string) =>
     request<{ challenge: Challenge; unlockedCents: number }>(`/api/challenges/${id}/cancel-unmatched`, { method: "POST" }),
   deleteChallenge: (id: string) => {

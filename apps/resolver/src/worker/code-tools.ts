@@ -56,13 +56,12 @@ export async function runExaSearch(env: Env, input: unknown): Promise<unknown> {
 export async function runScopedAuthenticatedFetch(
   env: Env,
   input: unknown,
-  resolutionTools: ResolverPipedreamTool[],
-  externalUserId: string
+  resolutionTools: ResolverPipedreamTool[]
 ): Promise<unknown> {
   const parsed = authenticatedFetchInputSchema.safeParse(input);
   if (!parsed.success) {
     return { error: "Invalid authenticated fetch input." };
   }
 
-  return runPipedreamApiFetch(env, parsed.data, resolutionTools, externalUserId);
+  return runPipedreamApiFetch(env, parsed.data, resolutionTools);
 }

@@ -9,6 +9,7 @@ const challenge: Challenge = {
   resolutionCriteria: "A sufficiently clear resolution standard for display tests.",
   pipedreamConnectionIds: [],
   creatorSide: "YES",
+  kind: "open_match",
   visibility: "public",
   stakeCents: 10_000,
   matchedCents: 2_500,

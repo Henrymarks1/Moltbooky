@@ -1,11 +1,12 @@
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
-import { availableToMatch, settleChallenge, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
+import { availableToMatch, oppositeSide, settleChallenge, validateChallengeInput, validateMatchAmount } from "@moltbooky/core/domain/challenge";
 import { creditsToCents } from "@moltbooky/core/domain/money";
 import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionOutcome, Side } from "@moltbooky/core/domain/types";
-import { challengeMatches, challenges, createDb, eq, ledgerEntries, pipedreamConnections, resolutionRuns } from "@moltbooky/db";
+import { and, challengeMatches, challengeRequiredApps, challenges, createDb, creditAccounts, eq, gte, ledgerEntries, pipedreamConnections, resolutionRuns } from "@moltbooky/db";
 import {
   actorFromRequest,
   getChallenge,
+  getChallengeRequiredApps,
   listResolutionEvents,
   listChallenges,
   listMatches,
@@ -21,6 +22,7 @@ import {
   applyCreditDelta,
   betaStakeCentsSchema,
   centsSchema,
+  challengeKindSchema,
   challengeMatchSchema,
   challengeSchema,
   challengeVisibilitySchema,
@@ -39,6 +41,12 @@ import {
   validateUserPipedreamConnectionIds
 } from "./routes.shared";
 
+const requiredAppInputSchema = z.object({
+  appSlug: z.string().trim().min(1).max(80),
+  appName: z.string().trim().min(1).max(120),
+  creatorConnectionId: z.string().trim().min(1).max(120)
+});
+
 const createChallengeRequestSchema = z
   .object({
     claim: z.string().min(1),
@@ -46,11 +54,27 @@ const createChallengeRequestSchema = z
     resolutionTool: z.union([resolutionToolSchema, resolutionToolsSchema]).nullable().optional(),
     pipedreamConnectionIds: pipedreamConnectionIdsSchema.optional(),
     creatorSide: sideSchema,
+    kind: challengeKindSchema.default("open_match"),
+    requiredApps: z.array(requiredAppInputSchema).max(8).optional(),
     visibility: challengeVisibilitySchema.default("public"),
     stakeCredits: creditValueSchema.optional(),
     stakeDollars: creditValueSchema.optional(),
     stakeCents: betaStakeCentsSchema.optional(),
     expiresAt: requestDateTimeSchema
+  })
+  .refine((value) => value.stakeCredits !== undefined || value.stakeDollars !== undefined || value.stakeCents !== undefined, {
+    message: "stakeCredits or stakeCents is required."
+  })
+  .refine((value) => value.kind !== "head_to_head" || (value.requiredApps && value.requiredApps.length > 0), {
+    message: "Head-to-head challenges require at least one required app connection."
+  });
+
+const acceptChallengeRequestSchema = z
+  .object({
+    opponentConnections: z.array(z.object({ appSlug: z.string().trim().min(1).max(80), connectionId: z.string().trim().min(1).max(120) })).default([]),
+    stakeCredits: creditValueSchema.optional(),
+    stakeDollars: creditValueSchema.optional(),
+    stakeCents: betaStakeCentsSchema.optional()
   })
   .refine((value) => value.stakeCredits !== undefined || value.stakeDollars !== undefined || value.stakeCents !== undefined, {
     message: "stakeCredits or stakeCents is required."
@@ -95,6 +119,36 @@ async function listChallengeResolverConnections(env: Env, creatorId: string, con
     .where(eq(pipedreamConnections.userId, creatorId));
   const rowsById = new Map(rows.map((row) => [row.id, row]));
   return connectionIds.map((connectionId) => rowsById.get(connectionId)).filter((row): row is NonNullable<typeof row> => Boolean(row));
+}
+
+/**
+ * Validates that `userId` owns a pipedream connection for every requested (appSlug, connectionId)
+ * pair. Returns a map appSlug -> connectionId. Throws if any connection is missing or its app
+ * doesn't match the declared slug.
+ */
+async function validateRequiredAppConnections(
+  env: Env,
+  userId: string,
+  requested: { appSlug: string; connectionId: string }[]
+): Promise<Map<string, string>> {
+  const db = createDb(env.DATABASE_URL);
+  const rows = await db
+    .select({ id: pipedreamConnections.id, appSlug: pipedreamConnections.appSlug })
+    .from(pipedreamConnections)
+    .where(eq(pipedreamConnections.userId, userId));
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const result = new Map<string, string>();
+  for (const { appSlug, connectionId } of requested) {
+    const owned = byId.get(connectionId);
+    if (!owned) {
+      throw new Error(`Connection ${connectionId} was not found for this user.`);
+    }
+    if (owned.appSlug !== appSlug) {
+      throw new Error(`Connection ${connectionId} is not a ${appSlug} connection.`);
+    }
+    result.set(appSlug, connectionId);
+  }
+  return result;
 }
 
 function challengeObject(env: Env, challengeId: string): DurableObjectStub {
@@ -144,6 +198,9 @@ function toSettlementChallenge(row: typeof challenges.$inferSelect): Challenge {
     resolutionTool: null,
     pipedreamConnectionIds: row.pipedreamConnectionIds ?? [],
     creatorSide: row.creatorSide as Side,
+    kind: (row.kind ?? "open_match") as Challenge["kind"],
+    invitedOpponentId: row.invitedOpponentId ?? null,
+    acceptedAt: row.acceptedAt instanceof Date ? row.acceptedAt.toISOString() : row.acceptedAt,
     visibility: row.visibility as Challenge["visibility"],
     stakeCents: row.stakeCents,
     matchedCents: row.matchedCents,
@@ -329,7 +386,7 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     const body = c.req.valid("json");
     const stakeCents = body.stakeCents ?? creditsToCents(body.stakeCredits ?? body.stakeDollars ?? "");
     const creatorSide = parseSide(body.creatorSide);
-    const pipedreamConnectionIds = await validateUserPipedreamConnectionIds(c.env, actor.userId, body.pipedreamConnectionIds);
+    const isHeadToHead = body.kind === "head_to_head";
     const db = createDb(c.env.DATABASE_URL);
     const challengeId = newId("ch");
 
@@ -339,6 +396,22 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
       stakeCents,
       expiresAt: body.expiresAt ?? ""
     });
+
+    // Head-to-head challenges bind specific creator connections for each required app; open-match
+    // challenges keep the legacy free-form pipedreamConnectionIds list.
+    const requiredApps = isHeadToHead ? body.requiredApps ?? [] : [];
+    let creatorConnectionByApp = new Map<string, string>();
+    let pipedreamConnectionIds: string[];
+    if (isHeadToHead) {
+      creatorConnectionByApp = await validateRequiredAppConnections(
+        c.env,
+        actor.userId,
+        requiredApps.map((app) => ({ appSlug: app.appSlug, connectionId: app.creatorConnectionId }))
+      );
+      pipedreamConnectionIds = [...creatorConnectionByApp.values()];
+    } else {
+      pipedreamConnectionIds = await validateUserPipedreamConnectionIds(c.env, actor.userId, body.pipedreamConnectionIds);
+    }
 
     await lockFunds({
       env: c.env,
@@ -356,16 +429,34 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
       resolutionTool: body.resolutionTool ? JSON.stringify(body.resolutionTool) : null,
       pipedreamConnectionIds,
       creatorSide,
-      visibility: body.visibility,
+      kind: body.kind,
+      // Head-to-head stays out of the public feed and waits for the invited opponent to accept.
+      visibility: isHeadToHead ? ("private" as const) : body.visibility,
       stakeCents,
-      status: "open",
+      status: isHeadToHead ? "pending_acceptance" : "open",
       expiresAt: new Date(body.expiresAt!),
       updatedAt: new Date()
     };
 
-    await db.insert(challenges).values({ id: challengeId, creatorId: actor.userId, ...challengeValues });
+    await db.transaction(async (tx) => {
+      await tx.insert(challenges).values({ id: challengeId, creatorId: actor.userId, ...challengeValues });
+      if (isHeadToHead) {
+        for (const app of requiredApps) {
+          await tx.insert(challengeRequiredApps).values({
+            id: newId("cra"),
+            challengeId,
+            appSlug: app.appSlug,
+            appName: app.appName,
+            creatorConnectionId: creatorConnectionByApp.get(app.appSlug) ?? null
+          });
+        }
+      }
+    });
+
     const challenge = await getChallenge(c.env, challengeId);
     if (challenge) {
+      // The DO only schedules the resolver alarm for "open" challenges, so head-to-head
+      // (pending_acceptance) defers scheduling until the opponent accepts.
       await initializeChallengeObject(c.env, challenge);
     }
 
@@ -554,6 +645,123 @@ export function registerChallengeRoutes(app: OpenAPIHono<{ Bindings: Env }>): vo
     validateMatchAmount(challenge, amountCents);
 
     return challengeObject(c.env, challenge.id).fetch(new Request("https://challenge-object/match", { method: "POST", body: JSON.stringify({ challengeId: challenge.id, matcherId: actor.userId, amountCents }) })) as any;
+  });
+
+  const acceptChallengeRoute = createRoute({
+    method: "post",
+    path: "/api/challenges/{id}/accept",
+    request: { params: idParamSchema, body: { content: { "application/json": { schema: acceptChallengeRequestSchema } } } },
+    responses: {
+      200: { description: "Accepted head-to-head challenge", content: { "application/json": { schema: z.object({ challenge: challengeSchema.nullable() }) } } },
+      ...errorResponses
+    }
+  });
+
+  app.openapi(acceptChallengeRoute, async (c) => {
+    const actor = await actorFromRequest(c.env, c.req.raw);
+    requireScope(actor, "matches:create");
+
+    const body = c.req.valid("json");
+    const { id } = c.req.valid("param");
+    const challenge = await getChallenge(c.env, id);
+    if (!challenge) {
+      return errorJson(c, "Challenge not found.", 404);
+    }
+    if (challenge.kind !== "head_to_head") {
+      return errorJson(c, "Only head-to-head challenges can be accepted.", 400);
+    }
+    if (challenge.creatorId === actor.userId) {
+      return errorJson(c, "You cannot accept your own challenge.", 400);
+    }
+    if (challenge.status !== "pending_acceptance") {
+      return errorJson(c, "This challenge is no longer awaiting an opponent.", 400);
+    }
+    if (new Date(challenge.expiresAt).getTime() <= Date.now()) {
+      return errorJson(c, "This challenge has already expired.", 400);
+    }
+
+    const stakeCents = body.stakeCents ?? creditsToCents(body.stakeCredits ?? body.stakeDollars ?? "");
+    const side = oppositeSide(challenge.creatorSide);
+    const matchId = newId("mat");
+
+    // The opponent must connect every required app before accepting; bind their connections.
+    const requiredApps = await getChallengeRequiredApps(c.env, id);
+    const opponentConnectionByApp = await validateRequiredAppConnections(
+      c.env,
+      actor.userId,
+      body.opponentConnections.map((conn) => ({ appSlug: conn.appSlug, connectionId: conn.connectionId }))
+    );
+    const missingApp = requiredApps.find((app) => !opponentConnectionByApp.has(app.appSlug));
+    if (missingApp) {
+      return errorJson(c, `You must connect ${missingApp.appName} before accepting this challenge.`, 400);
+    }
+
+    const db = createDb(c.env.DATABASE_URL);
+    await db.transaction(async (tx) => {
+      // Atomic single-opponent guard: only the first accept observes pending_acceptance.
+      const currentRows = await tx.select().from(challenges).where(eq(challenges.id, id)).for("update").limit(1);
+      const current = currentRows[0];
+      if (!current) {
+        throw new Error("Challenge not found.");
+      }
+      if (current.status !== "pending_acceptance") {
+        throw new Error("This challenge is no longer awaiting an opponent.");
+      }
+
+      // Lock the opponent's stake (mirrors lockFunds, kept in-transaction with the status flip).
+      const account = await tx.select().from(creditAccounts).where(and(eq(creditAccounts.userId, actor.userId), gte(creditAccounts.availableCents, stakeCents))).for("update").limit(1);
+      if (!account[0]) {
+        throw new Error("Not enough available credits.");
+      }
+      await applyCreditDelta(tx, actor.userId, -stakeCents, stakeCents);
+      await tx.insert(ledgerEntries).values({
+        id: newId("led"),
+        userId: actor.userId,
+        type: "match_lock",
+        amountCents: stakeCents,
+        challengeId: id,
+        matchId,
+        idempotencyKey: `challenge-accept:${matchId}`,
+        description: "Lock opponent challenge stake"
+      });
+
+      await tx.insert(challengeMatches).values({
+        id: matchId,
+        challengeId: id,
+        matcherId: actor.userId,
+        amountCents: stakeCents,
+        side
+      });
+
+      await tx
+        .update(challenges)
+        .set({
+          status: "open",
+          matchedCents: current.matchedCents + stakeCents,
+          invitedOpponentId: actor.userId,
+          acceptedAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(challenges.id, id));
+
+      for (const app of requiredApps) {
+        await tx
+          .update(challengeRequiredApps)
+          .set({ opponentConnectionId: opponentConnectionByApp.get(app.appSlug) ?? null })
+          .where(and(eq(challengeRequiredApps.challengeId, id), eq(challengeRequiredApps.appSlug, app.appSlug)));
+      }
+    });
+
+    // Now that the challenge is live, schedule the resolver alarm at expiry.
+    await challengeObject(c.env, id).fetch(
+      new Request("https://challenge-object/schedule-resolution", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ challengeId: id, runAt: challenge.expiresAt })
+      })
+    );
+
+    return c.json({ challenge: await getChallenge(c.env, id) });
   });
 
   const cancelUnmatchedRoute = createRoute({

@@ -9,7 +9,14 @@ export interface ResolverResult {
   finalized?: boolean;
 }
 
-export type ResolverPipedreamTool = ResolutionTool & { connectionId?: string };
+export type ResolverPipedreamTool = ResolutionTool & {
+  connectionId?: string;
+  // The Pipedream external user id (= app user id) whose stored OAuth grant authenticates calls
+  // for this connection. Lets a single resolver run reach BOTH participants' accounts.
+  externalUserId?: string;
+  // Human label distinguishing whose account this is, e.g. "Henry (creator)" / "Ben (opponent)".
+  participantLabel?: string;
+};
 
 export type ResolutionEventEmitter = (
   kind: ResolutionEvent["kind"],

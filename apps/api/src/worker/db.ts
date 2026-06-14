@@ -1,5 +1,5 @@
-import { and, apiKeys, appUsers, authUser, challengeMatches, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionEvents, resolutionRuns, creditAccounts } from "@moltbooky/db";
-import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionRun, ResolutionTool, Side, CreditAccount } from "@moltbooky/core/domain/types";
+import { and, apiKeys, appUsers, authUser, challengeMatches, challengeRequiredApps, challenges, createDb, desc, eq, gte, isNull, ledgerEntries, resolutionEvents, resolutionRuns, creditAccounts } from "@moltbooky/db";
+import type { Challenge, ChallengeMatch, RequiredApp, ResolutionEvent, ResolutionRun, ResolutionTool, Side, CreditAccount } from "@moltbooky/core/domain/types";
 import { getSessionUserId } from "./auth";
 
 function serializeTimestamp(value: Date | string | null): string | null {
@@ -33,6 +33,9 @@ function toChallenge(row: typeof challenges.$inferSelect, creator?: { displayNam
     resolutionTool,
     pipedreamConnectionIds: row.pipedreamConnectionIds ?? [],
     creatorSide: row.creatorSide as Challenge["creatorSide"],
+    kind: (row.kind ?? "open_match") as Challenge["kind"],
+    invitedOpponentId: row.invitedOpponentId ?? null,
+    acceptedAt: serializeTimestamp(row.acceptedAt),
     visibility: row.visibility as Challenge["visibility"],
     stakeCents: row.stakeCents,
     matchedCents: row.matchedCents,
@@ -273,6 +276,21 @@ export async function listUserMatches(env: Env, userId: string): Promise<Challen
   return result.map((row) => toChallengeMatch(row));
 }
 
+export async function getChallengeRequiredApps(env: Env, challengeId: string): Promise<RequiredApp[]> {
+  const db = createDb(env.DATABASE_URL);
+  const rows = await db
+    .select()
+    .from(challengeRequiredApps)
+    .where(eq(challengeRequiredApps.challengeId, challengeId))
+    .orderBy(challengeRequiredApps.createdAt);
+  return rows.map((row) => ({
+    appSlug: row.appSlug,
+    appName: row.appName,
+    creatorConnectionId: row.creatorConnectionId,
+    opponentConnectionId: row.opponentConnectionId
+  }));
+}
+
 export async function getChallenge(env: Env, id: string): Promise<Challenge | null> {
   const db = createDb(env.DATABASE_URL);
   const result = await db
@@ -286,7 +304,14 @@ export async function getChallenge(env: Env, id: string): Promise<Challenge | nu
     .leftJoin(authUser, eq(challenges.creatorId, authUser.id))
     .where(eq(challenges.id, id))
     .limit(1);
-  return result[0] ? toChallenge(result[0].challenge, { displayName: result[0].displayName, authName: result[0].authName }) : null;
+  if (!result[0]) {
+    return null;
+  }
+  const challenge = toChallenge(result[0].challenge, { displayName: result[0].displayName, authName: result[0].authName });
+  if (challenge.kind === "head_to_head") {
+    challenge.requiredApps = await getChallengeRequiredApps(env, id);
+  }
+  return challenge;
 }
 
 export async function listMatches(env: Env, challengeId: string): Promise<ChallengeMatch[]> {

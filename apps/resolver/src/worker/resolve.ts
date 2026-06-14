@@ -1,9 +1,9 @@
 import type { ResolutionOutcome } from "@moltbooky/core/domain/types";
-import { and, challenges, createDb, eq } from "@moltbooky/db";
+import { and, appUsers, challengeRequiredApps, challenges, createDb, eq } from "@moltbooky/db";
 import { runAiResolver } from "./agent";
 import { appendResolutionEvent } from "./events";
-import { loadPipedreamResolutionTools } from "./pipedream";
-import type { ResolveRequest, ResolverResult } from "./types";
+import { loadHeadToHeadResolutionTools, loadPipedreamResolutionTools } from "./pipedream";
+import type { ResolverPipedreamTool, ResolveRequest, ResolverResult } from "./types";
 
 export async function resolveChallenge(env: Env, request: ResolveRequest): Promise<ResolverResult> {
   const db = createDb(env.DATABASE_URL);
@@ -28,7 +28,9 @@ export async function resolveChallenge(env: Env, request: ResolveRequest): Promi
       claim: challenges.claim,
       resolutionCriteria: challenges.resolutionCriteria,
       resolutionTool: challenges.resolutionTool,
-      pipedreamConnectionIds: challenges.pipedreamConnectionIds
+      pipedreamConnectionIds: challenges.pipedreamConnectionIds,
+      kind: challenges.kind,
+      invitedOpponentId: challenges.invitedOpponentId
     })
     .from(challenges)
     .where(eq(challenges.id, challengeId))
@@ -58,6 +60,36 @@ export async function resolveChallenge(env: Env, request: ResolveRequest): Promi
   }
 
   const exaQuery = `${request.challenge.claim}\nResolution criteria: ${request.challenge.resolutionCriteria}`;
-  const resolutionTools = await loadPipedreamResolutionTools(env, challenge.creatorId, challenge.pipedreamConnectionIds ?? [], challenge.resolutionTool);
-  return runAiResolver(env, request, emit, exaQuery, resolutionTools, challenge.creatorId);
+
+  let resolutionTools: ResolverPipedreamTool[];
+  if (challenge.kind === "head_to_head" && challenge.invitedOpponentId) {
+    // Head-to-head: pull each side's bound connections so the agent can compare both people.
+    const requiredApps = await db.select().from(challengeRequiredApps).where(eq(challengeRequiredApps.challengeId, challengeId));
+    const names = await db
+      .select({ id: appUsers.id, displayName: appUsers.displayName })
+      .from(appUsers)
+      .where(and(eq(appUsers.id, challenge.creatorId)));
+    const opponentNames = await db
+      .select({ id: appUsers.id, displayName: appUsers.displayName })
+      .from(appUsers)
+      .where(eq(appUsers.id, challenge.invitedOpponentId));
+    const creatorName = names[0]?.displayName ?? "Creator";
+    const opponentName = opponentNames[0]?.displayName ?? "Opponent";
+    resolutionTools = await loadHeadToHeadResolutionTools(env, [
+      {
+        externalUserId: challenge.creatorId,
+        label: `${creatorName} (creator)`,
+        connectionIds: requiredApps.map((app) => app.creatorConnectionId).filter((id): id is string => Boolean(id))
+      },
+      {
+        externalUserId: challenge.invitedOpponentId,
+        label: `${opponentName} (opponent)`,
+        connectionIds: requiredApps.map((app) => app.opponentConnectionId).filter((id): id is string => Boolean(id))
+      }
+    ]);
+  } else {
+    resolutionTools = await loadPipedreamResolutionTools(env, challenge.creatorId, challenge.pipedreamConnectionIds ?? [], challenge.resolutionTool);
+  }
+
+  return runAiResolver(env, request, emit, exaQuery, resolutionTools);
 }

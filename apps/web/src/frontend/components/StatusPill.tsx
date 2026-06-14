@@ -3,6 +3,7 @@ import { Badge } from "./ui/badge";
 
 const labels: Record<ChallengeStatus, string> = {
   open: "Open",
+  pending_acceptance: "Awaiting opponent",
   resolving: "Resolving",
   provisional_resolved: "Provisional",
   final_resolved: "Final",
@@ -14,6 +15,7 @@ const labels: Record<ChallengeStatus, string> = {
 
 const variants: Record<ChallengeStatus, string> = {
   open: "bg-secondary text-secondary-foreground",
+  pending_acceptance: "bg-muted text-muted-foreground",
   resolving: "bg-secondary text-secondary-foreground",
   provisional_resolved: "bg-secondary text-secondary-foreground",
   final_resolved: "bg-secondary text-secondary-foreground",

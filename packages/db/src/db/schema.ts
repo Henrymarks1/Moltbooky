@@ -124,6 +124,9 @@ export const challenges = pgTable(
     resolutionTool: text("resolution_tool"),
     pipedreamConnectionIds: text("pipedream_connection_ids").array().notNull().default(sql`ARRAY[]::text[]`),
     creatorSide: text("creator_side").notNull(),
+    kind: text("kind").notNull().default("open_match"),
+    invitedOpponentId: text("invited_opponent_id").references(() => appUsers.id),
+    acceptedAt: timestamp("accepted_at"),
     visibility: text("visibility").notNull().default("public"),
     stakeCents: integer("stake_cents").notNull(),
     matchedCents: integer("matched_cents").notNull().default(0),
@@ -138,9 +141,10 @@ export const challenges = pgTable(
     statusIdx: index("idx_challenges_status").on(table.status),
     visibilityIdx: index("idx_challenges_visibility").on(table.visibility, table.createdAt),
     creatorSideCheck: check("challenge_creator_side_check", sql`${table.creatorSide} IN ('YES', 'NO')`),
+    kindCheck: check("challenge_kind_check", sql`${table.kind} IN ('open_match', 'head_to_head')`),
     statusCheck: check(
       "challenge_status_check",
-      sql`${table.status} IN ('open', 'resolving', 'provisional_resolved', 'final_resolved', 'cancelled', 'expired_unmatched', 'voided', 'disputed')`
+      sql`${table.status} IN ('open', 'pending_acceptance', 'resolving', 'provisional_resolved', 'final_resolved', 'cancelled', 'expired_unmatched', 'voided', 'disputed')`
     ),
     visibilityCheck: check("challenge_visibility_check", sql`${table.visibility} IN ('public', 'private')`),
     stakeNonNegative: check("challenge_stake_non_negative", sql`${table.stakeCents} >= 0`),
@@ -164,6 +168,23 @@ export const challengeMatches = pgTable(
     challengeIdx: index("idx_matches_challenge").on(table.challengeId),
     sideCheck: check("match_side_check", sql`${table.side} IN ('YES', 'NO')`),
     amountPositive: check("match_amount_positive", sql`${table.amountCents} > 0`)
+  })
+);
+
+export const challengeRequiredApps = pgTable(
+  "challenge_required_apps",
+  {
+    id: text("id").primaryKey(),
+    challengeId: text("challenge_id").notNull().references(() => challenges.id),
+    appSlug: text("app_slug").notNull(),
+    appName: text("app_name").notNull(),
+    creatorConnectionId: text("creator_connection_id").references(() => pipedreamConnections.id),
+    opponentConnectionId: text("opponent_connection_id").references(() => pipedreamConnections.id),
+    createdAt: timestamp("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    challengeAppIdx: uniqueIndex("challenge_required_apps_challenge_app_unique").on(table.challengeId, table.appSlug),
+    challengeIdx: index("idx_challenge_required_apps_challenge").on(table.challengeId)
   })
 );
 

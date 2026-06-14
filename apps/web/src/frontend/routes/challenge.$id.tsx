@@ -2,9 +2,10 @@ import { Link, createRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { CheckCircle, Copy, ExternalLink, Trophy, Trash2, UserRound, XCircle } from "lucide-react";
+import { createFrontendClient } from "@pipedream/sdk/browser";
+import { CheckCircle, Copy, ExternalLink, Link2, Trophy, Trash2, UserRound, XCircle } from "lucide-react";
 import { oppositeSide } from "@moltbooky/core/domain/challenge";
-import type { Challenge, ChallengeMatch, ResolutionEvent, ResolutionRun } from "@moltbooky/core/domain/types";
+import type { Challenge, ChallengeMatch, RequiredApp, ResolutionEvent, ResolutionRun } from "@moltbooky/core/domain/types";
 import { CodeBlock, CodeBlockCopyButton } from "../components/ai-elements/code-block";
 import { Conversation, ConversationContent, ConversationScrollButton } from "../components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "../components/ai-elements/message";
@@ -15,7 +16,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
-import { api, type ChallengeResolverConnection } from "../lib/api";
+import { api, type ChallengeResolverConnection, type PipedreamConnection } from "../lib/api";
 import { credits, shortDate } from "../lib/format";
 import { setSeoMeta } from "../lib/seo";
 import { authChangeEvent, challengeRefreshEvent, getCurrentUser, rootRoute, type AuthUser } from "./root";
@@ -250,6 +251,8 @@ function ChallengeDetail() {
 
   const canDelete = user?.id === challenge.creatorId && challenge.status === "open" && challenge.matchedCents === 0 && matches.length === 0;
   const isCreator = user?.id === challenge.creatorId;
+  const isHeadToHead = challenge.kind === "head_to_head";
+  const isPendingAcceptance = isHeadToHead && challenge.status === "pending_acceptance";
   const takerSide = oppositeSide(challenge.creatorSide);
   const creatorName = challenge.creatorName?.trim() || challenge.creatorId;
   const agentRunLabel = formatAgentRun(challenge.expiresAt, now);
@@ -320,55 +323,222 @@ function ChallengeDetail() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="p-4">
-              <CardTitle>{isCreator ? "Share this bet" : "Take the other side"}</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 px-4 pb-4 pt-0">
-              {isCreator ? (
-                <>
-                  <p className="text-sm leading-6 text-muted-foreground">You cannot match your own bet. Send the link to someone who wants the opposite side.</p>
-                  <Button variant="outline" type="button" onClick={() => navigator.clipboard.writeText(window.location.href)}>
-                    <Copy size={18} /> Copy link
-                  </Button>
-                  {canDelete && (
-                    <Button type="button" variant="destructive" onClick={deleteChallenge} disabled={deleting}>
-                      <Trash2 size={18} /> {deleting ? "Deleting..." : "Delete bet"}
-                    </Button>
-                  )}
-                </>
-              ) : user ? (
-                <>
-                  <label className="grid gap-2">
-                    <span className="text-sm font-semibold text-muted-foreground">Credits</span>
-                    <Input
-                      inputMode="decimal"
-                      min="0.01"
-                      max={String(available / 100)}
-                      step="0.01"
-                      value={matchCredits}
-                      onChange={(event) => setMatchCredits(event.target.value)}
-                    />
-                  </label>
-                  <Button type="button" onClick={matchBet} disabled={matching || available <= 0}>
-                    {matching ? "Matching..." : available > 0 ? "Match bet" : "Fully matched"}
-                  </Button>
-                </>
-              ) : (
-                <>
+          {isPendingAcceptance && isCreator ? (
+            <Card>
+              <CardHeader className="p-4">
+                <CardTitle>Waiting for your opponent</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 px-4 pb-4 pt-0">
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Send this link to your opponent. They connect the required {(challenge.requiredApps ?? []).map((app) => app.appName).join(", ") || "accounts"} and accept, then the resolver compares you both at expiry.
+                </p>
+                <Button variant="outline" type="button" onClick={() => navigator.clipboard.writeText(window.location.href)}>
+                  <Copy size={18} /> Copy link
+                </Button>
+              </CardContent>
+            </Card>
+          ) : isPendingAcceptance ? (
+            user ? (
+              <HeadToHeadAcceptPanel challenge={challenge} onAccepted={() => refresh().catch((err: Error) => setMessage(err.message))} />
+            ) : (
+              <Card>
+                <CardHeader className="p-4">
+                  <CardTitle>Accept this challenge</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 px-4 pb-4 pt-0">
+                  <p className="text-sm leading-6 text-muted-foreground">Sign in to connect your accounts and accept.</p>
                   <Button asChild>
-                    <Link to="/login">Sign up to match</Link>
+                    <Link to="/login">Sign up to accept</Link>
                   </Button>
                   <Button asChild variant="outline">
                     <Link to="/login">Log in</Link>
                   </Button>
-                </>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            )
+          ) : (
+            <Card>
+              <CardHeader className="p-4">
+                <CardTitle>{isCreator ? "Share this bet" : "Take the other side"}</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 px-4 pb-4 pt-0">
+                {isCreator ? (
+                  <>
+                    <p className="text-sm leading-6 text-muted-foreground">You cannot match your own bet. Send the link to someone who wants the opposite side.</p>
+                    <Button variant="outline" type="button" onClick={() => navigator.clipboard.writeText(window.location.href)}>
+                      <Copy size={18} /> Copy link
+                    </Button>
+                    {canDelete && (
+                      <Button type="button" variant="destructive" onClick={deleteChallenge} disabled={deleting}>
+                        <Trash2 size={18} /> {deleting ? "Deleting..." : "Delete bet"}
+                      </Button>
+                    )}
+                  </>
+                ) : isHeadToHead ? (
+                  <p className="text-sm leading-6 text-muted-foreground">This is a head-to-head challenge between the creator and their invited opponent.</p>
+                ) : user ? (
+                  <>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-muted-foreground">Credits</span>
+                      <Input
+                        inputMode="decimal"
+                        min="0.01"
+                        max={String(available / 100)}
+                        step="0.01"
+                        value={matchCredits}
+                        onChange={(event) => setMatchCredits(event.target.value)}
+                      />
+                    </label>
+                    <Button type="button" onClick={matchBet} disabled={matching || available <= 0}>
+                      {matching ? "Matching..." : available > 0 ? "Match bet" : "Fully matched"}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button asChild>
+                      <Link to="/login">Sign up to match</Link>
+                    </Button>
+                    <Button asChild variant="outline">
+                      <Link to="/login">Log in</Link>
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </aside>
       </section>
     </div>
+  );
+}
+
+function HeadToHeadAcceptPanel(props: { challenge: Challenge; onAccepted: () => void }) {
+  const navigate = useNavigate();
+  const requiredApps = props.challenge.requiredApps ?? [];
+  const [connections, setConnections] = useState<PipedreamConnection[]>([]);
+  const [stakeCredits, setStakeCredits] = useState(() => String(props.challenge.stakeCents / 100));
+  const [connectingApp, setConnectingApp] = useState<string | null>(null);
+  const [accepting, setAccepting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listPipedreamConnections()
+      .then(({ connections: rows }) => {
+        if (!cancelled) {
+          setConnections(rows);
+        }
+      })
+      .catch(() => {
+        // Connections require an authenticated user; surfaced via the connect button otherwise.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const connectionByAppSlug = useMemo(() => new Map(connections.map((connection) => [connection.appSlug, connection])), [connections]);
+  const allConnected = requiredApps.every((app) => connectionByAppSlug.has(app.appSlug));
+
+  async function connectApp(app: RequiredApp) {
+    setError("");
+    setConnectingApp(app.appSlug);
+    try {
+      const initialToken = await api.createPipedreamConnectToken();
+      const client = createFrontendClient({
+        externalUserId: initialToken.externalUserId,
+        token: initialToken.token,
+        tokenCallback: async () => {
+          const freshToken = await api.createPipedreamConnectToken();
+          return {
+            token: freshToken.token,
+            expiresAt: freshToken.expiresAt ? new Date(freshToken.expiresAt) : new Date(Date.now() + 3 * 60 * 60 * 1000),
+            connectLinkUrl: freshToken.connectLinkUrl ?? ""
+          };
+        }
+      });
+
+      await client.connectAccount({
+        app: app.appSlug,
+        onSuccess: ({ id }) => {
+          void api
+            .savePipedreamConnection({ appSlug: app.appSlug, appName: app.appName, accountId: id, authPropName: app.appSlug })
+            .then(({ connection }) => {
+              setConnections((rows) => [...rows.filter((item) => item.appSlug !== connection.appSlug), connection]);
+            })
+            .catch((err) => setError((err as Error).message));
+        },
+        onError: (err) => setError(err.message),
+        onClose: () => setConnectingApp(null)
+      });
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.toLowerCase().includes("sign in")) {
+        await navigate({ to: "/login" });
+        return;
+      }
+      setError(message);
+      setConnectingApp(null);
+    }
+  }
+
+  async function accept() {
+    setAccepting(true);
+    setError("");
+    try {
+      const opponentConnections = requiredApps
+        .map((app) => connectionByAppSlug.get(app.appSlug))
+        .filter((connection): connection is PipedreamConnection => Boolean(connection))
+        .map((connection) => ({ appSlug: connection.appSlug, connectionId: connection.id }));
+      await api.acceptChallenge(props.challenge.id, { opponentConnections, stakeCredits });
+      props.onAccepted();
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.toLowerCase().includes("sign in")) {
+        await navigate({ to: "/login" });
+        return;
+      }
+      setError(message);
+    } finally {
+      setAccepting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="p-4">
+        <CardTitle>Accept this challenge</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3 px-4 pb-4 pt-0">
+        <p className="text-sm leading-6 text-muted-foreground">Connect the required accounts and stake to go head-to-head. The resolver reads both of you at expiry.</p>
+        <div className="grid gap-2">
+          {requiredApps.map((app) => {
+            const connected = connectionByAppSlug.get(app.appSlug);
+            return (
+              <div className="flex items-center justify-between gap-3 rounded-md border bg-card p-2.5" key={app.appSlug}>
+                <span className="text-sm font-semibold text-foreground">{app.appName}</span>
+                {connected ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground"><CheckCircle size={15} /> Connected</span>
+                ) : (
+                  <Button type="button" variant="outline" size="sm" onClick={() => connectApp(app)} disabled={connectingApp === app.appSlug}>
+                    <Link2 size={15} /> {connectingApp === app.appSlug ? "Connecting..." : "Connect"}
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <label className="grid gap-2">
+          <span className="text-sm font-semibold text-muted-foreground">Your stake (credits)</span>
+          <Input inputMode="decimal" min="5" max="100" step="1" value={stakeCredits} onChange={(event) => setStakeCredits(event.target.value)} />
+        </label>
+        {error && <p className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm leading-6 text-destructive">{error}</p>}
+        <Button type="button" onClick={accept} disabled={accepting || !allConnected}>
+          {accepting ? "Accepting..." : allConnected ? "Accept challenge" : "Connect required accounts"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

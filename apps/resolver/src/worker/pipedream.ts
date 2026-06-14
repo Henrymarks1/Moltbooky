@@ -65,6 +65,7 @@ export async function loadPipedreamResolutionTools(env: Env, creatorId: string, 
     tools.push({
       type: "pipedream_action",
       connectionId: connection.id,
+      externalUserId: creatorId,
       appSlug: connection.appSlug,
       appName: connection.appName,
       authPropName: connection.authPropName,
@@ -72,6 +73,45 @@ export async function loadPipedreamResolutionTools(env: Env, creatorId: string, 
       actionKey: `${connection.appSlug}-api-proxy`,
       instructions: `Use ${connection.appName} only to verify evidence relevant to this market.`
     });
+  }
+  return tools;
+}
+
+/**
+ * Builds resolution tools for a head-to-head challenge, one per (participant, required app) pair.
+ * Each tool carries its own externalUserId so the resolver can reach BOTH participants' accounts
+ * even when they connected the same app (e.g. both GitHub). `participants` maps an externalUserId
+ * to a connectionId per app and a human label.
+ */
+export async function loadHeadToHeadResolutionTools(
+  env: Env,
+  participants: { externalUserId: string; label: string; connectionIds: string[] }[]
+): Promise<ResolverPipedreamTool[]> {
+  const db = createDb(env.DATABASE_URL);
+  const tools: ResolverPipedreamTool[] = [];
+  for (const participant of participants) {
+    const wanted = new Set(participant.connectionIds.filter(Boolean));
+    if (wanted.size === 0) {
+      continue;
+    }
+    const connections = await db.select().from(pipedreamConnections).where(eq(pipedreamConnections.userId, participant.externalUserId));
+    for (const connection of connections) {
+      if (!wanted.has(connection.id)) {
+        continue;
+      }
+      tools.push({
+        type: "pipedream_action",
+        connectionId: connection.id,
+        externalUserId: participant.externalUserId,
+        participantLabel: participant.label,
+        appSlug: connection.appSlug,
+        appName: connection.appName,
+        authPropName: connection.authPropName,
+        accountId: connection.accountId,
+        actionKey: `${connection.appSlug}-api-proxy`,
+        instructions: `Use ${participant.label}'s ${connection.appName} only to verify evidence relevant to this challenge.`
+      });
+    }
   }
   return tools;
 }
@@ -98,21 +138,46 @@ function appendParams(url: string, params?: PipedreamApiFetchRequest["params"]):
   return parsedUrl.toString();
 }
 
-function inferToolFromUrl(url: string, resolutionTools: ResolverPipedreamTool[]): ResolverPipedreamTool | null {
+function matchToolsByUrl(url: string, resolutionTools: ResolverPipedreamTool[]): ResolverPipedreamTool[] {
   const hostname = new URL(url).hostname.toLowerCase();
-  const matches = resolutionTools.filter((tool) => {
+  return resolutionTools.filter((tool) => {
     const hints = appHostHints[tool.appSlug] ?? [tool.appSlug];
     return hints.some((hint) => hostname === hint || hostname.endsWith(`.${hint}`));
   });
-  return matches.length === 1 ? matches[0] : null;
 }
 
-function resolvePipedreamTool(input: PipedreamApiFetchRequest, resolutionTools: ResolverPipedreamTool[]): ResolverPipedreamTool | null {
-  if (input.connectionId || input.app) {
-    const selector = input.connectionId ?? input.app;
-    return resolutionTools.find((tool) => tool.connectionId === selector || tool.appSlug === selector) ?? null;
+type ToolSelection = { tool: ResolverPipedreamTool } | { error: string };
+
+/**
+ * Selects which connection authenticates a request. An explicit connectionId always wins. An
+ * `app` selector is used only when it uniquely identifies a connection. Otherwise we fall back to
+ * URL-host inference — but when two participants share an app host (both GitHub), inference is
+ * ambiguous and we return an error telling the model to pass an explicit connectionId.
+ */
+function resolvePipedreamTool(input: PipedreamApiFetchRequest, resolutionTools: ResolverPipedreamTool[]): ToolSelection {
+  if (input.connectionId) {
+    const found = resolutionTools.find((tool) => tool.connectionId === input.connectionId);
+    return found ? { tool: found } : { error: `No connected account matches connectionId "${input.connectionId}". Available: ${formatAvailableConnections(resolutionTools)}.` };
   }
-  return inferToolFromUrl(input.url, resolutionTools);
+  if (input.app) {
+    const byApp = resolutionTools.filter((tool) => tool.appSlug === input.app);
+    if (byApp.length === 1) {
+      return { tool: byApp[0] };
+    }
+    if (byApp.length > 1) {
+      return { error: `Multiple connected accounts use app "${input.app}". Pass an explicit connectionId. Available: ${formatAvailableConnections(resolutionTools)}.` };
+    }
+    return { error: `No connected account uses app "${input.app}". Available: ${formatAvailableConnections(resolutionTools)}.` };
+  }
+
+  const matches = matchToolsByUrl(input.url, resolutionTools);
+  if (matches.length === 1) {
+    return { tool: matches[0] };
+  }
+  if (matches.length > 1) {
+    return { error: `${matches.length} connected accounts can authenticate ${input.url}. Pass an explicit connectionId to choose whose account. Available: ${formatAvailableConnections(resolutionTools)}.` };
+  }
+  return { error: `No selected connected-account API can authenticate ${input.url}. Available connected-account APIs: ${formatAvailableConnections(resolutionTools)}.` };
 }
 
 function publicHeaders(headers: Headers): Record<string, string> {
@@ -150,19 +215,23 @@ export async function createPipedreamAccessToken(env: Env, scope: string): Promi
 export async function runPipedreamApiFetch(
   env: Env,
   input: PipedreamApiFetchRequest,
-  resolutionTools: ResolverPipedreamTool[],
-  externalUserId: string
+  resolutionTools: ResolverPipedreamTool[]
 ): Promise<PipedreamApiFetchResult | { error: string; details?: unknown }> {
   if (!env.PIPEDREAM_CLIENT_ID || !env.PIPEDREAM_CLIENT_SECRET || !env.PIPEDREAM_PROJECT_ID) {
     return { error: "Connected-account API auth is not configured for the resolver." };
   }
 
-  const resolutionTool = resolvePipedreamTool(input, resolutionTools);
-  if (!resolutionTool) {
-    return { error: `No selected connected-account API can authenticate ${input.url}. Available connected-account APIs: ${formatAvailableConnections(resolutionTools)}.` };
+  const selection = resolvePipedreamTool(input, resolutionTools);
+  if ("error" in selection) {
+    return { error: selection.error };
   }
+  const resolutionTool = selection.tool;
   if (!resolutionTool.accountId) {
     return { error: `${resolutionTool.appName ?? resolutionTool.appSlug} is not fully connected.` };
+  }
+  const externalUserId = resolutionTool.externalUserId;
+  if (!externalUserId) {
+    return { error: `${resolutionTool.appName ?? resolutionTool.appSlug} has no associated user for authentication.` };
   }
 
   const method = input.method ?? "GET";
@@ -220,6 +289,10 @@ export async function runPipedreamApiFetch(
 
 export function formatAvailableConnections(resolutionTools: ResolverPipedreamTool[]): string {
   return resolutionTools
-    .map((resolutionTool) => `${resolutionTool.appName ?? resolutionTool.appSlug} (app: ${resolutionTool.appSlug})`)
+    .map((resolutionTool) => {
+      const owner = resolutionTool.participantLabel ? `${resolutionTool.participantLabel}'s ` : "";
+      const selector = resolutionTool.connectionId ? `, connectionId: ${resolutionTool.connectionId}` : "";
+      return `${owner}${resolutionTool.appName ?? resolutionTool.appSlug} (app: ${resolutionTool.appSlug}${selector})`;
+    })
     .join("; ");
 }
