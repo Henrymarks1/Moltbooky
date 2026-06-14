@@ -31,6 +31,8 @@ type ResolutionNotice = {
   result: "won" | "lost";
   outcome: "YES" | "NO";
   explanation: string;
+  isHeadToHead?: boolean;
+  winnerName?: string;
 };
 
 type OutcomeSummary = {
@@ -148,9 +150,13 @@ function ChallengeDetail() {
       return;
     }
 
+    const h2h = challenge.kind === "head_to_head";
+    const opponentLabel = challenge.invitedOpponentName?.trim() || challenge.invitedOpponentEmail?.trim() || "an opponent";
     setSeoMeta({
       title: `${challenge.claim.slice(0, 82)} | Moltbooky`,
-      description: `${credits(challenge.stakeCents)} ${challenge.creatorSide} at 1:1 odds. ${credits(available)} still available to match before ${shortDate(challenge.expiresAt)}.`,
+      description: h2h
+        ? `${challenge.creatorName?.trim() || "Creator"} vs ${opponentLabel} — ${credits(challenge.stakeCents)} each, head-to-head. Resolved ${shortDate(challenge.expiresAt)}.`
+        : `${credits(challenge.stakeCents)} ${challenge.creatorSide} at 1:1 odds. ${credits(available)} still available to match before ${shortDate(challenge.expiresAt)}.`,
       path: `/challenge/${challenge.id}`,
       image: `${window.location.origin}/share/challenge/${encodeURIComponent(challenge.id)}`
     });
@@ -224,12 +230,20 @@ function ChallengeDetail() {
 
     shownResolutionNoticeKey.current = noticeKey;
     const result = outcome === challenge.creatorSide ? "won" : "lost";
+    const headToHead = challenge.kind === "head_to_head";
+    const opponentLabel = challenge.invitedOpponentName?.trim() || challenge.invitedOpponentEmail?.trim() || "your opponent";
     const explanation =
       resolutionRuns[0]?.aiRationale ||
       [...resolutionEvents].reverse().find((event) => event.kind === "run_finished" && event.body)?.body ||
-      `The resolver settled this bet as ${outcome}.`;
+      (headToHead ? `${result === "won" ? "You" : opponentLabel} won the challenge.` : `The resolver settled this bet as ${outcome}.`);
 
-    setResolutionNotice({ result, outcome, explanation });
+    setResolutionNotice({
+      result,
+      outcome,
+      explanation,
+      isHeadToHead: headToHead,
+      winnerName: result === "won" ? (challenge.creatorName?.trim() || "You") : opponentLabel
+    });
 
     if (result === "won") {
       void fireWinConfetti();
@@ -255,9 +269,14 @@ function ChallengeDetail() {
   const isPendingAcceptance = isHeadToHead && challenge.status === "pending_acceptance";
   const takerSide = oppositeSide(challenge.creatorSide);
   const creatorName = challenge.creatorName?.trim() || challenge.creatorId;
+  // For head-to-head, both sides are people. The opponent label is their name once accepted,
+  // otherwise the invited email. YES = creator wins, NO = opponent wins (internal mapping).
+  const opponentName = challenge.invitedOpponentName?.trim() || challenge.invitedOpponentEmail?.trim() || "Opponent";
   const agentRunLabel = formatAgentRun(challenge.expiresAt, now);
   const latestRun = resolutionRuns[0] ?? null;
-  const outcomeSummary = getOutcomeSummary(challenge, isCreator, latestRun, resolutionEvents);
+  const outcomeSummary = getOutcomeSummary(challenge, isCreator, latestRun, resolutionEvents, { isHeadToHead, creatorName, opponentName });
+  // For head-to-head, the historical run shows the winner's name (YES=creator, NO=opponent).
+  const h2hWinnerLabel = isHeadToHead && latestRun ? (latestRun.proposedOutcome === challenge.creatorSide ? creatorName : latestRun.proposedOutcome === "UNRESOLVED" ? null : opponentName) : null;
 
   async function deleteChallenge() {
     if (!challenge || !window.confirm("Delete this unmatched bet and return the locked credits?")) {
@@ -306,20 +325,32 @@ function ChallengeDetail() {
             iconSrcBySlug={appIconSrcBySlug}
             agentRunLabel={agentRunLabel}
             outcomeSummary={outcomeSummary}
+            winnerLabel={h2hWinnerLabel}
           />
         </div>
 
         <aside className="grid max-h-full content-start gap-2 overflow-y-auto pr-1">
           <Card>
             <CardHeader className="p-4">
-              <CardTitle>Bet details</CardTitle>
+              <CardTitle>{isHeadToHead ? "Challenge details" : "Bet details"}</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2 px-4 pb-4 pt-0 text-sm">
               {outcomeSummary && <DetailRow label={outcomeSummary.result === "pending" ? "Status" : "Result"} value={outcomeSummary.detailValue} detail={outcomeSummary.detailText} />}
-              <DetailRow label="Amount" value={credits(challenge.stakeCents)} detail="Even odds" />
-              <DetailRow label="Creator side" value={challenge.creatorSide} detail={`The other side is ${takerSide}`} />
-              <DetailRow label="Creator" value={creatorName} detail="Started this bet" icon={<UserRound size={16} />} />
-              <DetailRow label="Matched" value={credits(challenge.matchedCents)} detail={`${credits(available)} still open`} />
+              {isHeadToHead ? (
+                <>
+                  <DetailRow label="Matchup" value={`${creatorName} vs ${opponentName}`} detail="Winner takes the pool" icon={<Trophy size={16} />} />
+                  <DetailRow label="Stake each" value={credits(challenge.stakeCents)} detail="Both put up the same" />
+                  <DetailRow label="Challenger" value={creatorName} detail="Created this challenge" icon={<UserRound size={16} />} />
+                  <DetailRow label="Opponent" value={opponentName} detail={challenge.invitedOpponentId ? "Accepted" : "Invited"} icon={<UserRound size={16} />} />
+                </>
+              ) : (
+                <>
+                  <DetailRow label="Amount" value={credits(challenge.stakeCents)} detail="Even odds" />
+                  <DetailRow label="Creator side" value={challenge.creatorSide} detail={`The other side is ${takerSide}`} />
+                  <DetailRow label="Creator" value={creatorName} detail="Started this bet" icon={<UserRound size={16} />} />
+                  <DetailRow label="Matched" value={credits(challenge.matchedCents)} detail={`${credits(available)} still open`} />
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -360,6 +391,24 @@ function ChallengeDetail() {
                 </CardContent>
               </Card>
             )
+          ) : isHeadToHead ? (
+            <Card>
+              <CardHeader className="p-4">
+                <CardTitle>{creatorName} vs {opponentName}</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 px-4 pb-4 pt-0">
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {outcomeSummary && outcomeSummary.result !== "pending"
+                    ? outcomeSummary.title
+                    : challenge.status === "resolving"
+                      ? "The resolver is comparing both competitors now."
+                      : `Head-to-head challenge — the resolver compares ${creatorName} and ${opponentName} ${shortDate(challenge.expiresAt)}.`}
+                </p>
+                <Button variant="outline" type="button" onClick={() => navigator.clipboard.writeText(window.location.href)}>
+                  <Copy size={18} /> Copy link
+                </Button>
+              </CardContent>
+            </Card>
           ) : (
             <Card>
               <CardHeader className="p-4">
@@ -378,8 +427,6 @@ function ChallengeDetail() {
                       </Button>
                     )}
                   </>
-                ) : isHeadToHead ? (
-                  <p className="text-sm leading-6 text-muted-foreground">This is a head-to-head challenge between the creator and their invited opponent.</p>
                 ) : user ? (
                   <>
                     <label className="grid gap-2">
@@ -574,12 +621,20 @@ function ResolutionOutcomeModal(props: { notice: ResolutionNotice; onClose: () =
             {won ? <Trophy size={20} /> : <XCircle size={20} />}
           </span>
           <div className="min-w-0 flex-1">
-            <span className="text-xs font-semibold uppercase text-muted-foreground">Bet resolved {props.notice.outcome}</span>
+            <span className="text-xs font-semibold uppercase text-muted-foreground">
+              {props.notice.isHeadToHead ? "Challenge resolved" : `Bet resolved ${props.notice.outcome}`}
+            </span>
             <h2 id="resolution-outcome-title" className="mt-1 text-2xl font-semibold tracking-tight">
-              {won ? "You won this bet" : "You lost this bet"}
+              {props.notice.isHeadToHead ? (won ? "You won this challenge" : `${props.notice.winnerName} won`) : won ? "You won this bet" : "You lost this bet"}
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {won ? "The resolver outcome matched the side you created." : "The resolver outcome landed on the opposite side of your bet."}
+              {props.notice.isHeadToHead
+                ? won
+                  ? "You beat your opponent on the agreed metric."
+                  : "Your opponent came out ahead on the agreed metric."
+                : won
+                  ? "The resolver outcome matched the side you created."
+                  : "The resolver outcome landed on the opposite side of your bet."}
             </p>
           </div>
         </div>
@@ -641,7 +696,8 @@ function getOutcomeSummary(
   challenge: Challenge,
   isCreator: boolean,
   latestRun: ResolutionRun | null,
-  events: ResolutionEvent[]
+  events: ResolutionEvent[],
+  h2h: { isHeadToHead: boolean; creatorName: string; opponentName: string }
 ): OutcomeSummary | null {
   if (challenge.status === "resolving") {
     return {
@@ -667,14 +723,37 @@ function getOutcomeSummary(
     return {
       result: "unresolved",
       outcome: "UNRESOLVED",
-      title: "This bet was not resolved",
+      title: h2h.isHeadToHead ? "This challenge was not resolved" : "This bet was not resolved",
       detailValue: "Unresolved",
-      detailText: "No side won this resolution.",
+      detailText: h2h.isHeadToHead ? "No winner could be determined." : "No side won this resolution.",
       explanation
     };
   }
 
+  // YES = creator wins, NO = opponent wins.
   const creatorWon = outcome === challenge.creatorSide;
+
+  if (h2h.isHeadToHead) {
+    // Head-to-head is framed entirely around who won — never YES/NO.
+    const winnerName = creatorWon ? h2h.creatorName : h2h.opponentName;
+    if (isCreator) {
+      return {
+        result: creatorWon ? "won" : "lost",
+        title: creatorWon ? "You won this challenge" : `${h2h.opponentName} won this challenge`,
+        detailValue: creatorWon ? "You won" : `${h2h.opponentName} won`,
+        detailText: `${h2h.creatorName} vs ${h2h.opponentName}`,
+        explanation
+      };
+    }
+    return {
+      result: "resolved",
+      title: `${winnerName} won this challenge`,
+      detailValue: `${winnerName} won`,
+      detailText: `${h2h.creatorName} vs ${h2h.opponentName}`,
+      explanation
+    };
+  }
+
   if (isCreator) {
     return {
       result: creatorWon ? "won" : "lost",
@@ -704,6 +783,7 @@ function AgentChatPanel(props: {
   iconSrcBySlug: Record<string, string>;
   agentRunLabel: { primary: string; secondary: string };
   outcomeSummary: OutcomeSummary | null;
+  winnerLabel?: string | null;
 }) {
   const isWaiting = props.challenge.status === "open" && !props.latestRun;
   const isRunning = props.challenge.status === "resolving";
@@ -732,7 +812,7 @@ function AgentChatPanel(props: {
               <ResolverTranscriptItem isRunning={isRunning} item={item} key={item.id} />
             ))}
 
-            {props.latestRun && props.resolutionEvents.length === 0 && <HistoricalRunMessages latestRun={props.latestRun} resolverConnections={props.resolverConnections} />}
+            {props.latestRun && props.resolutionEvents.length === 0 && <HistoricalRunMessages latestRun={props.latestRun} resolverConnections={props.resolverConnections} winnerLabel={props.winnerLabel} />}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
@@ -852,7 +932,7 @@ function buildResolverTranscript(events: ResolutionEvent[]): ResolverTranscriptI
     }
 
     if (event.kind === "tool_result") {
-      if (usedResults.has(event.id) || event.title === "executeCode completed" || event.title === "resolveBet completed" || event.title === "Bet finalized" || isCodeModeFetchEvent(event)) {
+      if (usedResults.has(event.id) || event.title === "executeCode completed" || event.title === "resolveBet completed" || event.title === "resolveChallenge completed" || event.title === "Bet finalized" || isCodeModeFetchEvent(event)) {
         return;
       }
       stepItems.push({
@@ -908,7 +988,7 @@ function shouldHideRequestedToolEvent(event: ResolutionEvent): boolean {
   if (toolName === "executeCode") {
     return true;
   }
-  return !["executeCode", "webSearch", "resolveBet"].includes(toolName ?? "");
+  return !["executeCode", "webSearch", "resolveBet", "resolveChallenge"].includes(toolName ?? "");
 }
 
 function isToolErrorResult(event: ResolutionEvent | undefined): boolean {
@@ -1020,7 +1100,7 @@ function toolTitleFromEvent(event: ResolutionEvent): string {
   if (event.title === "Requested browserUse" || toolName === "browserUse" || toolName === "useBrowser") {
     return "Browser Use";
   }
-  if (event.title === "Requested resolveBet" || toolName === "resolveBet") {
+  if (event.title === "Requested resolveBet" || toolName === "resolveBet" || event.title === "Requested resolveChallenge" || toolName === "resolveChallenge") {
     return "Final resolution";
   }
   return event.title;
@@ -1102,7 +1182,7 @@ function ResolverCountdownMessage(props: { agentRunLabel: { primary: string; sec
   );
 }
 
-function HistoricalRunMessages(props: { latestRun: ResolutionRun; resolverConnections: ChallengeResolverConnection[] }) {
+function HistoricalRunMessages(props: { latestRun: ResolutionRun; resolverConnections: ChallengeResolverConnection[]; winnerLabel?: string | null }) {
   return (
     <>
       <Tool defaultOpen={false} className="max-w-full bg-background">
@@ -1122,7 +1202,11 @@ function HistoricalRunMessages(props: { latestRun: ResolutionRun; resolverConnec
       <Message from="assistant">
         <MessageContent className="rounded-lg border bg-card p-3">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge variant="outline">Outcome {props.latestRun.proposedOutcome}</Badge>
+            {props.winnerLabel ? (
+              props.latestRun.proposedOutcome === "UNRESOLVED" ? <Badge variant="outline">No winner</Badge> : <Badge variant="outline">{props.winnerLabel} won</Badge>
+            ) : (
+              <Badge variant="outline">Outcome {props.latestRun.proposedOutcome}</Badge>
+            )}
             <Badge variant="outline">{Math.round(props.latestRun.confidence * 100)}% confidence</Badge>
           </div>
           <MessageResponse>{props.latestRun.aiRationale}</MessageResponse>

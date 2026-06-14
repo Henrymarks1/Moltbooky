@@ -55,6 +55,7 @@ export const challengeSchema = z.object({
   kind: challengeKindSchema,
   invitedOpponentEmail: z.string().nullable().optional(),
   invitedOpponentId: z.string().nullable().optional(),
+  invitedOpponentName: z.string().nullable().optional(),
   acceptedAt: dateTimeSchema.nullable().optional(),
   requiredApps: z.array(requiredAppSchema).optional(),
   visibility: challengeVisibilitySchema,

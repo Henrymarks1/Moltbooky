@@ -40,7 +40,9 @@ export const onRequest: PagesFunction<ShareEnv> = async ({ request, params, env,
 
   const title = challenge ? `${truncate(challenge.claim, 82)} | Moltbooky` : genericTitle;
   const description = challenge
-    ? `${credits(challenge.stakeCents)} ${challenge.creatorSide} at 1:1 odds. ${credits(data.availableToMatchCents)} still available to match before ${formatShortDate(challenge.expiresAt)}.`
+    ? challenge.kind === "head_to_head"
+      ? `${challenge.creatorName?.trim() || "Creator"} vs ${challenge.invitedOpponentName?.trim() || challenge.invitedOpponentEmail?.trim() || "an opponent"} — ${credits(challenge.stakeCents)} each, head-to-head. Resolved ${formatShortDate(challenge.expiresAt)}.`
+      : `${credits(challenge.stakeCents)} ${challenge.creatorSide} at 1:1 odds. ${credits(data.availableToMatchCents)} still available to match before ${formatShortDate(challenge.expiresAt)}.`
     : genericDescription;
 
   const metaTags = `

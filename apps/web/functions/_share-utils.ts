@@ -3,6 +3,10 @@ export interface ChallengePreview {
   claim: string;
   resolutionCriteria: string;
   creatorSide: "YES" | "NO";
+  creatorName?: string | null;
+  kind?: "open_match" | "head_to_head";
+  invitedOpponentName?: string | null;
+  invitedOpponentEmail?: string | null;
   stakeCents: number;
   matchedCents: number;
   status: string;

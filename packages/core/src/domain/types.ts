@@ -57,6 +57,7 @@ export interface Challenge {
   kind: ChallengeKind;
   invitedOpponentEmail?: string | null;
   invitedOpponentId?: string | null;
+  invitedOpponentName?: string | null;
   acceptedAt?: string | null;
   requiredApps?: RequiredApp[];
   visibility: ChallengeVisibility;

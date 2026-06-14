@@ -62,6 +62,7 @@ export async function resolveChallenge(env: Env, request: ResolveRequest): Promi
   const exaQuery = `${request.challenge.claim}\nResolution criteria: ${request.challenge.resolutionCriteria}`;
 
   let resolutionTools: ResolverPipedreamTool[];
+  let competitors: { creatorId: string; creatorName: string; opponentId: string; opponentName: string } | undefined;
   if (challenge.kind === "head_to_head" && challenge.invitedOpponentId) {
     // Head-to-head: pull each side's bound connections so the agent can compare both people.
     const requiredApps = await db.select().from(challengeRequiredApps).where(eq(challengeRequiredApps.challengeId, challengeId));
@@ -75,6 +76,7 @@ export async function resolveChallenge(env: Env, request: ResolveRequest): Promi
       .where(eq(appUsers.id, challenge.invitedOpponentId));
     const creatorName = names[0]?.displayName ?? "Creator";
     const opponentName = opponentNames[0]?.displayName ?? "Opponent";
+    competitors = { creatorId: challenge.creatorId, creatorName, opponentId: challenge.invitedOpponentId, opponentName };
     resolutionTools = await loadHeadToHeadResolutionTools(env, [
       {
         externalUserId: challenge.creatorId,
@@ -91,5 +93,5 @@ export async function resolveChallenge(env: Env, request: ResolveRequest): Promi
     resolutionTools = await loadPipedreamResolutionTools(env, challenge.creatorId, challenge.pipedreamConnectionIds ?? [], challenge.resolutionTool);
   }
 
-  return runAiResolver(env, request, emit, exaQuery, resolutionTools, challenge.kind === "head_to_head" ? "head_to_head" : "open_match");
+  return runAiResolver(env, request, emit, exaQuery, resolutionTools, challenge.kind === "head_to_head" ? "head_to_head" : "open_match", competitors);
 }

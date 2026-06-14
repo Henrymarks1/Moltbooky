@@ -14,8 +14,9 @@ import type {
 } from "./types";
 import { summarizeToolOutput } from "./utils";
 
-// Shared tool/output rules that apply to every challenge type.
-const sharedResolverRules = [
+// Evidence-gathering rules shared by every challenge type (tool selection is NOT here — each
+// prompt names its own single terminal tool, since only that one is loaded for the agent).
+const sharedEvidenceRules = [
   "All tokens you emit are public and visible to end users. Write concise, public-facing progress and rationale only.",
   "Use webSearch for normal public web evidence.",
   "Use browserUse only when evidence requires a real browser, JavaScript-rendered pages, page interaction, login-backed pages, or browser-visible state.",
@@ -24,33 +25,34 @@ const sharedResolverRules = [
   "Generated code must not mention or know about proxying, Pipedream, credentials, tokens, or internal endpoints.",
   "Do not use imports, exports, or markdown fences in generated code.",
   "Be conservative because AI resolution is provisional and users may dispute outcomes.",
-  "Your final action must be exactly one resolveBet tool call with a clear explanation paragraph.",
-  "After resolveBet succeeds, do not output more content.",
 ];
 
-// Open prediction-market bets: a binary YES/NO claim judged against its criteria.
+// Open prediction-market bets: a binary YES/NO claim judged against its criteria. The ONLY
+// terminal tool loaded is resolveBet.
 const openMatchSystemPrompt = [
   "You are Moltbooky's provisional resolution agent for private-beta prediction bets.",
   "Your job is to evaluate a binary claim against its resolution criteria using external evidence.",
-  ...sharedResolverRules,
+  ...sharedEvidenceRules,
+  "You have exactly one terminal tool: resolveBet. Finalize by calling resolveBet once with resolution = YES, NO, or UNKNOWN and a clear public explanation paragraph.",
   "Return YES only when the evidence clearly satisfies the claim and criteria.",
   "Return NO only when the evidence clearly contradicts the claim or criteria.",
   "Use UNKNOWN when evidence is missing, ambiguous, inaccessible, conflicting, stale, or below the confidence threshold.",
   "Do not infer beyond the stated criteria. Do not settle based on popularity, vibes, or predictions.",
+  "After resolveBet succeeds, do not output more content.",
 ].join("\n");
 
-// Head-to-head challenges: a comparison between two people. The claim is written from the
-// creator's point of view; YES means the creator wins, NO means the opponent wins.
+// Head-to-head challenges: a comparison between two people. The ONLY terminal tool loaded is
+// resolveChallenge, which takes a winner's user id — the agent never reasons in YES/NO.
 const headToHeadSystemPrompt = [
   "You are Moltbooky's provisional resolution agent for private-beta head-to-head challenges between two people: the creator and their opponent.",
-  "The claim is a comparison written from the creator's point of view (e.g. \"I will run more miles than my opponent this week\"). YES means the CREATOR wins; NO means the OPPONENT wins.",
-  "Your job is to measure the relevant metric for BOTH people, then decide who wins under the resolution criteria.",
-  ...sharedResolverRules,
+  "The claim is a comparison written from the creator's point of view (e.g. \"I will run more miles than my opponent this week\"). Your job is to measure the relevant metric for BOTH people and decide WHO WINS under the resolution criteria.",
+  "Think and write entirely in terms of the two named people — never YES/NO.",
+  ...sharedEvidenceRules,
   "Each person connected their own account. When two connected accounts share an API host (e.g. both GitHub), you MUST pick whose account to call by setting the request header \"x-moltbooky-connection\" to that connection's connectionId. The available connections are labeled with whose they are (creator vs opponent).",
   "Always fetch the creator's data and the opponent's data in SEPARATE calls, compute each person's value, and compare them explicitly in your explanation (state both numbers).",
-  "Return YES if the creator wins the comparison, NO if the opponent wins.",
-  "Use UNKNOWN only when you cannot measure one or both people (missing/inaccessible data, or a genuine tie that the criteria don't break).",
+  "You have exactly one terminal tool: resolveChallenge. Finalize by calling resolveChallenge once with winnerId set to the winning person's user id, or \"TIE\" if you cannot measure one or both people or it is a genuine tie the criteria don't break.",
   "Do not infer beyond the stated criteria. Decide strictly on the measured comparison, not on reputation or guesses.",
+  "After resolveChallenge succeeds, do not output more content.",
 ].join("\n");
 
 function resolverSystemPromptFor(kind: ChallengeKind): string {
@@ -78,6 +80,7 @@ export async function runAiResolver(
   query: string,
   resolutionTools: ResolverPipedreamTool[] = [],
   kind: ChallengeKind = "open_match",
+  competitors?: { creatorId: string; creatorName: string; opponentId: string; opponentName: string },
 ): Promise<ResolverResult> {
   await emit(
     "run_started",
@@ -103,6 +106,88 @@ export async function runAiResolver(
   const searchedUrls = new Set<string>();
   let finalResult: ResolverResult | null = null;
   const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
+  const isHeadToHead = kind === "head_to_head";
+  const terminalToolName = isHeadToHead ? "resolveChallenge" : "resolveBet";
+
+  // Shared finalize call: both terminal tools translate their input to a YES/NO/UNKNOWN outcome
+  // and POST to the same finalize endpoint (settlement is YES=creator-wins / NO=opponent-wins).
+  async function finalizeOutcome(resolution: "YES" | "NO" | "UNKNOWN", explanation: string) {
+    const sourceUrls = Array.from(searchedUrls);
+    const response = await fetch(request.finalizeCallbackUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${request.eventCallbackToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        runId: request.runId,
+        resolution,
+        explanation,
+        confidence: resolution === "UNKNOWN" ? 0 : 1,
+        sourceUrls,
+      }),
+    });
+
+    const json = (await response.json().catch(() => ({}))) as unknown;
+    if (!response.ok) {
+      const message =
+        json && typeof json === "object" && "error" in json
+          ? String((json as { error: unknown }).error)
+          : `Finalization failed with status ${response.status}.`;
+      await emit("error", "Finalization failed", message, { toolName: terminalToolName });
+      return { error: message };
+    }
+
+    const finalized = finalizedResultSchema.safeParse(json);
+    const outcome = finalized.success ? finalized.data.result.outcome : resolution === "UNKNOWN" ? "UNRESOLVED" : resolution;
+    finalResult = {
+      outcome,
+      confidence: resolution === "UNKNOWN" ? 0 : 1,
+      sourceUrls,
+      shortRationale: explanation,
+      finalized: true,
+    };
+    return { ok: true, outcome };
+  }
+
+  // Head-to-head finalizes by WINNER USER ID, not YES/NO. Translate id -> outcome here.
+  const headToHeadTerminalTool = tool({
+    description: `Terminal tool. Finalize the head-to-head challenge by choosing the WINNER. Pass winnerId = "${competitors?.creatorId ?? "<creatorId>"}" if ${competitors?.creatorName?.trim() || "the creator"} wins, or winnerId = "${competitors?.opponentId ?? "<opponentId>"}" if ${competitors?.opponentName?.trim() || "the opponent"} wins. Pass winnerId = "TIE" only if neither can be measured or it is a genuine tie. The explanation is public — write it about the people (their names, each measured value, and who won). This must be the last action.`,
+    inputSchema: z.object({
+      winnerId: z.string().min(1).describe('The winning user id, or "TIE" if undecidable.'),
+      explanation: z.string().trim().min(1).max(4000),
+    }),
+    execute: async (input) => {
+      const winnerId = String(input.winnerId).trim();
+      let resolution: "YES" | "NO" | "UNKNOWN";
+      if (winnerId === competitors?.creatorId) {
+        resolution = "YES";
+      } else if (winnerId === competitors?.opponentId) {
+        resolution = "NO";
+      } else if (winnerId.toUpperCase() === "TIE" || winnerId.toUpperCase() === "UNKNOWN") {
+        resolution = "UNKNOWN";
+      } else {
+        const message = `winnerId "${winnerId}" is not one of the two competitors. Use "${competitors?.creatorId}" (${competitors?.creatorName}) or "${competitors?.opponentId}" (${competitors?.opponentName}), or "TIE".`;
+        await emit("error", "Invalid winner", message, { toolName: terminalToolName });
+        return { error: message };
+      }
+      const result = await finalizeOutcome(resolution, input.explanation);
+      return "error" in result ? result : { ok: true, winnerId: resolution === "UNKNOWN" ? "TIE" : winnerId };
+    },
+  });
+
+  const openMatchTerminalTool = tool({
+    description: "Terminal tool. Finalize the bet as YES, NO, or UNKNOWN with a public explanation paragraph. This must be the last action.",
+    inputSchema: z.object({
+      resolution: z.enum(["YES", "NO", "UNKNOWN"]),
+      explanation: z.string().trim().min(1).max(4000),
+    }),
+    execute: async (input) => {
+      const parsed = resolveBetInputSchema.parse(input);
+      return finalizeOutcome(parsed.resolution, parsed.explanation);
+    },
+  });
+
   const tools: Parameters<typeof streamText>[0]["tools"] = {
     webSearch: createWebSearchTool(env, emit, {
       searchedUrls,
@@ -112,85 +197,38 @@ export async function runAiResolver(
       searchedUrls,
     }),
     browserUse: createBrowserUseTool(env, emit, { searchedUrls }),
-    resolveBet: tool({
-      description:
-        "Terminal tool. Finalize the bet as YES, NO, or UNKNOWN with a public explanation paragraph. This must be the last action.",
-      inputSchema: z.object({
-        resolution: z.enum(["YES", "NO", "UNKNOWN"]),
-        explanation: z.string().trim().min(1).max(4000),
-      }),
-      execute: async (input) => {
-        const parsed = resolveBetInputSchema.parse(input);
-        const sourceUrls = Array.from(searchedUrls);
-        const response = await fetch(request.finalizeCallbackUrl, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${request.eventCallbackToken}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            runId: request.runId,
-            resolution: parsed.resolution,
-            explanation: parsed.explanation,
-            confidence: parsed.resolution === "UNKNOWN" ? 0 : 1,
-            sourceUrls,
-          }),
-        });
-
-        const json = (await response.json().catch(() => ({}))) as unknown;
-        if (!response.ok) {
-          const message =
-            json && typeof json === "object" && "error" in json
-              ? String((json as { error: unknown }).error)
-              : `Finalization failed with status ${response.status}.`;
-          await emit("error", "Bet finalization failed", message, {
-            toolName: "resolveBet",
-          });
-          return { error: message };
-        }
-
-        const finalized = finalizedResultSchema.safeParse(json);
-        const outcome = finalized.success
-          ? finalized.data.result.outcome
-          : parsed.resolution === "UNKNOWN"
-            ? "UNRESOLVED"
-            : parsed.resolution;
-        finalResult = {
-          outcome,
-          confidence: parsed.resolution === "UNKNOWN" ? 0 : 1,
-          sourceUrls,
-          shortRationale: parsed.explanation,
-          finalized: true,
-        };
-        return { ok: true, outcome };
-      },
-    }),
+    [terminalToolName]: isHeadToHead ? headToHeadTerminalTool : openMatchTerminalTool,
   };
 
-  const isHeadToHead = kind === "head_to_head";
+  // Name the two competitors so the agent reasons and writes about people, not YES/NO.
+  const creator = competitors?.creatorName?.trim() || "the creator";
+  const opponent = competitors?.opponentName?.trim() || "the opponent";
   const result = streamText({
     model: openai("gpt-5.5"),
     temperature: 0,
     system: resolverSystemPromptFor(kind),
     prompt: [
-      isHeadToHead ? "Resolve this Moltbooky head-to-head challenge between the creator and their opponent." : "Resolve this Moltbooky prediction bet.",
+      isHeadToHead ? `Resolve this Moltbooky head-to-head challenge between ${creator} and ${opponent}.` : "Resolve this Moltbooky prediction bet.",
+      isHeadToHead
+        ? `${creator} is the creator (their connected accounts are labeled "creator"); ${opponent} is the opponent (labeled "opponent"). Decide who wins.`
+        : "",
       "All text you write is public and visible to users.",
       "Use webSearch for public internet evidence.",
       "Use browserUse only when webSearch is insufficient because a page needs browser rendering or interaction.",
       "Use executeCode only for selected connected-account APIs. In generated code, write TypeScript against the real app API and call normal fetch(url, init).",
       "Do not add Authorization headers in generated code. Do not mention proxying, Pipedream, credentials, tokens, or internal endpoints.",
       isHeadToHead
-        ? "Measure the relevant metric for BOTH the creator and the opponent in separate calls, then call resolveBet once: YES if the creator wins, NO if the opponent wins. State both measured values in your explanation."
+        ? `Measure the relevant metric for BOTH ${creator} and ${opponent} in separate calls. Write your explanation about the PEOPLE — name ${creator} and ${opponent}, give each person's measured value, and state who won. Then call resolveChallenge once with winnerId set to the winner's user id (${creator} = "${competitors?.creatorId}", ${opponent} = "${competitors?.opponentId}"), or "TIE" if undecidable.`
         : "Once you have enough evidence or know evidence is inconclusive, call resolveBet exactly once.",
-      "Do not return JSON as text. The final answer must be the resolveBet tool call.",
+      `Do not return JSON as text. The final answer must be the ${terminalToolName} tool call.`,
       resolutionTools.length
         ? `Configured connected-account APIs: ${formatAvailableConnections(resolutionTools)}.`
         : "Configured connected-account APIs: none.",
       "",
       query,
-    ].join("\n"),
+    ].filter(Boolean).join("\n"),
     tools,
-    stopWhen: [stepCountIs(100), hasToolCall("resolveBet")],
+    stopWhen: [stepCountIs(100), hasToolCall(terminalToolName)],
     onStepFinish: async (event) => {
       await emit(
         "model_step",

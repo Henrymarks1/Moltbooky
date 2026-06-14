@@ -186,6 +186,16 @@ function MyBetsPage() {
           const isHeadToHead = challenge.kind === "head_to_head";
           const userMatchedCents = matchedAmountByChallenge[challenge.id] ?? 0;
           const userSide = isCreator ? challenge.creatorSide : oppositeSide(challenge.creatorSide);
+          // Head-to-head competitor labels + resolved winner (YES = creator, NO = opponent).
+          const creatorLabel = challenge.creatorName?.trim() || "Creator";
+          const opponentLabel = challenge.invitedOpponentName?.trim() || challenge.invitedOpponentEmail?.trim() || "Opponent";
+          const isResolved = challenge.status === "provisional_resolved" || challenge.status === "final_resolved";
+          const h2hWinner =
+            isHeadToHead && isResolved && (challenge.provisionalOutcome === "YES" || challenge.provisionalOutcome === "NO")
+              ? challenge.provisionalOutcome === challenge.creatorSide
+                ? creatorLabel
+                : opponentLabel
+              : null;
           return (
             <Link className="grid grid-cols-[minmax(0,1fr)_140px_170px] items-center gap-5 rounded-lg border bg-card p-4 text-card-foreground no-underline transition-colors hover:bg-muted/40 max-[900px]:grid-cols-1 [&_h2]:mt-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:leading-snug [&_h2]:tracking-tight [&_p]:mt-2 [&_p]:line-clamp-2 [&_p]:max-w-[760px] [&_p]:text-sm [&_p]:leading-6 [&_p]:text-muted-foreground" key={challenge.id} to="/challenge/$id" params={{ id: challenge.id }}>
               <div>
@@ -193,7 +203,11 @@ function MyBetsPage() {
                   <StatusPill status={challenge.status} />
                   {isHeadToHead ? <Badge variant="outline">Head-to-head</Badge> : <Badge variant="outline">{challenge.visibility === "private" ? "Private" : "Public"}</Badge>}
                   <Badge variant="outline">{isCreator ? "Created" : invited ? "Invited" : "Matched"}</Badge>
-                  {isHeadToHead ? <Badge variant="outline">{invited ? "You vs creator" : "You win"}</Badge> : <Badge variant="outline">You bet {userSide}</Badge>}
+                  {isHeadToHead ? (
+                    h2hWinner ? <Badge variant="outline">{h2hWinner} won</Badge> : <Badge variant="outline">{creatorLabel} vs {opponentLabel}</Badge>
+                  ) : (
+                    <Badge variant="outline">You bet {userSide}</Badge>
+                  )}
                   <span>{invited ? "Accept by" : "Expires"} {shortDate(challenge.expiresAt)}</span>
                 </div>
                 <h2>{challenge.claim}</h2>

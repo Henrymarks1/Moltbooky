@@ -341,6 +341,14 @@ export async function getChallenge(env: Env, id: string): Promise<Challenge | nu
   const challenge = toChallenge(result[0].challenge, { displayName: result[0].displayName, authName: result[0].authName });
   if (challenge.kind === "head_to_head") {
     challenge.requiredApps = await getChallengeRequiredApps(env, id);
+    // The opponent's display name once they've accepted; otherwise fall back to the invited email
+    // so the UI always has a concrete competitor label.
+    if (challenge.invitedOpponentId) {
+      const contact = await getUserContact(env, challenge.invitedOpponentId);
+      challenge.invitedOpponentName = contact.displayName || challenge.invitedOpponentEmail || null;
+    } else {
+      challenge.invitedOpponentName = challenge.invitedOpponentEmail ?? null;
+    }
   }
   return challenge;
 }
